@@ -171,12 +171,12 @@ export const SPECIALS = {
   utLasting: { family: 'death', name: tr('不朽骨', 'Undying Bones'), desc: tr('亡靈特性：亡靈存在時間 +50%（可以同其他特性疊）', 'Undead trait: Undead last 50% longer (stacks with other traits)') },
   utEdge: { family: 'death', name: tr('骨刃', 'Bone Edge'), desc: tr('亡靈特性：亡靈暴擊傷害 ×1.5（可以同其他特性疊）', 'Undead trait: Undead critical hits deal ×1.5 damage (stacks with other traits)') },
   utLeech: { family: 'death', name: tr('噬魂', 'Soul Leech'), desc: tr('亡靈特性：亡靈打中敵人會幫你回 0.4% HP（每秒最多 5 次）', 'Undead trait: Undead hits heal you 0.4% HP (up to 5 times a second)') },
-  // rings only: it changes how the class plays
+  // rings and necromancer weapons: it changes how the class plays
   boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 150% × 亡靈強度（骨甲令佢更痛；自爆唔會觸發終極技）', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × 150% × Undead Power (Ironbone makes it hurt more; blasts don\'t trigger Ultimates)') },
 } as const;
 export type SpecialId = keyof typeof SPECIALS;
 export const UNDEAD_TRAITS = ['utTank', 'utRanged', 'utCaster', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech'] as const satisfies readonly SpecialId[];
-/** Undead traits that can roll on armour: not 骨弓 / 骨法 (they change how the class plays, so accessories only). */
+/** Undead traits that can roll on armour: not 骨弓 / 骨法 (they change how the class plays: weapons and accessories only). */
 export const ARMOUR_TRAITS = ['utTank', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech'] as const satisfies readonly SpecialId[];
 export type UndeadTrait = (typeof UNDEAD_TRAITS)[number];
 
@@ -270,10 +270,11 @@ export function makeItem(id: string, kind: ItemKind, rarity: Rarity, tier: numbe
   let special: SpecialId | undefined;
   if (rarity === 'legendary') {
     const family = weapon ? WEAPONS[weapon].family : 'armour';
-    // 骨弓 / 骨法 change how the class plays: rings and amulets only, never weapons
-    const pool = SPECIAL_IDS.filter((s) => SPECIALS[s].family === family && s !== 'utRanged' && s !== 'utCaster');
+    // a weapon can carry anything of its family, including the ones that change how the class plays;
+    // necromancer weapons can also roll 骨爆 (otherwise a ring special)
+    const pool = SPECIAL_IDS.filter((s) => SPECIALS[s].family === family || (family === 'death' && s === 'boneBurst'));
     special = pool[Math.floor(rand() * pool.length)];
-    // armour can carry an undead trait too (30%), but not the ones that change how the class plays (骨爆, 骨弓, 骨法: accessories only)
+    // armour can carry an undead trait too (30%), but not the ones that change how the class plays (骨爆, 骨弓, 骨法: weapons and accessories only)
     if (!weapon && !isAccessorySlot(slot) && rand() < ARMOUR_TRAIT_CHANCE) special = ARMOUR_TRAITS[Math.floor(rand() * ARMOUR_TRAITS.length)];
   }
   let proc: Item['proc'];
