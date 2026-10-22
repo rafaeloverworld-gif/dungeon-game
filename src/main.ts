@@ -261,7 +261,7 @@ function updateHud(): void {
   if (!sim || !hud) return;
   const p = sim.player;
   hud.hp.style.width = `${Math.max(0, p.hp / sim.maxHp) * 100}%`;
-  hud.hpText.textContent = `${Math.ceil(Math.max(0, p.hp))} / ${Math.ceil(sim.maxHp)}`;
+  hud.hpText.textContent = `${Math.ceil(Math.max(0, p.hp))} / ${Math.ceil(sim.maxHp)}${sim.elemShield >= 1 ? ` 🛡${Math.ceil(sim.elemShield)}` : ''}`;
   // red screen edges when HP is low
   const low = p.hp > 0 && p.hp < sim.maxHp * 0.3;
   let lowEl = document.querySelector('.lowhp') as HTMLElement | null;

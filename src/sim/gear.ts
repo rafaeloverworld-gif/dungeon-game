@@ -154,6 +154,7 @@ export const SPECIALS = {
   piercing: { family: 'bow', name: tr('貫穿', 'Piercing'), desc: tr('箭可以多穿 2 個敵人', 'Arrows pierce 2 more enemies') },
   critBurst: { family: 'bow', name: tr('爆裂', 'Burst'), desc: tr('暴擊時喺敵人身上引發小爆炸（80%）', 'Crits cause a small explosion (80%)') },
   // magic
+  multiSpell: { family: 'magic', name: tr('多重法典', 'Spell Mix'), desc: tr('呢件裝備每強化 +1，就可以多揀一種法術，每次施法全部一齊放（每多一種，全部傷害 ×0.75），一個人都觸發到元素反應', 'Each +1 on this item lets you pick one more spell; every cast fires all of them (each extra one: all damage ×0.75), so you can set off reactions alone') },
   bigBlast: { family: 'magic', name: tr('浩瀚', 'Vast'), desc: tr('範圍 ×1.3（爆炸、斬擊、技能）', 'Area ×1.3 (blasts, slashes, skills)') },
   manaFlow: { family: 'magic', name: tr('湧流', 'Flow'), desc: tr('技能同招牌技冷卻 -20%', 'Skill and Signature skill cooldown -20%') },
   arcaneEcho: { family: 'magic', name: tr('共振', 'Resonance'), desc: tr('攻擊命中有 25% 機會引發小爆炸', 'Hits have 25% chance to cause a small explosion') },
@@ -338,8 +339,8 @@ export function makeItem(id: string, kind: ItemKind, rarity: Rarity, tier: numbe
   if (rarity === 'legendary' && accessory) {
     const r = rand();
     const trait = () => UNDEAD_TRAITS[Math.floor(rand() * UNDEAD_TRAITS.length)];
-    // rings: 40% 骨爆, 25% an undead trait, 15% 多重箭袋; amulets: 45% an undead trait, 15% 多重箭袋
-    special = slot === 'ring' ? (r < 0.4 ? 'boneBurst' : r < 0.65 ? trait() : r < 0.8 ? 'multiArrow' : undefined) : r < 0.45 ? trait() : r < 0.6 ? 'multiArrow' : undefined;
+    // rings: 40% 骨爆, 25% an undead trait, 10% 多重箭袋, 10% 多重法典; amulets: 45% an undead trait, 10% each
+    special = slot === 'ring' ? (r < 0.4 ? 'boneBurst' : r < 0.65 ? trait() : r < 0.75 ? 'multiArrow' : r < 0.85 ? 'multiSpell' : undefined) : r < 0.45 ? trait() : r < 0.55 ? 'multiArrow' : r < 0.65 ? 'multiSpell' : undefined;
   }
   return { id, slot, weapon, rarity, tier, main, affixes, special, proc, plus: 0, spent: 0, fails: 0, rerolls: 0, locked: false };
 }

@@ -39,6 +39,7 @@ export interface SaveData {
   endlessBest: number; // 無盡模式: most floors cleared in one run
   bagBuys: number; // extra bag space bought with coins (+10 each) // 多重箭袋: extra arrow types used at the same time
   spellType: Partial<Record<ClassId, SpellType>>; // staffs: chosen spell per class
+  spellMix: Partial<Record<ClassId, SpellType[]>>; // 多重法典: extra spells cast in turn
   necroMode: NecroMode; // necromancer: shadow bolts or summoner
   board: string[]; // unlocked skill-board panels (all three boards, shared by the character)
   souls: number; // 👻 unlock stat panels
@@ -70,7 +71,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, bagBuys: 0, endlessBest: 0, spellType: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, bagBuys: 0, endlessBest: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -161,6 +162,7 @@ function sanitize(raw: unknown): SaveData {
     arrowMix: Object.fromEntries(Object.entries(r.arrowMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => ARROW_TYPES.includes(x as ArrowType)))]])) as SaveData['arrowMix'],
     endlessBest: Math.max(0, Math.floor(num(r.endlessBest, 0))),
     bagBuys: Math.min(BAG_BUYS_MAX, Math.max(0, Math.floor(num(r.bagBuys, 0)))),
+    spellMix: Object.fromEntries(Object.entries(r.spellMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => SPELL_TYPES.includes(x as SpellType)))]])) as SaveData['spellMix'],
     wbDay: typeof r.wbDay === 'string' ? r.wbDay : '',
     wbUsed: Math.max(0, Math.floor(num(r.wbUsed, 0))),
     wbLevel: Math.max(WB_MIN_LEVEL, Math.floor(num(r.wbLevel, WB_MIN_LEVEL))),
@@ -596,6 +598,22 @@ export function arrowsInUse(s: SaveData): ArrowType[] {
   return [main, ...(s.arrowMix[s.classId] ?? []).filter((a) => a !== main)].slice(0, arrowSlots(s));
 }
 
+/** 大法師 (mage + mage, or a three-class mix grown from it). */
+export const isArchmage = (s: SaveData) => { const m = mixOf(s); return m?.id === 'mage_mage' || m?.base === 'mage_mage'; };
+const hasSpecial = (i: Item, sp: SpecialId) => i.special === sp || i.special2 === sp;
+/** 極·大魔導: an Archmage with a 多重法典 item at max upgrade — every spell, and reactions chain. */
+export const spellMaxForm = (s: SaveData) => isArchmage(s) && equippedItems(s).some((i) => hasSpecial(i, 'multiSpell') && i.plus >= MAX_PLUS);
+/** 多重法典: how many spells you cast in turn (1 + every +1 on items with it, +1 for 大法師). */
+export function spellSlots(s: SaveData): number {
+  if (spellMaxForm(s)) return SPELL_TYPES.length;
+  const extra = equippedItems(s).filter((i) => hasSpecial(i, 'multiSpell')).reduce((a, i) => a + i.plus, 0);
+  return Math.min(SPELL_TYPES.length, 1 + extra + (isArchmage(s) ? 1 : 0));
+}
+export function spellsInUse(s: SaveData): SpellType[] {
+  const main = s.spellType[s.classId] ?? 'fire';
+  return [main, ...(s.spellMix[s.classId] ?? []).filter((a) => a !== main)].slice(0, spellSlots(s));
+}
+
 /** Everything the simulation needs to start a run with the current character. */
 export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPickCards'> {
   const sub = subOf(s);
@@ -606,7 +624,7 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
-  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), spellType: s.spellType[s.classId] ?? 'fire', necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
+  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
 }
 
 /** Stats preview including skills and awakening (for the home screen). */

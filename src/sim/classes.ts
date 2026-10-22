@@ -41,7 +41,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     projectileSpeed: 20, preferredDistance: 7, bossGuard: 0.3,
   },
   mage: {
-    id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。有 Boss 喺場時受傷 -35%。元素同調：每 2 次施法加多一種元素，兩種元素喺敵人身上會起反應（火+冰=蒸發爆炸、火+雷=超載、冰+雷=超導），法師嘅反應傷害 +50%。', 'Fireballs explode on hit. Best area damage, but lowest HP. 35% less damage while a boss is in the fight. Elemental Sync: every 2nd cast adds a second element; two elements on an enemy react (fire+frost = Steam Blast, fire+lightning = Overload, frost+lightning = Superconduct). Mage reactions hit 50% harder.'),
+    id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。有 Boss 喺場時受傷 -35%。元素護盾：每次觸發反應得到最大 HP 3% 護盾（最多 15%）。元素同調：每 2 次施法加多一種元素，兩種元素喺敵人身上會起反應（火+冰=蒸發爆炸、火+雷=超載、冰+雷=超導），法師嘅反應傷害 +50%。', 'Fireballs explode on hit. Best area damage, but lowest HP. 35% less damage while a boss is in the fight. Elemental Shield: each reaction you set off gives a 3% max HP shield (up to 15%). Elemental Sync: every 2nd cast adds a second element; two elements on an enemy react (fire+frost = Steam Blast, fire+lightning = Overload, frost+lightning = Superconduct). Mage reactions hit 50% harder.'),
     attack: 'fireball', mainWeapon: tr('法杖', 'Staff'), subWeapon: tr('法球', 'Orb'),
     base: { hp: 130, atk: 20, def: 8, attackInterval: 0.8, range: 8.5, moveSpeed: 5.8, crit: 0.06, critDmg: 1.7 },
     blastRadius: 2.3, projectileSpeed: 15, preferredDistance: 6, bossGuard: 0.35,

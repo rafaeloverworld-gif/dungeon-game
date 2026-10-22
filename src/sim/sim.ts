@@ -148,6 +148,8 @@ export interface RunSetup {
   arrowTypes?: ArrowType[]; // 多重箭袋: several arrow types at once (the first is arrowType)
   arrowMax?: boolean; // 極·神射: extra arrow types cost less
   spellType?: SpellType; // staffs (fireball attack): which spell (Gear tab)
+  spellTypes?: SpellType[]; // 多重法典: spells cast in turn
+  spellMax?: boolean; // 極·大魔導: reactions chain to nearby enemies
   necroMode?: NecroMode; // necromancer with a staff / no weapon: shadow bolts or summoner
   skills?: SkillEffects | null; // from the skill trees
   specials?: SpecialId[]; // legendary special affixes on worn gear
@@ -217,6 +219,11 @@ export class Sim {
   readonly arrowTypes: ArrowType[];
   readonly arrowMax: boolean;
   readonly spellType: SpellType;
+  readonly spellTypes: SpellType[];
+  readonly spellMax: boolean;
+  private chainDepth = 0;
+  /** 元素護盾 (Mage): each reaction you set off adds a shield of 3% max HP (up to 15%). */
+  elemShield = 0;
   readonly wb: WorldBossDef | null;
   wbDamage = 0; // damage dealt to the world boss
   reactions = 0; // 元素反應 this run
@@ -334,6 +341,8 @@ export class Sim {
     this.arrowTypes = setup.arrowTypes?.length ? setup.arrowTypes : [this.arrowType];
     this.arrowMax = !!setup.arrowMax;
     this.spellType = setup.spellType ?? 'fire';
+    this.spellTypes = setup.spellTypes?.length ? setup.spellTypes : [this.spellType];
+    this.spellMax = !!setup.spellMax;
     this.wb = setup.worldBoss ? WORLD_BOSSES[setup.worldBoss] : null;
     this.autoPickCards = setup.autoPickCards;
     this.ult = newUltRun(setup.ults ?? []);
@@ -604,7 +613,7 @@ export class Sim {
       const target = this.nearestEnemy(p.x, p.z, reach);
       if (target) {
         const frenzy = this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1; // 狂風
-        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy);
+        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy);
         const base = Math.atan2(target.x - p.x, target.z - p.z);
         p.facing = base;
         const once = (mult: number) => (melee ? this.swing(base, reach, mult) : this.attack.kind === 'summon' ? this.summonAttack(base, mult) : this.shoot(base, mult));
@@ -787,6 +796,11 @@ export class Sim {
     const arrow = this.attack.kind === 'arrow' ? this.arrowType : null;
     if (arrow && this.arrowTypes.length > 1) { this.shootMixedArrows(base, mult, this.arrowTypes); return; }
     if (arrow) { this.shootArrows(base, mult, arrow); return; }
+    if (isFire && this.spellTypes.length > 1) { // 多重法典: every chosen spell at once, each extra one costs ×0.75 (極·大魔導 ×0.88)
+      const pen = (this.spellMax ? 0.88 : 0.75) ** (this.spellTypes.length - 1);
+      for (const t of this.spellTypes) { if (t === 'fire') this.castFireballs(base, mult * pen); else this.castSpells(base, mult * pen, t); }
+      return;
+    }
     if (isFire && this.spellType !== 'fire') { this.castSpells(base, mult, this.spellType); this.echoCast(base, mult); return; }
     const spread = isFire ? 0.3 : isShadow ? 0.22 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
@@ -801,7 +815,17 @@ export class Sim {
         blast: isFire ? (this.attack.blastRadius ?? 2) * Math.sqrt(value(this.stats.area)) : undefined, elem: isFire ? 'fire' : undefined,
       });
     }
-    if (isFire) this.echoCast(base, mult);
+    if (isFire && this.spellTypes.length === 1) this.echoCast(base, mult);
+  }
+
+  /** Plain fireballs (used by 多重法典 when fire is one of the spells). */
+  private castFireballs(base: number, mult: number): void {
+    const p = this.player, n = this.stats.multishot, speed = this.attack.projectileSpeed ?? 15;
+    for (let i = 0; i < n; i++) {
+      const a = base + (i - (n - 1) / 2) * 0.3;
+      const { dmg, crit } = this.rollDamage();
+      this.projectiles.push({ x: p.x, z: p.z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed, dmg: dmg * mult * 1.1, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.15, pierce: 0, radius: 0.4, hit: [], blast: (this.attack.blastRadius ?? 2) * Math.sqrt(value(this.stats.area)), elem: 'fire' });
+    }
   }
 
   /** 元素同調 (staffs): every 2nd cast also throws the next element at half power, so the two react on the enemies. */
@@ -826,9 +850,17 @@ export class Sim {
     if (!e.elem || e.elem === el || !e.elemT) { e.elem = el; e.elemT = ELEM_TIME; return; }
     if (e.reactCd) return;
     const a = e.elem;
-    e.elem = undefined; e.elemT = 0; e.reactCd = 0.4;
+    const arch = this.awk?.id === 'mage_mage' || this.awk?.base === 'mage_mage'; // 大法師
+    e.elem = undefined; e.elemT = 0; e.reactCd = arch ? 0.2 : 0.4;
+    if (this.cls.id === 'mage') this.elemShield = Math.min(this.maxHp * 0.15, this.elemShield + this.maxHp * 0.03); // 元素護盾
+    if (this.spellMax && this.chainDepth < 2) { // 極·大魔導: the reaction spreads the new element to 3 enemies nearby (they can react too)
+      this.chainDepth++;
+      const near = this.enemies.filter((o) => o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 3.5).slice(0, 3);
+      for (const o of near) this.applyElem(o, el);
+      this.chainDepth--;
+    }
     const has = (x: Elem) => a === x || el === x;
-    const k = value(this.stats.atk) * (this.cls.id === 'mage' ? 1.5 : this.awk?.sub === 'mage' || this.awk?.sub2 === 'mage' ? 1.2 : 1);
+    const k = value(this.stats.atk) * (arch ? 3 : this.cls.id === 'mage' ? 1.5 : this.awk?.sub === 'mage' || this.awk?.sub2 === 'mage' ? 1.2 : 1); // 大法師 reactions ×2 more
     const area = Math.sqrt(value(this.stats.area));
     this.reactions++;
     if (has('poison')) {
@@ -1088,6 +1120,10 @@ export class Sim {
     if (this.cls.bossGuard && this.boss) dmg *= 1 - this.cls.bossGuard; // 弓手 / 法師: keep their distance from bosses
     dmg = ultOnHurt(this, dmg); // 聖光壁壘 / 復仇之魂
     if (dmg <= 0) { p.invuln = PLAYER.hurtInvuln * 0.5; return false; }
+    if (this.elemShield > 0) { // 元素護盾 takes the hit first
+      const a = Math.min(this.elemShield, dmg); this.elemShield -= a; dmg -= a;
+      if (dmg <= 0) { p.invuln = PLAYER.hurtInvuln * 0.5; return false; }
+    }
     this.dmgLog[src] = (this.dmgLog[src] ?? 0) + dmg;
     this.recentHits.push({ t: this.time, src, dmg });
     while (this.recentHits.length && this.recentHits[0].t < this.time - 5) this.recentHits.shift();

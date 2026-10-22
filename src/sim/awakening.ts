@@ -83,7 +83,7 @@ export const AWAKENED: Record<string, AwakenedDef> = {
   }),
   mage_mage: A({
     id: 'mage_mage', main: 'mage', sub: 'mage', name: tr('大法師', 'Archmage'), en: 'Archmage', icon: '🔮',
-    bonus: { atk: { mult: 1.3 }, atkSpeed: { mult: 1.2 } }, bonusText: tr('攻擊 ×1.3、攻速 ×1.2', 'ATK ×1.3, Atk Spd ×1.2'),
+    bonus: { atk: { mult: 1.3 }, atkSpeed: { mult: 1.2 } }, bonusText: tr('攻擊 ×1.3、攻速 ×1.2；可以多用一種法術；元素反應傷害 ×2、同一隻敵人反應冷卻減半；多重法典強化到 +10 變「極·大魔導」（四種法術、反應連鎖）', 'ATK ×1.3, Atk Spd ×1.2; one more spell; reactions ×2 damage and half the wait; a +10 Spell Mix item unlocks Max Archmage (all spells, chaining reactions)'),
     signature: { kind: 'arcaneBurst', name: tr('奧術爆發', 'Arcane Burst'), desc: tr('喺附近 5 隻敵人身上同時爆炸（每個 300%）', 'Blast 5 nearby enemies at once (300% each)'), cooldown: 12, icon: '💥' },
     focusStat: { key: 'atk', pct: 0.05, label: tr('攻擊 +5%', 'ATK +5%') },
   }),
