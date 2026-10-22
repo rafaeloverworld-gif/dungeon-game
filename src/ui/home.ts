@@ -564,7 +564,7 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
         <div class="ultslots">${slots.map((u) => `<span class="uslot ${u ? 'on' : ''}">${u ? ico(ULT[u].icon) : '＋'}</span>`).join('')}</div>
       </div>
       ${tipCard(save, 'ult')}
-      <p class="note" style="margin:0;text-align:left">${EN ? `Screen-clearing skills for any class; equip up to ${ULT_SLOTS}. Ultimate hits can crit; Lv ${ULT_LIMIT_LEVEL} unlocks a Limit effect, max Lv ${ULT_MAX_LEVEL}. 💎 Crystals: Mini-bosses 1, Bosses 3 (double in gate dungeons), elites sometimes 1, first clear of a tier +3 (gate tiers +15), and World Bosses.` : `全場清怪技能，任何職業都用得，最多同時裝 ${ULT_SLOTS} 個。終極技傷害會暴擊；Lv ${ULT_LIMIT_LEVEL} 解鎖「極限」效果，最高 Lv ${ULT_MAX_LEVEL}。💎 靈晶：小 Boss 1、Boss 3（守關地城雙倍）、精英怪有機會跌 1、首次通關每級 +3（守關級 +15），仲有世界 Boss。`}</p>
+      <p class="note" style="margin:0;text-align:left">${EN ? `Screen-clearing skills for any class; equip up to ${ULT_SLOTS}. Ultimate hits can crit; Lv ${ULT_LIMIT_LEVEL} unlocks a Limit effect, max Lv ${ULT_MAX_LEVEL}. 💎 Crystals: Mini-bosses 1, Bosses 3 (double in gate dungeons), elites sometimes 1, first clear of a tier +3 (gate tiers +15), and World Bosses. Your Undead can trigger on-hit Ultimates too, at 35% of your chance.` : `全場清怪技能，任何職業都用得，最多同時裝 ${ULT_SLOTS} 個。終極技傷害會暴擊；Lv ${ULT_LIMIT_LEVEL} 解鎖「極限」效果，最高 Lv ${ULT_MAX_LEVEL}。💎 靈晶：小 Boss 1、Boss 3（守關地城雙倍）、精英怪有機會跌 1、首次通關每級 +3（守關級 +15），仲有世界 Boss。亡靈打中敵人都可以觸發攻擊型終極技，機率係你自己嘅 35%。`}</p>
       ${ULT_IDS.map((id) => {
         const lv = save.ults[id] ?? 0;
         const cost = ultCost(save, id);

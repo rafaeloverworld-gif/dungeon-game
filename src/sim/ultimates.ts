@@ -13,6 +13,8 @@ export type UltId = 'deathWave' | 'chainLightning' | 'blackHole' | 'chronoField'
 export const ULT_IDS: UltId[] = ['deathWave', 'chainLightning', 'blackHole', 'chronoField', 'orbs', 'missiles', 'poisonSwamp', 'landMines', 'meteorShower', 'blizzard', 'holyShield', 'bats', 'thunderTotem', 'vengeance', 'flameBurst', 'frostTouch', 'shadowStrike', 'holySmite'];
 /** Ultimates that trigger by chance when your attacks hit (like 雷神之怒). */
 export const PROC_ULTS: UltId[] = ['chainLightning', 'flameBurst', 'frostTouch', 'shadowStrike', 'holySmite'];
+/** Undead hits can trigger the on-hit ultimates too, at this share of the normal chance (there are many of them). */
+export const MINION_PROC = 0.35;
 export const ULT_MAX_LEVEL = 15;
 /** Level that unlocks the 極限 effect. */
 export const ULT_LIMIT_LEVEL = 10;
@@ -481,9 +483,9 @@ export function ultOnHurt(sim: Sim, dmg: number): number {
 }
 
 /** 連鎖閃電: called when one of your own hits lands (not from procs). */
-export function chainLightning(sim: Sim, from: Enemy, again = false): void {
+export function chainLightning(sim: Sim, from: Enemy, again = false, scale = 1): void {
   const l = sim.ult.levels.chainLightning;
-  if (!l || (!again && sim.rand() >= ULT.chainLightning.chance(l))) return;
+  if (!l || (!again && sim.rand() >= ULT.chainLightning.chance(l) * scale)) return;
   const hit = new Set<number>([from.id]);
   const pts: number[] = [from.x, from.z];
   let cur = from;
@@ -508,10 +510,11 @@ export function chainLightning(sim: Sim, from: Enemy, again = false): void {
 function strikeAgain(sim: Sim, from: Enemy): void { chainLightning(sim, from, true); }
 
 /** Called when one of your own attacks lands (not from procs): every on-hit ultimate rolls its chance. */
-export function ultOnHit(sim: Sim, e: Enemy): void {
+/** On-hit ultimates. scale < 1 for hits that aren't yours (your undead). */
+export function ultOnHit(sim: Sim, e: Enemy, scale = 1): void {
   const L = sim.ult.levels;
-  if (L.chainLightning) chainLightning(sim, e);
-  const roll = (c: number) => sim.rand() < c;
+  if (L.chainLightning) chainLightning(sim, e, false, scale);
+  const roll = (c: number) => sim.rand() < c * scale;
   const critMul = () => { const c = sim.rand() < value(sim.stats.crit); return { c, m: c ? value(sim.stats.critDmg) : 1 }; };
   if (L.flameBurst && roll(ULT.flameBurst.chance(L.flameBurst))) {
     const l = L.flameBurst, r = ULT.flameBurst.radius(l) * areaMul(sim), { c, m } = critMul();

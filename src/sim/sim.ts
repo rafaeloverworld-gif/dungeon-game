@@ -11,7 +11,7 @@ import { mixFor, type AwakenedDef } from './awakening';
 import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { mergeBonus } from './stats';
 import { updateAbilities } from './abilities';
-import { ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, type UltId, type UltRun } from './ultimates';
+import { ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, MINION_PROC, PROC_ULTS, type UltId, type UltRun } from './ultimates';
 import { attackFor, type ProcId, type SpecialId, type WeaponType } from './gear';
 import { WB_TIME, WORLD_BOSSES, type WorldBossDef, type WorldBossId } from './worldboss';
 
@@ -220,6 +220,8 @@ export class Sim {
   private get spawnAcc(): number { return this.w.spawnAcc; } private set spawnAcc(v: number) { this.w.spawnAcc = v; }
   /** More than one hero in this dungeon. */
   get coop(): boolean { return this.w.heroes.length > 1; }
+  /** Has an on-hit ultimate equipped (undead hits can trigger it). */
+  get ultProcs(): boolean { return PROC_ULTS.some((u) => this.ult.levels[u]); }
   get heroes(): Sim[] { return this.w.heroes; }
   // co-op only: fallen (waiting for a revive), revive progress, and the level-up card timer
   down = false;
@@ -636,9 +638,11 @@ export class Sim {
           this.projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, dmg, crit, fromPlayer: true, life: 8 / sp, pierce: 0, radius: 0.3, hit: [], shadow: true, minion: true, blast, slow });
         } else if (blast) {
           this.explode(target.x, target.z, blast, dmg, crit, 'shadow', { noProc: true, slow: slow, slowTime: slow ? 1.5 : undefined });
+          if (this.ultProcs && target.hp > 0) ultOnHit(this, target, MINION_PROC);
         } else {
           this.damageEnemy(target, dmg, crit, true);
           if (slow) { target.slowTimer = 1.5; target.slowMult = Math.min(target.slowMult, slow); }
+          if (this.ultProcs && target.hp > 0) ultOnHit(this, target, MINION_PROC); // undead can trigger your on-hit ultimates
         }
       }
       // enemies touching an undead hurt it (one hit per 0.5 s, like the player)
@@ -1170,6 +1174,7 @@ export class Sim {
           if (e.hp <= 0 || pr.hit.includes(e.id)) continue;
           if (Math.hypot(e.x - pr.x, e.z - pr.z) < e.radius + pr.radius) {
             if (pr.blast) {
+              if (pr.minion && o.ultProcs) ultOnHit(o, e, MINION_PROC);
               o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, slow: pr.slow, slowTime: pr.slow ? 1.5 : undefined });
               exploded = true;
               alive = false;
@@ -1177,6 +1182,7 @@ export class Sim {
             }
             pr.hit.push(e.id);
             o.damageEnemy(e, pr.dmg, pr.crit, pr.minion, pr.ap);
+            if (pr.minion && o.ultProcs && e.hp > 0) ultOnHit(o, e, MINION_PROC); // an undead archer's bolt
             if (pr.knock && !isBigKind(e.kind)) {
               const v = Math.hypot(pr.vx, pr.vz) || 1;
               e.x += (pr.vx / v) * pr.knock; e.z += (pr.vz / v) * pr.knock;
