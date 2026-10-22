@@ -12,7 +12,7 @@ import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { mergeBonus } from './stats';
 import { updateAbilities } from './abilities';
 import { ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, MINION_PROC, PROC_ULTS, type UltId, type UltRun } from './ultimates';
-import { attackFor, type ProcId, type SpecialId, type WeaponType } from './gear';
+import { activeCombos, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
 import { WB_TIME, WORLD_BOSSES, type WorldBossDef, type WorldBossId } from './worldboss';
 
 export interface Vec2 { x: number; z: number }
@@ -82,6 +82,7 @@ export interface Minion {
   big: boolean;
   hurtCd: number; // like the player: a short grace after each hit
   hpMult: number; // max HP = your max HP × this (follows your HP during the run)
+  poisonCd?: number; // 屍毒: seconds until this one can leave another pool
 }
 
 export interface Coin { x: number; z: number; value: number; magnet: boolean; spin: number }
@@ -266,7 +267,11 @@ export class Sim {
   proc = { double: 0, execute: 0, frenzy: 0, lifesteal: 0, frenzyTimer: 0, lifestealCd: 0 };
   sp = { echo: 0, bossDmg: 0, critBurst: false, frostGuard: false, thorns: false, secondWind: false, secondWindUsed: false, cdMult: 1, boneBurst: false };
   /** Undead traits from gear (stack into combos, e.g. 鐵甲骨法師). */
-  ut = { tank: false, ranged: false, caster: false, wraith: false, frenzy: false, lasting: false, edge: false, leech: false };
+  ut = { tank: false, ranged: false, caster: false, wraith: false, frenzy: false, lasting: false, edge: false, leech: false, shield: false, poison: false, crown: false };
+  /** 骨 combos from worn traits (e.g. 骨弓 + 骨法 = 骨魔導師). */
+  combo = new Set<BoneCombo['id']>();
+  /** 骨王冠: id of the crowned undead (0 = none). */
+  crownId = 0;
   private leechCd = 0; // 噬魂: at most 5 heals a second
 
   chests = { silver: 0, gold: 0 }; // held until the dungeon is cleared; lost on death
@@ -329,7 +334,11 @@ export class Sim {
       else if (sp === 'utLasting') this.ut.lasting = true;
       else if (sp === 'utEdge') this.ut.edge = true;
       else if (sp === 'utLeech') this.ut.leech = true;
+      else if (sp === 'utShield') this.ut.shield = true;
+      else if (sp === 'utPoison') this.ut.poison = true;
+      else if (sp === 'utCrown') this.ut.crown = true;
     }
+    for (const c of activeCombos(setup.specials ?? [])) this.combo.add(c.id);
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
     this.stats.multishot += (fx?.multishot ?? 0) + (this.awk?.extraMultishot ?? 0) + extraMulti;
@@ -582,6 +591,9 @@ export class Sim {
     return base + (this.attack.kind === 'summon' ? 2 : 0) + this.stats.minions + ((this.awk?.base ?? this.awk?.id) === 'necro_necro' ? 1 : 0) + (this.awk?.id === 'necro_necro_necro' ? 1 : 0);
   }
 
+  /** How much of a hit an undead takes (骨堡壘 -30%, crowned -50%). */
+  minionTaken(m: Minion): number { return (this.combo.has('bulwark') ? 0.7 : 1) * (m.id === this.crownId ? 0.5 : 1); }
+
   /** Raise a skeleton at (x, z). Returns false when at the cap (unless force). */
   summon(x: number, z: number, o: { force?: boolean; power?: number; life?: number; big?: boolean; kind?: MinionKind } = {}): boolean {
     if (!o.force && this.minions.length >= this.minionCap) return false;
@@ -604,11 +616,16 @@ export class Sim {
     const moveMul = value(this.stats.moveSpeed) / this.cls.base.moveSpeed;
     this.minionBuff = Math.max(0, this.minionBuff - dt);
     this.leechCd = Math.max(0, this.leechCd - dt);
+    // 骨王冠: the biggest undead (then the oldest) wears the crown
+    this.crownId = 0;
+    if (this.ut.crown) { let best: Minion | null = null; for (const m of this.minions) if (m.hp > 0 && (!best || m.maxHp > best.maxHp + 0.5)) best = m; this.crownId = best?.id ?? 0; }
     for (const m of this.minions) {
+      const crowned = m.id === this.crownId;
       const newMax = this.maxHp * m.hpMult;
       if (Math.abs(newMax - m.maxHp) > 0.5) { m.hp *= newMax / m.maxHp; m.maxHp = newMax; }
       m.life -= dt;
       m.atkTimer -= dt;
+      if (m.poisonCd) m.poisonCd -= dt;
       // pick the nearest enemy close to the player (skeletons don't wander off)
       let target: Enemy | null = null, best = 1e9;
       for (const e of this.enemies) {
@@ -629,21 +646,29 @@ export class Sim {
         const buff = this.minionBuff > 0 ? this.minionBuffMult : 1;
         const r = (m.big ? 3.8 : 3) * Math.sqrt(value(this.stats.area));
         m.hp = 0;
+        if (this.combo.has('endless') && this.rand() < 0.3) this.summon(m.x, m.z, { force: true, life: 12 }); // 不滅骨爆
         // 骨爆: the blast is as big as the undead's max HP (tanky undead hit harder)
         this.explode(m.x, m.z, r, m.maxHp * 1.5 * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true }); // no ultimate procs, so the blast itself is big
         continue;
       }
       if (target && d <= reach + 0.15 && m.atkTimer <= 0) {
         m.atkTimer = def.every / atkSpd;
-        const crit = this.rand() < value(this.stats.crit);
+        const crit = this.rand() < value(this.stats.crit) + (this.combo.has('frenzyEdge') ? 0.15 : 0); // 骨刃狂潮
         const buff = this.minionBuff > 0 ? this.minionBuffMult : 1;
-        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (this.ut.edge ? 1.5 : 1) : 1); // 骨刃: crits hit harder
+        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (this.ut.edge ? 1.5 : 1) : 1) * (crowned ? 2 : 1); // 骨刃 / 骨王冠
         if (this.ut.leech && this.leechCd <= 0) { this.leechCd = 0.2; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.004); } // 噬魂
-        const blast = this.ut.caster ? 1.7 * (this.ut.ranged ? 1.4 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (with 骨弓: bigger blasts)
+        if (crowned && this.combo.has('soulKing')) p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.01); // 魂王
+        if (this.ut.poison && (m.poisonCd ?? 0) <= 0) { // 屍毒 (瘟疫幽魂: bigger, slowing)
+          m.poisonCd = 3;
+          const plague = this.combo.has('plague');
+          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15, kind: 'poison', slow: plague ? 0.6 : 0.9 });
+        }
+        const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師: bigger blasts)
         const slow = this.ut.wraith ? 0.65 : undefined; // 怨靈
         if (ranged) {
-          const a = Math.atan2(target.x - m.x, target.z - m.z), sp = 14;
-          this.projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, dmg, crit, fromPlayer: true, life: 8 / sp, pierce: 0, radius: 0.3, hit: [], shadow: true, minion: true, blast, slow });
+          const a0 = Math.atan2(target.x - m.x, target.z - m.z), sp = 14;
+          const fan = crowned && this.combo.has('lichKing') ? [-0.25, 0, 0.25] : [0]; // 骸骨魔導王
+          for (const off of fan) { const a = a0 + off; this.projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, dmg, crit, fromPlayer: true, life: 8 / sp, pierce: 0, radius: 0.3, hit: [], shadow: true, minion: true, blast, slow }); }
         } else if (blast) {
           this.explode(target.x, target.z, blast, dmg, crit, 'shadow', { noProc: true, slow: slow, slowTime: slow ? 1.5 : undefined });
           if (this.ultProcs && target.hp > 0) ultOnHit(this, target, MINION_PROC);
@@ -658,7 +683,7 @@ export class Sim {
       if (m.hurtCd <= 0) {
         for (const e of this.enemies) {
           if (e.hp > 0 && Math.hypot(e.x - m.x, e.z - m.z) < e.radius + (m.big ? 0.6 : 0.4)) {
-            m.hp -= e.touchDmg * armour; m.hurtCd = PLAYER.hurtInvuln;
+            m.hp -= e.touchDmg * armour * this.minionTaken(m); m.hurtCd = PLAYER.hurtInvuln;
             if (this.sp.thorns) this.damageEnemy(e, value(this.stats.atk) * 0.4, false, true); // 荊棘 works for your undead too (weaker: there are many of them)
             break;
           }
@@ -1210,8 +1235,9 @@ export class Sim {
         } else {
           // enemy shots also hit your undead
           for (const h of H) {
-            const m = h.minions.find((mn) => mn.hp > 0 && Math.hypot(mn.x - pr.x, mn.z - pr.z) < (mn.big ? 0.6 : 0.4) + pr.radius);
-            if (m) { m.hp -= pr.dmg * defMultiplier(value(h.stats.def)); alive = false; break; }
+            // 骨盾: undead catch bullets in a much wider area and take half from them
+            const m = h.minions.find((mn) => mn.hp > 0 && Math.hypot(mn.x - pr.x, mn.z - pr.z) < (mn.big ? 0.6 : 0.4) * (h.ut.shield ? 2.5 : 1) + pr.radius);
+            if (m) { m.hp -= pr.dmg * defMultiplier(value(h.stats.def)) * h.minionTaken(m) * (h.ut.shield ? 0.5 : 1); alive = false; break; }
           }
         }
       }
@@ -1272,7 +1298,7 @@ export class Sim {
       } else {
         this.events.push({ type: 'explode', x: w.x, z: w.z, r: w.r, fx: 'fire' });
         for (const h of H) if (Math.hypot(h.player.x - w.x, h.player.z - w.z) < w.r + PLAYER.radius) h.hurtPlayer(w.dmg, 'slam');
-        for (const h of H) for (const m of h.minions) if (Math.hypot(m.x - w.x, m.z - w.z) < w.r) m.hp -= w.dmg;
+        for (const h of H) for (const m of h.minions) if (Math.hypot(m.x - w.x, m.z - w.z) < w.r) m.hp -= w.dmg * h.minionTaken(m);
       }
       return false;
     });
@@ -1284,7 +1310,7 @@ export class Sim {
     e.hp = 0;
     this.events.push({ type: 'explode', x: e.x, z: e.z, r, fx: 'fire' });
     for (const h of this.heroes) if (Math.hypot(h.player.x - e.x, h.player.z - e.z) < r + PLAYER.radius) h.hurtPlayer(e.touchDmg * 2, 'bomber');
-    for (const h of this.heroes) for (const m of h.minions) if (Math.hypot(m.x - e.x, m.z - e.z) < r) m.hp -= e.touchDmg * 3;
+    for (const h of this.heroes) for (const m of h.minions) if (Math.hypot(m.x - e.x, m.z - e.z) < r) m.hp -= e.touchDmg * 3 * h.minionTaken(m);
   }
 
   damageEnemy(e: Enemy, dmg: number, crit: boolean, noProc = false, armourPierce = false): void {

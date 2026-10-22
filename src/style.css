@@ -463,3 +463,7 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .dpsrow i b { display: block; height: 100%; background: #ff9a4a; transition: width 0.25s; }
 .dpsrow.me i b { background: #ffc23a; }
 .dpsrow em { font-style: normal; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+.undeadline small.combo { color: var(--gold); }
+.combolist { margin-top: 6px; }
+.combolist summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.combolist small { display: block; margin-top: 3px; }

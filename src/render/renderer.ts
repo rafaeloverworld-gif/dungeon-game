@@ -635,14 +635,15 @@ export class Renderer {
     const uc = { grunt: 0, shooter: 0, swarm: 0 };
     // each hero's undead use that hero's traits (in co-op your teammate's 骨法 doesn't change yours)
     for (const { m, h } of sim.heroes.flatMap((h) => h.minions.map((m) => ({ m, h })))) {
-      const sc = (m.big ? 1.45 : 1) * (h.ut.tank ? 1.15 : 1) * (h.ut.caster && m.kind === 'swarm' ? 0.75 : 1);
+      const crowned = m.id === h.crownId;
+      const sc = (m.big ? 1.45 : 1) * (h.ut.tank ? 1.15 : 1) * (h.ut.caster && m.kind === 'swarm' ? 0.75 : 1) * (crowned ? 1.3 : 1);
       const bob = Math.abs(Math.sin(t * 9 + m.id)) * 0.08;
       const target = sim.nearestEnemy(m.x, m.z, 12);
       const hp = h.player;
       const face = target ? Math.atan2(target.x - m.x, target.z - m.z) : Math.atan2(hp.x - m.x, hp.z - m.z);
       // undead traits from gear change the look: 怨靈 pale blue, 骨法 purple skeleton mages, 骨甲 steel (bigger)
       const traitTint = h.ut.wraith ? 0x9fe8ff : h.ut.caster ? 0xb88aff : h.ut.tank ? 0xaab4c8 : -1;
-      const tint = m.life < 3 ? 0x6f7a72 : h.minionBuff > 0 ? 0xc9a8ff : traitTint;
+      const tint = m.life < 3 ? 0x6f7a72 : crowned ? 0xffd45a : h.minionBuff > 0 ? 0xc9a8ff : traitTint; // 骨王冠: gold
       if (this.undeadFlips) {
         setShadow(m.x, m.z, (m.kind === 'swarm' ? 0.35 : 0.5) * sc);
         this.tmp.position.set(m.x, 0, m.z);

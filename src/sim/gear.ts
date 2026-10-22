@@ -171,17 +171,37 @@ export const SPECIALS = {
   utLasting: { family: 'death', name: tr('不朽骨', 'Undying Bones'), desc: tr('亡靈特性：亡靈存在時間 +50%（可以同其他特性疊）', 'Undead trait: Undead last 50% longer (stacks with other traits)') },
   utEdge: { family: 'death', name: tr('骨刃', 'Bone Edge'), desc: tr('亡靈特性：亡靈暴擊傷害 ×1.5（可以同其他特性疊）', 'Undead trait: Undead critical hits deal ×1.5 damage (stacks with other traits)') },
   utLeech: { family: 'death', name: tr('噬魂', 'Soul Leech'), desc: tr('亡靈特性：亡靈打中敵人會幫你回 0.4% HP（每秒最多 5 次）', 'Undead trait: Undead hits heal you 0.4% HP (up to 5 times a second)') },
+  utShield: { family: 'death', name: tr('骨盾', 'Bone Shield'), desc: tr('亡靈特性：亡靈幫你擋子彈（擋子彈範圍大好多，子彈傷害減半）', 'Undead trait: Undead block bullets for you (much wider block area, bullet damage halved)') },
+  utPoison: { family: 'death', name: tr('屍毒', 'Corpse Poison'), desc: tr('亡靈特性：亡靈攻擊會留低毒池（3 秒，每隻亡靈 3 秒一次）', 'Undead trait: Undead attacks leave a poison pool (3 s; each Undead every 3 s)') },
+  utCrown: { family: 'death', name: tr('骨王冠', 'Bone Crown'), desc: tr('亡靈特性：最大嗰隻亡靈戴上王冠：傷害 ×2，受到傷害減半', 'Undead trait: Your biggest Undead wears a crown: ×2 damage, takes half damage') },
   // rings and necromancer weapons: it changes how the class plays
   boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 150% × 亡靈強度（骨甲令佢更痛；自爆唔會觸發終極技）', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × 150% × Undead Power (Ironbone makes it hurt more; blasts don\'t trigger Ultimates)') },
 } as const;
 export type SpecialId = keyof typeof SPECIALS;
-export const UNDEAD_TRAITS = ['utTank', 'utRanged', 'utCaster', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech'] as const satisfies readonly SpecialId[];
+export const UNDEAD_TRAITS = ['utTank', 'utRanged', 'utCaster', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech', 'utShield', 'utPoison', 'utCrown'] as const satisfies readonly SpecialId[];
 /** Undead traits that can roll on armour: not 骨弓 / 骨法 (they change how the class plays: weapons and accessories only). */
-export const ARMOUR_TRAITS = ['utTank', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech'] as const satisfies readonly SpecialId[];
+export const ARMOUR_TRAITS = ['utTank', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech', 'utShield', 'utPoison', 'utCrown'] as const satisfies readonly SpecialId[];
+
+/** 骨 combos: wearing these traits together turns your undead into something new (with an extra effect). */
+export interface BoneCombo { id: 'archmage' | 'lichKing' | 'bulwark' | 'plague' | 'frenzyEdge' | 'endless' | 'soulKing'; needs: SpecialId[]; name: string; desc: string }
+export const BONE_COMBOS: BoneCombo[] = [
+  { id: 'lichKing', needs: ['utRanged', 'utCaster', 'utCrown'], name: tr('骸骨魔導王', 'Lich King'), desc: tr('戴王冠嗰隻每次射 3 粒爆炸彈（扇形）', 'The crowned one fires 3 exploding bolts at once (a fan)') },
+  { id: 'archmage', needs: ['utRanged', 'utCaster'], name: tr('骨魔導師', 'Bone Archmage'), desc: tr('爆炸範圍大 40%', 'Blasts 40% bigger') },
+  { id: 'bulwark', needs: ['utTank', 'utShield'], name: tr('骨堡壘', 'Bone Bulwark'), desc: tr('亡靈受到嘅傷害 -30%', 'Undead take 30% less damage') },
+  { id: 'plague', needs: ['utWraith', 'utPoison'], name: tr('瘟疫幽魂', 'Plague Wraiths'), desc: tr('毒池大 50%，入面敵人減速 40%', 'Poison pools 50% bigger and slow enemies 40%') },
+  { id: 'frenzyEdge', needs: ['utFrenzy', 'utEdge'], name: tr('骨刃狂潮', 'Bone Frenzy'), desc: tr('亡靈暴擊率 +15%', 'Undead crit chance +15%') },
+  { id: 'endless', needs: ['boneBurst', 'utLasting'], name: tr('不滅骨爆', 'Endless Burst'), desc: tr('亡靈自爆之後 30% 機會原地再起一隻骷髏', 'After an Undead explodes, 30% chance a Skeleton rises in its place') },
+  { id: 'soulKing', needs: ['utLeech', 'utCrown'], name: tr('魂王', 'Soul King'), desc: tr('戴王冠嗰隻每次打中都幫你回 1% HP（唔受次數限制）', 'Every hit from the crowned one heals you 1% HP (no limit)') },
+];
+/** Combos active for a set of worn specials (a bigger combo still lets its smaller ones work too). */
+export const activeCombos = (sp: Iterable<SpecialId>): BoneCombo[] => { const s = new Set(sp); return BONE_COMBOS.filter((c) => c.needs.every((n) => s.has(n))); };
 export type UndeadTrait = (typeof UNDEAD_TRAITS)[number];
 
 /** Name of your undead for a set of traits, e.g. 骨甲 + 骨法 = 鐵甲骨術士. */
-export function undeadName(t: { tank?: boolean; ranged?: boolean; caster?: boolean; wraith?: boolean; burst?: boolean }): string {
+export function undeadName(t: { tank?: boolean; ranged?: boolean; caster?: boolean; wraith?: boolean; burst?: boolean }, specials?: Iterable<SpecialId>): string {
+  // a combo names your undead (the biggest one wins)
+  const combo = specials ? activeCombos(specials).sort((a, b) => b.needs.length - a.needs.length)[0] : undefined;
+  if (combo) return combo.name;
   const noun = t.caster && t.ranged ? tr('骨魔導師', 'Bone Archmage') : t.caster ? tr('骨法師', 'Bone Mage') : t.ranged ? tr('骨弓手', 'Bone Archer') : tr('骷髏', 'Skeleton');
   const pre = [t.burst ? tr('爆裂', 'Volatile ') : '', t.wraith ? tr('幽影', 'Phantom ') : '', t.tank ? tr('鐵甲', 'Ironclad ') : ''].join('');
   return pre + noun;

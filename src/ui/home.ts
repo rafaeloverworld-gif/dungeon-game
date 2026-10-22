@@ -4,7 +4,7 @@ import { ACCOUNT, DUNGEON, SHOP, type ShopKey, biomeFor, ENEMY_UNLOCKS, ELITES, 
 import { ARROW_TYPES, ARROWS, ATTACK_NAMES, CLASSES, CLASS_IDS, SPELL_TYPES, SPELLS, NECRO_MODES, type ArrowType, type ClassId, type NecroMode, type SpellType } from '../sim/classes';
 import {
   ACCESSORY_SLOTS, ARMOUR_SLOTS, canReroll, procText, PROC_SKILLS, INVENTORY_MAX, isWeaponSlot, itemIcon, itemName, itemScore, lineText, MAX_PLUS, RARITIES, RARITY_COLORS,
-  RARITY_NAMES, rerollCost, salvageValue, SLOT_ICONS, SLOT_NAMES, EQUIP_SLOTS, EQUIP_NAMES, itemSlotOf, type EquipSlot, SPECIALS, TRADE_COUNT, undeadName, tradeRarityWeights, upgradeChance,
+  RARITY_NAMES, rerollCost, salvageValue, SLOT_ICONS, SLOT_NAMES, EQUIP_SLOTS, EQUIP_NAMES, itemSlotOf, type EquipSlot, SPECIALS, TRADE_COUNT, undeadName, UNDEAD_TRAITS, activeCombos, BONE_COMBOS, tradeRarityWeights, upgradeChance,
   upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
 import { buildStats } from '../sim/sim';
@@ -546,10 +546,11 @@ function undeadLine(save: SaveData): string {
   const r = runSetup(save);
   const sp = new Set(r.specials ?? []);
   const hasUndead = save.classId === 'necro' || subOf(save) === 'necro' || r.skills?.autoSkills.some((a) => a.id === 'raiseDead');
-  const traits = (['utTank', 'utRanged', 'utCaster', 'utWraith', 'boneBurst'] as const).filter((t) => sp.has(t));
+  const traits = ([...UNDEAD_TRAITS, 'boneBurst'] as const).filter((t) => sp.has(t));
   if (!hasUndead && !traits.length) return '';
-  const name = undeadName({ tank: sp.has('utTank'), ranged: sp.has('utRanged'), caster: sp.has('utCaster'), wraith: sp.has('utWraith'), burst: sp.has('boneBurst') });
-  return `<div class="undeadline">💀 ${tr('你嘅亡靈：', 'Your Undead: ')}<b>${name}</b><small>${tr('跟你嘅 HP、攻擊、攻速、移速、防禦、荊棘同關卡入面嘅加成一齊變強', 'They share your HP, ATK, attack speed, move speed, DEF, Thorns and in-run bonuses')}</small>${traits.length ? `<small>${traits.map((t) => SPECIALS[t].name).join(' + ')}</small>` : `<small>${tr('死靈武器、戒指同項鍊嘅傳說詞綴可以改變亡靈（可以疊）', 'Legendary necro weapons, rings and amulets can change your Undead (traits stack)')}</small>`}</div>`;
+  const name = undeadName({ tank: sp.has('utTank'), ranged: sp.has('utRanged'), caster: sp.has('utCaster'), wraith: sp.has('utWraith'), burst: sp.has('boneBurst') }, sp);
+  const combos = activeCombos(sp);
+  return `<div class="undeadline">💀 ${tr('你嘅亡靈：', 'Your Undead: ')}<b>${name}</b><small>${tr('跟你嘅 HP、攻擊、攻速、移速、防禦、荊棘同關卡入面嘅加成一齊變強', 'They share your HP, ATK, attack speed, move speed, DEF, Thorns and in-run bonuses')}</small>${traits.length ? `<small>${traits.map((t) => SPECIALS[t].name).join(' + ')}</small>` : `<small>${tr('傳說裝備嘅骨特性可以改變亡靈（可以疊；某啲組合會變成新嘅亡靈）', 'Bone traits on legendary gear change your Undead (they stack; some combos create new Undead)')}</small>`}${combos.map((c) => `<small class="combo">✨ <b>${c.name}</b>（${c.needs.map((n) => SPECIALS[n].name).join(' + ')}）：${c.desc}</small>`).join('')}<details class="combolist"><summary>${tr('所有骨組合', 'All bone combos')}</summary>${BONE_COMBOS.map((c) => `<small>${combos.includes(c) ? '✅' : '▫️'} <b>${c.name}</b>：${c.needs.map((n) => SPECIALS[n].name).join(' + ')} → ${c.desc}</small>`).join('')}</details></div>`;
 }
 
 // ---------- 終極技 ----------
