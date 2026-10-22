@@ -61,7 +61,7 @@ export function buildSnap(host: Sim, g: Sim, n: number, events: SimEvent[]): Sna
       const p = h.player;
       return [q(p.x), q(p.z), Math.round(p.hp * 10) / 10, Math.round(h.maxHp * 10) / 10, Math.round(p.facing * 100) / 100, Math.round(p.attackTimer * 100) / 100,
         Math.round(p.invuln * 100) / 100, p.level, Math.round(p.xp), p.autopilot ? 1 : 0, Math.round(p.moveX * 100) / 100, Math.round(p.moveZ * 100) / 100,
-        h.down ? 1 : 0, Math.round(h.reviveT * 100) / 100, Math.round(h.dmgDealt), h.crownId,
+        h.down ? 1 : 0, Math.round(h.reviveT * 100) / 100, Math.round(h.dmgDealt), h.crownIds.size > 1 ? [...h.crownIds] : h.crownId,
         h.minions.map((m) => [m.id, MKINDS.indexOf(m.kind), q(m.x), q(m.z), Math.round(m.hp), Math.round(m.maxHp), Math.round(m.life * 10) / 10, m.big ? 1 : 0])];
     }),
     me: {
@@ -141,8 +141,8 @@ export function applySnap(me: Sim, s: Snap, now: number): SimEvent[] | null {
   s.he.forEach((row, i) => {
     const h = w.heroes[i];
     if (!h) return;
-    const [x, z, hp, maxHp, facing, atkT, inv, level, xp, auto, mx, mz, down, rev, dealt, crown, mins] = row as [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number[][]];
-    h.dmgDealt = dealt; h.crownId = crown;
+    const [x, z, hp, maxHp, facing, atkT, inv, level, xp, auto, mx, mz, down, rev, dealt, crown, mins] = row as [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number | number[], number[][]];
+    h.dmgDealt = dealt; h.crownIds = new Set(Array.isArray(crown) ? crown : crown ? [crown] : []); h.crownId = Array.isArray(crown) ? crown[0] ?? 0 : crown;
     const p = h.player;
     const t = heroTracks[i];
     // slide from the previous snapshot to this one

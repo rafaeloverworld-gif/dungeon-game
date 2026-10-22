@@ -635,7 +635,7 @@ export class Renderer {
     const uc = { grunt: 0, shooter: 0, swarm: 0 };
     // each hero's undead use that hero's traits (in co-op your teammate's 骨法 doesn't change yours)
     for (const { m, h } of sim.heroes.flatMap((h) => h.minions.map((m) => ({ m, h })))) {
-      const crowned = m.id === h.crownId;
+      const crowned = h.crownIds.has(m.id) || m.id === h.crownId;
       const sc = (m.big ? 1.45 : 1) * (h.ut.tank ? 1.15 : 1) * (h.ut.caster && m.kind === 'swarm' ? 0.75 : 1) * (crowned ? 1.3 : 1);
       const bob = Math.abs(Math.sin(t * 9 + m.id)) * 0.08;
       const target = sim.nearestEnemy(m.x, m.z, 12);

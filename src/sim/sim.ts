@@ -270,9 +270,13 @@ export class Sim {
   ut = { tank: false, ranged: false, caster: false, wraith: false, frenzy: false, lasting: false, edge: false, leech: false, shield: false, poison: false, crown: false };
   /** 骨 combos from worn traits (e.g. 骨弓 + 骨法 = 骨魔導師). */
   combo = new Set<BoneCombo['id']>();
-  /** 骨王冠: id of the crowned undead (0 = none). */
+  /** 骨王冠: id of the main crowned undead (0 = none); with more crowns, the next biggest get one too. */
   crownId = 0;
+  crownIds = new Set<number>();
+  /** How many copies of each bone trait you wear (the same trait twice or three times is stronger, like the class system). */
+  utn: Partial<Record<SpecialId, number>> = {};
   private leechCd = 0; // 噬魂: at most 5 heals a second
+  private soulCd = 0; // 魂王: the uncrowned undead heal at most 10 times a second
 
   chests = { silver: 0, gold: 0 }; // held until the dungeon is cleared; lost on death
   runCoins = 0; // collected this run
@@ -338,6 +342,7 @@ export class Sim {
       else if (sp === 'utPoison') this.ut.poison = true;
       else if (sp === 'utCrown') this.ut.crown = true;
     }
+    for (const sp of setup.specials ?? []) this.utn[sp] = (this.utn[sp] ?? 0) + 1;
     for (const c of activeCombos(setup.specials ?? [])) this.combo.add(c.id);
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
@@ -592,16 +597,18 @@ export class Sim {
   }
 
   /** How much of a hit an undead takes (骨堡壘 -30%, crowned -50%). */
-  minionTaken(m: Minion): number { return (this.combo.has('bulwark') ? 0.7 : 1) * (m.id === this.crownId ? 0.5 : 1); }
+  minionTaken(m: Minion): number { return (this.combo.has('bulwark') ? 0.7 : 1) * (this.crownIds.has(m.id) ? 0.5 : 1) * (this.combo.has('boneGiant') ? 0.6 : 1); }
+  /** Copies of a bone trait worn (0 if none). */
+  private n(t: SpecialId): number { return this.utn[t] ?? 0; }
 
   /** Raise a skeleton at (x, z). Returns false when at the cap (unless force). */
   summon(x: number, z: number, o: { force?: boolean; power?: number; life?: number; big?: boolean; kind?: MinionKind } = {}): boolean {
     if (!o.force && this.minions.length >= this.minionCap) return false;
     const kind = o.kind ?? 'skeleton';
     const sm = value(this.stats.summon);
-    const hpMult = 0.45 * sm * (o.big ? 1.5 : 1) * MINION_KINDS[kind].hp * (this.ut.tank ? 2 : 1);
+    const hpMult = 0.45 * sm * (o.big ? 1.5 : 1) * MINION_KINDS[kind].hp * (1 + this.n('utTank')); // 骨甲: ×2 HP per copy
     const hp = this.maxHp * hpMult;
-    this.minions.push({ id: this.minionId++, x, z, kind, hp, maxHp: hp, life: (o.life ?? 25) * (this.ut.lasting ? 1.5 : 1), atkTimer: 0.3, power: o.power ?? 1, big: !!o.big, hurtCd: 0, hpMult });
+    this.minions.push({ id: this.minionId++, x, z, kind, hp, maxHp: hp, life: (o.life ?? 25) * (1 + 0.5 * this.n('utLasting')), atkTimer: 0.3, power: o.power ?? 1, big: !!o.big, hurtCd: 0, hpMult });
     this.events.push({ type: 'explode', x, z, r: 0.9, fx: 'shadow' });
     return true;
   }
@@ -612,15 +619,21 @@ export class Sim {
     const atk = value(this.stats.atk) * value(this.stats.summon);
     const armour = defMultiplier(value(this.stats.def));
     // undead share your stats: HP, attack, attack speed, move speed, armour, thorns, and every in-run bonus
-    const atkSpd = value(this.stats.atkSpeed) * (this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1) * (this.ut.frenzy ? 1.3 : 1); // 狂骨
+    const atkSpd = value(this.stats.atkSpeed) * (this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1) * (1 + 0.3 * this.n('utFrenzy')); // 狂骨: +30% per copy
     const moveMul = value(this.stats.moveSpeed) / this.cls.base.moveSpeed;
     this.minionBuff = Math.max(0, this.minionBuff - dt);
     this.leechCd = Math.max(0, this.leechCd - dt);
+    this.soulCd = Math.max(0, this.soulCd - dt);
     // 骨王冠: the biggest undead (then the oldest) wears the crown
-    this.crownId = 0;
-    if (this.ut.crown) { let best: Minion | null = null; for (const m of this.minions) if (m.hp > 0 && (!best || m.maxHp > best.maxHp + 0.5)) best = m; this.crownId = best?.id ?? 0; }
+    this.crownId = 0; this.crownIds.clear();
+    if (this.ut.crown) {
+      // one crown per copy of 骨王冠: the biggest undead (then the oldest) wear them
+      const top = this.minions.filter((m) => m.hp > 0).sort((a, b) => b.maxHp - a.maxHp || a.id - b.id).slice(0, this.n('utCrown'));
+      for (const m of top) this.crownIds.add(m.id);
+      this.crownId = top[0]?.id ?? 0;
+    }
     for (const m of this.minions) {
-      const crowned = m.id === this.crownId;
+      const crowned = this.crownIds.has(m.id);
       const newMax = this.maxHp * m.hpMult;
       if (Math.abs(newMax - m.maxHp) > 0.5) { m.hp *= newMax / m.maxHp; m.maxHp = newMax; }
       m.life -= dt;
@@ -636,7 +649,7 @@ export class Sim {
       const def = MINION_KINDS[m.kind];
       const burst = this.sp.boneBurst; // 骨爆戒指: rush in and explode
       const ranged = (def.ranged || this.ut.ranged || this.ut.caster) && !burst; // 骨法: undead become bone mages and cast from range
-      const speed = def.speed * moveMul * (burst ? 1.6 : 1) * (this.ut.wraith ? 1.6 : 1) * (this.ut.tank ? 0.85 : 1);
+      const speed = def.speed * moveMul * (burst ? 1.6 : 1) * (1 + 0.6 * this.n('utWraith')) * (this.ut.tank ? 0.85 : 1);
       let tx = p.x + Math.sin(m.id * 2.4) * 1.6, tz = p.z + Math.cos(m.id * 2.4) * 1.6;
       if (target) { tx = target.x; tz = target.z; }
       const dx = tx - m.x, dz = tz - m.z, d = Math.hypot(dx, dz);
@@ -648,27 +661,30 @@ export class Sim {
         m.hp = 0;
         if (this.combo.has('endless') && this.rand() < 0.3) this.summon(m.x, m.z, { force: true, life: 12 }); // 不滅骨爆
         // 骨爆: the blast is as big as the undead's max HP (tanky undead hit harder)
-        this.explode(m.x, m.z, r, m.maxHp * 1.5 * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true }); // no ultimate procs, so the blast itself is big
+        this.explode(m.x, m.z, r * (this.combo.has('chainBurst') ? 1.5 : 1), m.maxHp * (1 + 0.5 * this.n('boneBurst')) * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true }); // no ultimate procs, so the blast itself is big
         continue;
       }
       if (target && d <= reach + 0.15 && m.atkTimer <= 0) {
-        m.atkTimer = def.every / atkSpd;
+        m.atkTimer = def.every / atkSpd / (crowned && this.combo.has('soulKing') ? 1.5 : 1); // 魂王: the crowned one attacks 50% faster
         const crit = this.rand() < value(this.stats.crit) + (this.combo.has('frenzyEdge') ? 0.15 : 0); // 骨刃狂潮
         const buff = this.minionBuff > 0 ? this.minionBuffMult : 1;
-        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (this.ut.edge ? 1.5 : 1) : 1) * (crowned ? 2 : 1); // 骨刃 / 骨王冠
-        if (this.ut.leech && this.leechCd <= 0) { this.leechCd = 0.2; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.004); } // 噬魂
-        if (crowned && this.combo.has('soulKing')) p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.01); // 魂王
+        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (1 + 0.5 * this.n('utEdge')) : 1) * (crowned ? 2 : 1) * (this.combo.has('boneGiant') ? 1.3 : 1) * (this.combo.has('grandLich') ? 1.4 : 1); // 骨刃 / 骨王冠 / 不死骨巨人 / 骸骨大法師
+        if (this.ut.leech && this.leechCd <= 0) { this.leechCd = 0.2; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.004 * this.n('utLeech')); } // 噬魂: 0.4% per copy
+        if (this.combo.has('soulKing')) { // 魂王: the crowned one heals 1% every hit; the rest 0.3% (up to 10 a second)
+          if (crowned) p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.01);
+          else if (this.soulCd <= 0) { this.soulCd = 0.1; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.003); }
+        }
         if (this.ut.poison && (m.poisonCd ?? 0) <= 0) { // 屍毒 (瘟疫幽魂: bigger, slowing)
           m.poisonCd = 3;
           const plague = this.combo.has('plague');
-          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15, kind: 'poison', slow: plague ? 0.6 : 0.9 });
+          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1), kind: 'poison', slow: plague ? 0.6 : 0.9 });
         }
-        const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師: bigger blasts)
-        const slow = this.ut.wraith ? 0.65 : undefined; // 怨靈
+        const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * (this.combo.has('lichKing') ? 1.2 : 1) * (1 + 0.2 * (this.n('utCaster') - 1)) * (this.combo.has('grandLich') ? 1.25 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師 / 骸骨魔導王: bigger blasts)
+        const slow = this.ut.wraith ? Math.max(0.3, 0.8 - 0.15 * this.n('utWraith')) : undefined; // 怨靈: stronger slow per copy
         if (ranged) {
           const a0 = Math.atan2(target.x - m.x, target.z - m.z), sp = 14;
-          const fan = crowned && this.combo.has('lichKing') ? [-0.25, 0, 0.25] : [0]; // 骸骨魔導王
-          for (const off of fan) { const a = a0 + off; this.projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, dmg, crit, fromPlayer: true, life: 8 / sp, pierce: 0, radius: 0.3, hit: [], shadow: true, minion: true, blast, slow }); }
+          const fan = crowned && this.combo.has('lichKing') ? [-0.4, -0.2, 0, 0.2, 0.4] : this.combo.has('boneVolley') ? [-0.18, 0, 0.18] : [0]; // 骸骨魔導王: the crowned one fires 5; 萬箭骨兵: everyone fires 3
+          for (const off of fan) { const a = a0 + off; this.projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, dmg, crit, fromPlayer: true, life: 8 / sp, pierce: this.n('utRanged') >= 2 ? 1 : 0, radius: 0.3, hit: [], shadow: true, minion: true, blast, slow }); }
         } else if (blast) {
           this.explode(target.x, target.z, blast, dmg, crit, 'shadow', { noProc: true, slow: slow, slowTime: slow ? 1.5 : undefined });
           if (this.ultProcs && target.hp > 0) ultOnHit(this, target, MINION_PROC);
@@ -783,7 +799,7 @@ export class Sim {
       // at the cap: renew the one with the least time left
       const old = this.minions.reduce<Minion | null>((m, n) => (!m || n.life < m.life ? n : m), null);
       if (!old) continue;
-      old.life = Math.max(old.life, 18 * (this.ut.lasting ? 1.5 : 1));
+      old.life = Math.max(old.life, 18 * (1 + 0.5 * this.n('utLasting')));
       old.hp = Math.min(old.maxHp, old.hp + old.maxHp * 0.3);
       old.power = Math.max(old.power, 1.1 * mult);
       this.events.push({ type: 'explode', x: old.x, z: old.z, r: 0.9, fx: 'shadow' });
@@ -1236,8 +1252,8 @@ export class Sim {
           // enemy shots also hit your undead
           for (const h of H) {
             // 骨盾: undead catch bullets in a much wider area and take half from them
-            const m = h.minions.find((mn) => mn.hp > 0 && Math.hypot(mn.x - pr.x, mn.z - pr.z) < (mn.big ? 0.6 : 0.4) * (h.ut.shield ? 2.5 : 1) + pr.radius);
-            if (m) { m.hp -= pr.dmg * defMultiplier(value(h.stats.def)) * h.minionTaken(m) * (h.ut.shield ? 0.5 : 1); alive = false; break; }
+            const m = h.minions.find((mn) => mn.hp > 0 && Math.hypot(mn.x - pr.x, mn.z - pr.z) < (mn.big ? 0.6 : 0.4) * (h.ut.shield ? 1.75 + 0.75 * h.utn.utShield! : 1) + pr.radius);
+            if (m) { m.hp -= pr.dmg * defMultiplier(value(h.stats.def)) * h.minionTaken(m) * (h.ut.shield ? 0.5 / h.utn.utShield! : 1); alive = false; break; }
           }
         }
       }
