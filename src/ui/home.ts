@@ -25,7 +25,8 @@ import { claimQuest, markTip, questCard, tipCard, type TipId } from './onboardin
 import { clearLang, getLang, setLang, tr } from '../i18n';
 import { ico, icoG } from './icons';
 import { coopBotOn, setCoopBot } from '../coopbot';
-import { createAccount, ID_RULE, login, logout, onlinePush, onlineState, onlineSupported, PASSWORD_MIN, type AccountError } from '../online';
+import { createAccount, fetchBoard, ID_RULE, login, logout, onlinePush, onlineState, onlineSupported, PASSWORD_MIN, type AccountError, type Board, type BoardKind } from '../online';
+import { mixFor } from '../sim/awakening';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 
@@ -137,6 +138,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
       </div>
       <button class="primary start" data-act="start">${tr('開始挑戰', 'Start')}</button>
       ${worldBossCard(save)}
+      ${onlineSupported() ? `<button class="card boardcard" data-act="board"><div class="statline"><h3 style="margin:0">🏆 ${tr('排行榜', 'Leaderboards')}</h3><small>${onlineState().playerId ? `👤 ${esc(onlineState().playerId!)}` : tr('開帳號先上榜', 'Make an account to join')}</small></div><small>${tr('最高通關、同職業排名、今日世界 Boss 傷害', 'Best tier, your class, today\'s World Boss damage')}</small></button>` : ''}
       <div class="note">${tr('唔掂螢幕 = 自動駕駛。掂住螢幕拖動（或 WASD）= 自己操控，放手 2 秒變返自動。<br>打低小 Boss 有機會得銀箱，最終 Boss 一定有金箱，<b>通關先入袋</b>。', 'Hands off = Autopilot. Drag (or WASD) to steer; let go for 2s to return to auto.<br>Mini-bosses may drop a Silver Chest; the final Boss always drops a Gold Chest. <b>Loot is kept only on a clear.</b>')}</div>
     </div>`));
   body.addEventListener('click', (ev) => {
@@ -146,11 +148,51 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
     else if (b.dataset.act === 'awaken') showAwaken(ctx);
     else if (b.dataset.act === 'ascend') showAscend(ctx);
     else if (b.dataset.act === 'worldboss') showWorldBoss(ctx);
+    else if (b.dataset.act === 'board') showBoard(ctx);
     else if (b.dataset.act === 'claim') { const got = claimQuest(save); if (got) { showHome(ctx); ctx.banner(`${tr('任務完成！', 'Quest done! ')}🪙 +${got}`); } }
     else if (b.dataset.act === 'tier-') { save.selectedTier--; writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'tier+') { save.selectedTier++; writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'start') ctx.startRun();
   });
+}
+
+// ---------- 排行榜 ----------
+function showBoard(ctx: HomeCtx): void {
+  const save = ctx.getSave();
+  let kind: BoardKind = 'all';
+  let board: Board | null | 'loading' = 'loading';
+  const el = h(`<div class="screen dim modal"></div>`);
+  const mixName = (id: string | null, cls: ClassId | null): string => {
+    if (id) { const [a, b, c] = id.split('_') as ClassId[]; const m = CLASSES[a] && mixFor(a, b, c ?? null); if (m) return `${m.icon} ${m.name}`; }
+    return cls && CLASSES[cls] ? `${CLASSES[cls].icon} ${CLASSES[cls].name}` : '';
+  };
+  const row = (r: Board['rows'][number]) => `<div class="brow ${r.me ? 'me' : ''}"><b class="brank">${r.rank <= 3 ? ['🥇', '🥈', '🥉'][r.rank - 1] : r.rank}</b>
+    <span class="bname"><b>${esc(r.playerId)}</b><small>${mixName(r.mixId, r.classId)} · Lv ${r.level}</small></span>
+    <b class="bval">${kind === 'wb' ? fmt(r.wbDamage) : EN ? `Tier ${r.bestTier}` : `第 ${r.bestTier} 級`}</b></div>`;
+  const draw = () => {
+    const signedIn = !!onlineState().playerId;
+    const list = board === 'loading' ? `<p class="note">${tr('載入緊…', 'Loading…')}</p>`
+      : !board ? `<p class="note">${tr('連唔到伺服器，遲啲再試', "Can't reach the server, try again later")}</p>`
+      : !board.rows.length ? `<p class="note">${kind === 'wb' ? tr('今日仲未有人打世界 Boss', 'Nobody has fought today\'s World Boss yet') : tr('仲未有人上榜', 'No one on this board yet')}</p>`
+      : board.rows.map(row).join('');
+    const mine = board && board !== 'loading' && board.me && !board.rows.some((r) => r.me) ? `<div class="bsep">…</div>${row(board.me)}` : '';
+    el.innerHTML = `<div class="card boardmodal">
+      <h2 style="margin:0 0 8px">🏆 ${tr('排行榜', 'Leaderboards')}</h2>
+      <div class="seg boardtabs">${([['all', tr('總榜', 'All')], ['class', `${CLASSES[save.classId].icon} ${CLASSES[save.classId].name}`], ['wb', tr('今日世界 Boss', "Today's World Boss")]] as const).map(([k, n]) => `<button data-kind="${k}" class="${kind === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="blist">${list}${mine}</div>
+      ${signedIn ? '' : `<p class="note" style="text-align:left">${tr('你仲未上榜：去「設定 → 網上帳號」開個帳號，成績就會自動上傳。', "You're not on the boards yet: make an account in Settings → Online account and your results upload automatically.")}</p><button data-act="tosettings" style="width:100%;margin-bottom:8px">${tr('去開帳號', 'Make an account')}</button>`}
+      <button class="ghost" data-act="close" style="width:100%">${tr('關閉', 'Close')}</button></div>`;
+  };
+  const load = async () => { board = 'loading'; draw(); board = await fetchBoard(kind, save.classId); draw(); };
+  el.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest('button');
+    if (!b) return;
+    if (b.dataset.kind) { kind = b.dataset.kind as BoardKind; void load(); return; }
+    if (b.dataset.act === 'close') el.remove();
+    if (b.dataset.act === 'tosettings') { el.remove(); showHome(ctx, 'settings'); }
+  });
+  ctx.ui.appendChild(el);
+  void load();
 }
 
 // ---------- 世界 Boss ----------

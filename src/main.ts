@@ -10,7 +10,7 @@ import { parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, claimWorldBos
 import { namedChance, todaysBoss } from './sim/worldboss';
 import { createInput } from './input';
 import { cloudConnect, cloudPush, cloudReady } from './cloud';
-import { onlineConnect, onlinePush, onlineState, type RemoteSave } from './online';
+import { onlineConnect, onlinePush, onlineState, reportWorldBoss, type RemoteSave } from './online';
 import { esc, fmt, h, mmss } from './ui/dom';
 import { showHome as renderHome, type HomeCtx, type Tab } from './ui/home';
 import { showRunTip, welcomeModal } from './ui/onboarding';
@@ -474,6 +474,7 @@ function finishWorldBoss(killed: boolean, reason: string): void {
   const s = sim!;
   sim = null;
   input.enabled = false;
+  void reportWorldBoss(s.wbDamage); // today's World Boss board keeps your best fight
   if (killed) { claimWbRun(s, true, reason); return; }
   // failed: retry for free (no rewards), or spend a ticket to take the rewards for the damage done
   const wb = s.wb!;

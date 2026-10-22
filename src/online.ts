@@ -3,7 +3,9 @@
 // Behind the scenes the login email is made up from the account id (no real email is ever sent),
 // so in Supabase "Confirm email" must be switched off.
 import { createClient, type SupabaseClient, type Session } from '@supabase/supabase-js';
-import type { SaveData } from './save';
+import { mixOf, type SaveData } from './save';
+import { dayKey } from './sim/worldboss';
+import type { ClassId } from './sim/classes';
 
 const URL = 'https://fqxaozbgvwxsubjhgdtd.supabase.co';
 const KEY = 'sb_publishable_SxvAQ11ZL5gGrPGpK3VDhQ_HH6iC9Hj'; // publishable: safe in the page, the tables are locked by RLS
@@ -144,7 +146,7 @@ async function flush(): Promise<void> {
     const { error } = await c.from('saves').upsert({ user_id: uid, data: { json: JSON.stringify(s), updatedAt: s.updatedAt }, save_version: s.version ?? 1, updated_at: new Date(s.updatedAt || Date.now()).toISOString() });
     if (error) throw error;
     await c.from('scores').upsert({
-      user_id: uid, player_id: playerId, class_id: s.classId, best_tier: s.highestCleared, account_level: s.level,
+      user_id: uid, player_id: playerId, class_id: s.classId, mix_name: mixOf(s)?.id ?? null, best_tier: s.highestCleared, account_level: s.level,
       updated_at: new Date().toISOString(),
     });
     lastSync = Date.now();
@@ -167,4 +169,60 @@ export function onlinePush(s: SaveData, now = false): void {
   if (!session || !playerId) return;
   pending = s;
   if (now) { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } void flush(); } else schedule();
+}
+
+// ---------- leaderboards ----------
+export type BoardKind = 'all' | 'class' | 'wb';
+export interface BoardRow { rank: number; playerId: string; classId: ClassId | null; mixId: string | null; bestTier: number; level: number; wbDamage: number; me: boolean }
+export interface Board { rows: BoardRow[]; me: BoardRow | null }
+
+/** Today's World Boss: keep this account's best damage of the day. */
+export async function reportWorldBoss(damage: number): Promise<void> {
+  if (!session || !playerId || !(damage > 0)) return;
+  try {
+    const c = client();
+    const today = dayKey();
+    const { data } = await c.from('scores').select('wb_day, wb_damage').eq('user_id', session.user.id).maybeSingle();
+    if (data && data.wb_day === today && (data.wb_damage as number) >= damage) return;
+    await c.from('scores').upsert({ user_id: session.user.id, player_id: playerId, wb_day: today, wb_damage: Math.round(damage), updated_at: new Date().toISOString() });
+  } catch { /* the board just misses this fight */ }
+}
+
+const toRow = (r: Record<string, unknown>, rank: number, uid: string | undefined): BoardRow => ({
+  rank, playerId: String(r.player_id), classId: (r.class_id as ClassId | null) ?? null, mixId: (r.mix_name as string | null) ?? null,
+  bestTier: Number(r.best_tier ?? 0), level: Number(r.account_level ?? 1), wbDamage: Number(r.wb_damage ?? 0), me: r.user_id === uid,
+});
+
+/** Top 50 plus your own place. class: only players whose main class is classId. wb: today's World Boss damage. */
+export async function fetchBoard(kind: BoardKind, classId?: ClassId): Promise<Board | null> {
+  try {
+    const c = client();
+    const uid = session?.user.id;
+    const cols = 'user_id, player_id, class_id, mix_name, best_tier, account_level, wb_day, wb_damage';
+    let q = c.from('scores').select(cols);
+    if (kind === 'wb') q = q.eq('wb_day', dayKey()).gt('wb_damage', 0).order('wb_damage', { ascending: false });
+    else {
+      if (kind === 'class' && classId) q = q.eq('class_id', classId);
+      q = q.gt('best_tier', 0).order('best_tier', { ascending: false }).order('account_level', { ascending: false }).order('updated_at', { ascending: true });
+    }
+    const { data, error } = await timeout(Promise.resolve(q.limit(50)));
+    if (error || !data) return null;
+    const rows = (data as Record<string, unknown>[]).map((r, i) => toRow(r, i + 1, uid));
+    let me = rows.find((r) => r.me) ?? null;
+    if (!me && uid) {
+      // outside the top 50: work out the place by counting who is ahead
+      const { data: mine } = await c.from('scores').select(cols).eq('user_id', uid).maybeSingle();
+      const okKind = mine && (kind === 'wb' ? mine.wb_day === dayKey() && Number(mine.wb_damage) > 0 : Number(mine.best_tier) > 0 && (kind !== 'class' || mine.class_id === classId));
+      if (mine && okKind) {
+        let cq = c.from('scores').select('user_id', { count: 'exact', head: true });
+        if (kind === 'wb') cq = cq.eq('wb_day', dayKey()).gt('wb_damage', Number(mine.wb_damage));
+        else { if (kind === 'class' && classId) cq = cq.eq('class_id', classId); cq = cq.gt('best_tier', Number(mine.best_tier)); }
+        const { count } = await cq;
+        me = toRow(mine as Record<string, unknown>, (count ?? 0) + 1, uid);
+      }
+    }
+    return { rows, me };
+  } catch {
+    return null;
+  }
 }

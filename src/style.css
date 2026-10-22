@@ -428,3 +428,17 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 /* online account form */
 .olin { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--text); font-size: 16px; }
 .olerr { margin: 8px 0 0; color: #ff8a8a; font-size: 13px; text-align: left; word-break: break-word; }
+
+/* leaderboards */
+.boardcard { text-align: left; width: 100%; }
+.boardmodal { width: min(440px, 100%); box-sizing: border-box; }
+.boardtabs { margin-bottom: 10px; flex-wrap: wrap; }
+.blist { display: flex; flex-direction: column; gap: 4px; max-height: 55vh; overflow-y: auto; margin-bottom: 10px; }
+.brow { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); }
+.brow.me { background: rgba(255, 194, 58, 0.16); outline: 1px solid rgba(255, 194, 58, 0.5); }
+.brank { width: 28px; text-align: center; font-size: 15px; }
+.bname { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bname small { color: var(--muted); font-size: 12px; }
+.bval { font-variant-numeric: tabular-nums; }
+.bsep { text-align: center; color: var(--muted); }
