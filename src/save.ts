@@ -35,6 +35,7 @@ export interface SaveData {
   subClass: Partial<Record<ClassId, ClassId>>; // second class per main class (permanent)
   subClass2: Partial<Record<ClassId, ClassId>>; // third class per main class (昇華)
   arrowType: Partial<Record<ClassId, ArrowType>>; // bows: chosen arrows per class
+  arrowMix: Partial<Record<ClassId, ArrowType[]>>; // 多重箭袋: extra arrow types used at the same time
   spellType: Partial<Record<ClassId, SpellType>>; // staffs: chosen spell per class
   necroMode: NecroMode; // necromancer: shadow bolts or summoner
   board: string[]; // unlocked skill-board panels (all three boards, shared by the character)
@@ -67,7 +68,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, spellType: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, spellType: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -154,6 +155,7 @@ function sanitize(raw: unknown): SaveData {
     necroMode: r.necroMode === 'summon' ? 'summon' : 'bolt',
     spellType: Object.fromEntries(Object.entries(r.spellType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && SPELL_TYPES.includes(a as SpellType))) as SaveData['spellType'],
     arrowType: Object.fromEntries(Object.entries(r.arrowType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && ARROW_TYPES.includes(a as ArrowType))) as SaveData['arrowType'],
+    arrowMix: Object.fromEntries(Object.entries(r.arrowMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => ARROW_TYPES.includes(x as ArrowType)))]])) as SaveData['arrowMix'],
     wbDay: typeof r.wbDay === 'string' ? r.wbDay : '',
     wbUsed: Math.max(0, Math.floor(num(r.wbUsed, 0))),
     wbLevel: Math.max(WB_MIN_LEVEL, Math.floor(num(r.wbLevel, WB_MIN_LEVEL))),
@@ -556,6 +558,17 @@ export function resetAwakening(s: SaveData): { souls: number; runes: number } {
 
 export { BOARD_NODES };
 
+/** 多重箭袋: how many arrow types you can use at once (1 + every +1 on items with it, up to all of them). */
+export function arrowSlots(s: SaveData): number {
+  const extra = equippedItems(s).filter((i) => i.special === 'multiArrow').reduce((a, i) => a + i.plus, 0);
+  return Math.min(ARROW_TYPES.length, 1 + extra);
+}
+/** The arrow types in use: the main one first, then the extra ones (as many as 多重箭袋 allows). */
+export function arrowsInUse(s: SaveData): ArrowType[] {
+  const main = s.arrowType[s.classId] ?? 'normal';
+  return [main, ...(s.arrowMix[s.classId] ?? []).filter((a) => a !== main)].slice(0, arrowSlots(s));
+}
+
 /** Everything the simulation needs to start a run with the current character. */
 export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPickCards'> {
   const sub = subOf(s);
@@ -566,7 +579,7 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
-  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', spellType: s.spellType[s.classId] ?? 'fire', necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
+  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), spellType: s.spellType[s.classId] ?? 'fire', necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
 }
 
 /** Stats preview including skills and awakening (for the home screen). */

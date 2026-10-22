@@ -48,6 +48,8 @@ export interface Enemy {
 export type Elem = 'fire' | 'frost' | 'shock' | 'poison';
 export const ELEM_TIME = 4;
 export const VULN = 0.4;
+/** 多重箭袋: every extra arrow type used at once multiplies arrow damage by this. */
+export const MIX_PENALTY = 0.75;
 
 /** A telegraphed attack: a red warning on the floor that hits when the timer runs out. */
 export interface Warning { x: number; z: number; r: number; timer: number; max: number; dmg: number; line?: { x2: number; z2: number; w: number } }
@@ -70,6 +72,7 @@ export interface Projectile {
   shard?: boolean; // ice shard
   owner?: Sim; // co-op: the hero who fired it (damage, procs and kills are theirs)
   elem?: Elem; // leaves this element on what it hits
+  hitBlast?: number; // 多重箭袋 with 爆裂箭: a small blast on every hit (the arrow keeps piercing)
   homing?: boolean; // 追蹤箭: steers towards an enemy; after piercing one, turns to the next
   seek?: number; // id of the enemy it is chasing
 }
@@ -140,6 +143,7 @@ export interface RunSetup {
   subClass2Id?: ClassId | null; // third class (昇華)
   weapons?: { main: WeaponType | null; sub: WeaponType | null; blocked: boolean }; // what is equipped (for the look)
   arrowType?: ArrowType; // bows: which arrows (Gear tab)
+  arrowTypes?: ArrowType[]; // 多重箭袋: several arrow types at once (the first is arrowType)
   spellType?: SpellType; // staffs (fireball attack): which spell (Gear tab)
   necroMode?: NecroMode; // necromancer with a staff / no weapon: shadow bolts or summoner
   skills?: SkillEffects | null; // from the skill trees
@@ -203,6 +207,7 @@ export class Sim {
   /** How the player attacks (from the main-hand weapon). */
   readonly attack: AttackStyle;
   readonly arrowType: ArrowType;
+  readonly arrowTypes: ArrowType[];
   readonly spellType: SpellType;
   readonly wb: WorldBossDef | null;
   wbDamage = 0; // damage dealt to the world boss
@@ -317,6 +322,7 @@ export class Sim {
     const kind0 = wk ?? this.cls.attack;
     this.attack = ATTACK_STYLES[kind0 === 'shadow' && setup.necroMode === 'summon' ? 'summon' : kind0];
     this.arrowType = setup.arrowType ?? 'normal';
+    this.arrowTypes = setup.arrowTypes?.length ? setup.arrowTypes : [this.arrowType];
     this.spellType = setup.spellType ?? 'fire';
     this.wb = setup.worldBoss ? WORLD_BOSSES[setup.worldBoss] : null;
     this.autoPickCards = setup.autoPickCards;
@@ -767,6 +773,7 @@ export class Sim {
     const isShadow = this.attack.kind === 'shadow';
     if (this.attack.kind === 'javelin') { this.throwJavelins(base, mult); return; }
     const arrow = this.attack.kind === 'arrow' ? this.arrowType : null;
+    if (arrow && this.arrowTypes.length > 1) { this.shootMixedArrows(base, mult, this.arrowTypes); return; }
     if (arrow) { this.shootArrows(base, mult, arrow); return; }
     if (isFire && this.spellType !== 'fire') { this.castSpells(base, mult, this.spellType); this.echoCast(base, mult); return; }
     const spread = isFire ? 0.3 : isShadow ? 0.22 : 0.14;
@@ -866,6 +873,36 @@ export class Sim {
         radius: 0.3, hit: [],
         blast: type === 'blast' ? 1.5 * Math.sqrt(value(this.stats.area)) : undefined, fx: type === 'blast' ? 'fire' : undefined,
         slow: type === 'frost' ? 0.5 : undefined, ap: type === 'pierce' || undefined, elem: type === 'frost' ? 'frost' : type === 'blast' ? 'fire' : undefined,
+      });
+    }
+  }
+
+  /** 多重箭袋: several arrow types at once, their effects combined on every arrow.
+   *  Damage multiplies (精準 ×1.4, 散射 ×0.8, 追蹤 ×0.75, 爆裂 ×0.8) and each extra type costs ×0.85;
+   *  pierces add up; 爆裂 becomes a small blast on the first hit (60%, no fire element) so the arrow can keep piercing. */
+  private shootMixedArrows(base: number, mult: number, types: ArrowType[]): void {
+    const p = this.player, t = new Set(types);
+    const sharp = this.awk?.id === 'archer_archer' || this.awk?.base === 'archer_archer';
+    const homing = t.has('homing') || (sharp && t.has('spread'));
+    const n = this.stats.multishot + (t.has('spread') ? 2 : 0);
+    const spread = t.has('spread') ? 0.2 : 0.14;
+    const speed = this.attack.projectileSpeed ?? 18;
+    let dm = 1.15 * MIX_PENALTY ** (types.length - 1);
+    if (t.has('normal')) dm *= 1.4;
+    if (t.has('spread')) dm *= 0.8;
+    if (t.has('homing')) dm *= 0.75;
+    if (t.has('blast')) dm *= 0.8;
+    const pierce = this.stats.pierce + 1 + (t.has('normal') ? 1 : 0) + (t.has('pierce') ? 3 : 0) + (t.has('frost') ? 2 : 0) + (t.has('homing') ? (sharp ? 4 : 2) : 0);
+    const blast = t.has('blast') ? 1.5 * Math.sqrt(value(this.stats.area)) : undefined;
+    for (let i = 0; i < n; i++) {
+      const a = base + (i - (n - 1) / 2) * spread;
+      const { dmg: raw, crit } = this.rollDamage();
+      this.projectiles.push({
+        x: p.x, z: p.z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed,
+        dmg: raw * mult * dm, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.15,
+        pierce, radius: 0.3, hit: [], hitBlast: blast, fx: blast ? 'fire' : undefined,
+        slow: t.has('frost') ? 0.5 : undefined, ap: t.has('pierce') || undefined,
+        elem: t.has('frost') ? 'frost' : undefined, homing: homing || undefined,
       });
     }
   }
@@ -1342,6 +1379,7 @@ export class Sim {
             pr.hit.push(e.id);
             o.damageEnemy(e, pr.dmg, pr.crit, pr.minion, pr.ap);
             if (pr.elem && e.hp > 0) o.applyElem(e, pr.elem);
+            if (pr.hitBlast) { o.explode(pr.x, pr.z, pr.hitBlast, pr.dmg * 0.6, pr.crit, 'fire', { noProc: true }); pr.hitBlast = undefined; } // only the first hit blasts
             if (pr.minion && o.ultProcs && e.hp > 0) ultOnHit(o, e, MINION_PROC); // an undead archer's bolt
             if (pr.knock && !isBigKind(e.kind)) {
               const v = Math.hypot(pr.vx, pr.vz) || 1;

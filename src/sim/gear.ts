@@ -150,6 +150,7 @@ export const SPECIALS = {
   giantSlayer: { family: 'blade', name: tr('屠巨', 'Giantslayer'), desc: tr('對小 Boss 同 Boss 傷害 +30%', '+30% dmg vs mini bosses and bosses') },
   // bows
   extraArrow: { family: 'bow', name: tr('分裂', 'Split'), desc: tr('每次攻擊多一下（多一支箭 / 多一個火球 / 多斬一下）', '+1 hit per attack (extra arrow / fireball / slash)') },
+  multiArrow: { family: 'bow', name: tr('多重箭袋', 'Arrow Mix'), desc: tr('呢件裝備每強化 +1，就可以多揀一種箭同時用（效果疊埋；每多一種，全部箭傷害 ×0.75）', 'Each +1 on this item lets you use one more arrow type at once (effects combine; each extra type: all arrow damage ×0.75)') },
   piercing: { family: 'bow', name: tr('貫穿', 'Piercing'), desc: tr('箭可以多穿 2 個敵人', 'Arrows pierce 2 more enemies') },
   critBurst: { family: 'bow', name: tr('爆裂', 'Burst'), desc: tr('暴擊時喺敵人身上引發小爆炸（80%）', 'Crits cause a small explosion (80%)') },
   // magic
@@ -332,10 +333,10 @@ export function makeItem(id: string, kind: ItemKind, rarity: Rarity, tier: numbe
     proc = { id, value: Math.round((lo + rand() * (hi - lo)) * PROC_MULT[rarity]) };
   }
   if (rarity === 'legendary' && accessory) {
-    // rings: 40% 骨爆, 30% an undead trait; amulets: 50% an undead trait
     const r = rand();
     const trait = () => UNDEAD_TRAITS[Math.floor(rand() * UNDEAD_TRAITS.length)];
-    special = slot === 'ring' ? (r < 0.4 ? 'boneBurst' : r < 0.7 ? trait() : undefined) : r < 0.5 ? trait() : undefined;
+    // rings: 40% 骨爆, 25% an undead trait, 15% 多重箭袋; amulets: 45% an undead trait, 15% 多重箭袋
+    special = slot === 'ring' ? (r < 0.4 ? 'boneBurst' : r < 0.65 ? trait() : r < 0.8 ? 'multiArrow' : undefined) : r < 0.45 ? trait() : r < 0.6 ? 'multiArrow' : undefined;
   }
   return { id, slot, weapon, rarity, tier, main, affixes, special, proc, plus: 0, spent: 0, fails: 0, rerolls: 0, locked: false };
 }
