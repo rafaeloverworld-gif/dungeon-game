@@ -624,7 +624,7 @@ export class Sim {
         const r = (m.big ? 3.8 : 3) * Math.sqrt(value(this.stats.area));
         m.hp = 0;
         // 骨爆: the blast is as big as the undead's max HP (tanky undead hit harder)
-        this.explode(m.x, m.z, r, m.maxHp * 1.0 * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true });
+        this.explode(m.x, m.z, r, m.maxHp * 1.5 * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true }); // no ultimate procs, so the blast itself is big
         continue;
       }
       if (target && d <= reach + 0.15 && m.atkTimer <= 0) {

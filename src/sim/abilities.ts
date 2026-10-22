@@ -336,7 +336,7 @@ function castSignature(sim: Sim): boolean {
     case 'boneArmy':
       for (let i = 0; i < (up ? 6 : 4); i++) {
         const a = (i / (up ? 6 : 4)) * Math.PI * 2;
-        sim.summon(p.x + Math.sin(a) * 1.6, p.z + Math.cos(a) * 1.6, { force: true, life: 15 });
+        sim.summon(p.x + Math.sin(a) * 1.6, p.z + Math.cos(a) * 1.6, { force: true, life: 15, power: m }); // 招牌強化 makes them hit harder
       }
       sim.minionBuff = 8;
       sim.minionBuffMult = up ? 1.8 : 1.5;

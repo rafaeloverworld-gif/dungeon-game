@@ -166,7 +166,7 @@ export const SPECIALS = {
   utRanged: { family: 'death', name: tr('骨弓', 'Bonebow'), desc: tr('亡靈特性：亡靈改為遠距離射骨箭（可以同其他特性疊）', 'Undead trait: Undead shoot bone arrows from range (stacks with other traits)') },
   utCaster: { family: 'death', name: tr('骨法', 'Bonecaster'), desc: tr('亡靈特性：亡靈變成骷髏法師，喺遠處射會爆炸嘅暗影彈（同骨弓疊：爆炸範圍大 40%）', 'Undead trait: Undead become skeleton mages that cast exploding shadow bolts from range (with Bone Archer: 40% bigger blasts)') },
   utWraith: { family: 'death', name: tr('怨靈', 'Wraith'), desc: tr('亡靈特性：亡靈行快 60%，打中會令敵人減速（可以同其他特性疊）', 'Undead trait: Undead move 60% faster and slow what they hit (stacks with other traits)') },
-  boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 亡靈強度（骨甲令佢更痛）', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × Undead Power (Ironbone makes it hurt more)') },
+  boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 150% × 亡靈強度（骨甲令佢更痛；自爆唔會觸發終極技）', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × 150% × Undead Power (Ironbone makes it hurt more; blasts don\'t trigger Ultimates)') },
 } as const;
 export type SpecialId = keyof typeof SPECIALS;
 export const UNDEAD_TRAITS = ['utTank', 'utRanged', 'utCaster', 'utWraith'] as const satisfies readonly SpecialId[];

@@ -292,6 +292,8 @@ function awkSpecs(id: string): Record<Branch, BranchSpec> {
   const pr: Spec = { name: PROC_SKILLS[t.proc[0]].name, icon: PROC_SKILLS[t.proc[0]].icon, fx: { proc: t.proc[0], value: t.proc[1] } };
   const gear: Spec = { name: SPECIALS[t.gear].name, icon: '✨', fx: { gear: t.gear } };
   const uq = (u: AwkTheme['dps']): Spec => ({ name: u[0], icon: u[1], fx: { unique: u[2] } });
+  // 骸骨之王 fights through its undead, so its Spread panels speed up summoning instead
+  const spread = (v: number): Spec => id === 'necro_necro' ? S(tr('亡者召喚', 'Swift Summons'), '⌛', 'summonCd', Math.round(v * 0.35 * 1000) / 1000, false) : S(tr('擴散', 'Spread'), '🌀', 'area', v);
   return {
     dps: [
       F(t.f1, 1), F(t.f2, 1), F(t.f1, 1),
@@ -306,10 +308,10 @@ function awkSpecs(id: string): Record<Branch, BranchSpec> {
       P(tr('閃避', 'Evasion'), '💨', 'dodge', 0.04), P(tr('嗜血', 'Bloodlust'), '🩸', 'healOnKill', 0.005), uq(t.tank),
     ],
     ctrl: [
-      P(tr('招牌冷卻', 'Signature Haste'), '⌛', 'sigCd', 0.05), S(tr('擴散', 'Spread'), '🌀', 'area', 0.05), P(tr('招牌強化', 'Signature Power'), '✨', 'sigDmg', 0.1),
+      P(tr('招牌冷卻', 'Signature Haste'), '⌛', 'sigCd', 0.05), spread(0.05), P(tr('招牌強化', 'Signature Power'), '✨', 'sigDmg', 0.1),
       P(tr('招牌冷卻', 'Signature Haste'), '⌛', 'sigCd', 0.06), P(tr('迅捷', 'Haste'), '⏱️', 'cdr', 0.04), P(tr('招牌強化', 'Signature Power'), '✨', 'sigDmg', 0.12),
       P(tr('招牌冷卻', 'Signature Haste'), '⌛', 'sigCd', 0.07), P(tr('迅捷', 'Haste'), '⏱️', 'cdr', 0.04), P(tr('招牌強化', 'Signature Power'), '✨', 'sigDmg', 0.15),
-      S(tr('疾步', 'Swiftness'), '👟', 'moveSpeed', 0.04), S(tr('擴散', 'Spread'), '🌀', 'area', 0.08), { name: getLang() === 'en' ? `${sig.name}+` : `${sig.name}強化`, icon: sig.icon, fx: { sigUp: true } },
+      S(tr('疾步', 'Swiftness'), '👟', 'moveSpeed', 0.04), spread(0.08), { name: getLang() === 'en' ? `${sig.name}+` : `${sig.name}強化`, icon: sig.icon, fx: { sigUp: true } },
     ],
   };
 }
@@ -364,10 +366,11 @@ export const sectionTiers = (key: string) => (TRI_BOARD_NODES[key] ? TRI_SECTION
 
 export function effectText(fx: Effect, board?: string): string {
   if ('stat' in fx) {
-    const names: Partial<Record<StatKey, string>> = { atk: tr('攻擊', 'ATK'), maxHp: 'HP', def: tr('防禦', 'DEF'), atkSpeed: tr('攻速', 'Attack Speed'), moveSpeed: tr('移速', 'Move Speed'), crit: tr('暴擊率', 'Crit Rate'), critDmg: tr('暴擊傷害', 'Crit Damage'), range: tr('射程 / 攻擊距離', 'Range'), area: tr('範圍', 'Area'), regen: tr('每秒回復', 'Regen'), summon: tr('亡靈傷害同 HP', 'Undead damage & HP') };
+    const names: Partial<Record<StatKey, string>> = { atk: tr('攻擊', 'ATK'), maxHp: 'HP', def: tr('防禦', 'DEF'), atkSpeed: tr('攻速', 'Attack Speed'), moveSpeed: tr('移速', 'Move Speed'), crit: tr('暴擊率', 'Crit Rate'), critDmg: tr('暴擊傷害', 'Crit Damage'), range: tr('射程 / 攻擊距離', 'Range'), area: tr('範圍', 'Area'), regen: tr('每秒回復', 'Regen'), summon: tr('亡靈傷害同 HP', 'Undead damage & HP'), summonCd: tr('召喚冷卻', 'Summon cooldown') };
     const n = names[fx.stat] ?? fx.stat;
     if (fx.stat === 'regen') return getLang() === 'en' ? `${n} ${((fx.flat ?? 0) * 100).toFixed(1)}% HP/s` : `${n} ${((fx.flat ?? 0) * 100).toFixed(1)}% HP`;
     if (fx.stat === 'crit' || fx.stat === 'critDmg') return `${n} +${Math.round((fx.flat ?? 0) * 1000) / 10}%`;
+    if (fx.stat === 'summonCd') return getLang() === 'en' ? `${n} -${Math.round((fx.flat ?? 0) * 100)}% (Raise Skeletons, summoning signatures; kills rise more often)` : `${n} -${Math.round((fx.flat ?? 0) * 100)}%（召喚骷髏、召喚型招牌技；殺敵更易變亡靈）`;
     return fx.pct !== undefined ? `${n} +${Math.round(fx.pct * 100)}%` : `${n} +${fx.flat}`;
   }
   if ('skill' in fx) return SKILL_DESC[fx.skill][0];
@@ -391,7 +394,12 @@ export function effectText(fx: Effect, board?: string): string {
     case 'healOnKill': return getLang() === 'en' ? `Heal ${(v * 100).toFixed(1)}% HP per kill` : `每殺一隻敵人回 ${(v * 100).toFixed(1)}% HP`;
     case 'multishot': return tr('每次攻擊多一下（弓多一支箭、法師多一個火球、戰士多斬一下）', 'One extra hit per attack (an extra arrow, fireball or sword swing)');
     case 'pierce': return tr('箭可以多穿 1 個敵人', 'Arrows pierce 1 more enemy');
-    case 'sigDmg': return `${tr('招牌技傷害', 'Signature skill damage')} +${Math.round(v * 100)}%`;
+    case 'sigDmg': {
+      // summoning signatures: the bonus goes to the skeletons they raise
+      const a = board ? AWAKENED[(board.replace(/^[23]:/, '').split('_').slice(0, 2).join('_'))] : undefined;
+      if (a && (a.signature.kind === 'raiseLegion' || a.signature.kind === 'boneArmy')) return getLang() === 'en' ? `Signature +${Math.round(v * 100)}%: the Skeletons "${a.signature.name}" raises deal +${Math.round(v * 100)}% damage` : `招牌技 +${Math.round(v * 100)}%：「${a.signature.name}」召喚嘅骷髏傷害 +${Math.round(v * 100)}%`;
+      return `${tr('招牌技傷害', 'Signature skill damage')} +${Math.round(v * 100)}%`;
+    }
     case 'sigCd': return `${tr('招牌技冷卻', 'Signature skill cooldown')} -${Math.round(v * 100)}%`;
     case 'cdr': return `${tr('所有技能冷卻', 'All skill cooldowns')} -${Math.round(v * 100)}%`;
     case 'dodge': return `${Math.round(v * 100)}% ${tr('機會完全避開一次傷害', 'chance to fully dodge a hit')}`;
