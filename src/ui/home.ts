@@ -3,8 +3,8 @@ import { prefs as fxPrefs, setPref } from '../audio';
 import { ACCOUNT, DUNGEON, SHOP, type ShopKey, biomeFor, ENEMY_UNLOCKS, ELITES, tierPower } from '../sim/config';
 import { ARROW_TYPES, ARROWS, ATTACK_NAMES, CLASSES, CLASS_IDS, SPELL_TYPES, SPELLS, NECRO_MODES, type ArrowType, type ClassId, type NecroMode, type SpellType } from '../sim/classes';
 import {
-  ACCESSORY_SLOTS, ARMOUR_SLOTS, canReroll, procText, PROC_SKILLS, INVENTORY_MAX, isWeaponSlot, itemIcon, itemName, itemScore, lineText, MAX_PLUS, RARITIES, RARITY_COLORS,
-  RARITY_NAMES, rerollCost, salvageValue, SLOT_ICONS, SLOT_NAMES, EQUIP_SLOTS, EQUIP_NAMES, itemSlotOf, type EquipSlot, SPECIALS, TRADE_COUNT, undeadName, UNDEAD_TRAITS, activeCombos, BONE_COMBOS, STACK_TEXT, isMax, MAX_STACK, MAX_POWER, type SpecialId, tradeRarityWeights, upgradeChance,
+  ACCESSORY_SLOTS, ARMOUR_SLOTS, canReroll, procText, PROC_SKILLS, isWeaponSlot, itemIcon, itemName, itemScore, lineText, MAX_PLUS, RARITIES, RARITY_COLORS,
+  RARITY_NAMES, rerollCost, salvageValue, SLOT_ICONS, SLOT_NAMES, EQUIP_SLOTS, EQUIP_NAMES, itemSlotOf, type EquipSlot, SPECIALS, TRADE_COUNT, undeadName, UNDEAD_TRAITS, activeCombos, BONE_COMBOS, doubleChance, STACK_TEXT, isMax, MAX_STACK, MAX_POWER, type SpecialId, tradeRarityWeights, upgradeChance,
   upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
 import { buildStats } from '../sim/sim';
@@ -13,7 +13,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, arrowMaxForm, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
+  activeBoard, activeBoards, arrowMaxForm, ENDLESS_START, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -38,6 +38,7 @@ export interface HomeCtx {
   getSave: () => SaveData;
   setSave: (s: SaveData) => void;
   startRun: () => void;
+  startEndless: () => void;
   startWorldBoss: (level: number) => void;
   openCoop: () => void;
   teamCode: () => string | null;
@@ -141,6 +142,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
         </div>
       </div>
       <button class="primary start" data-act="start">${tr('開始挑戰', 'Start')}</button>
+      ${endlessCard(save)}
       ${worldBossCard(save)}
       ${onlineSupported() || ctx.coopAvailable() ? `<button class="card boardcard" data-act="coop"><div class="statline"><h3 style="margin:0">🤝 ${tr('合作模式（2 人）', 'Co-op (2 players)')}</h3><small>${ctx.teamCode() ? `${tr('隊伍', 'Team')} ${ctx.teamCode()}` : ctx.coopAvailable() ? tr('開房 / 入房', 'Open / join a room') : tr('要網上帳號', 'Needs an online account')}</small></div><small>${tr('同朋友一齊打同一個地城，每人都攞足獎勵', 'Clear a dungeon together with a friend; everyone gets full rewards')}</small></button>` : ''}
       ${onlineSupported() ? `<button class="card boardcard" data-act="board"><div class="statline"><h3 style="margin:0">🏆 ${tr('排行榜', 'Leaderboards')}</h3><small>${onlineState().playerId ? `👤 ${esc(onlineState().playerId!)}` : tr('開帳號先上榜', 'Make an account to join')}</small></div><small>${tr('最高通關、同職業排名、今日世界 Boss 傷害', 'Best tier, your class, today\'s World Boss damage')}</small></button>` : ''}
@@ -159,7 +161,14 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
     else if (b.dataset.act === 'tier-') { save.selectedTier--; writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'tier+') { save.selectedTier++; writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'start') ctx.startRun();
+    else if (b.dataset.act === 'endless') { if (save.highestCleared >= ENDLESS_UNLOCK) ctx.startEndless(); }
   });
+}
+
+/** 無盡模式 card: unlocked after clearing tier 50. */
+function endlessCard(save: SaveData): string {
+  const open = save.highestCleared >= ENDLESS_UNLOCK;
+  return `<button class="card boardcard" data-act="endless" ${open ? '' : 'disabled'}><div class="statline"><h3 style="margin:0">♾️ ${tr('無盡模式', 'Endless')}</h3><small>${open ? tr(`最佳：${save.endlessBest} 層`, `Best: ${save.endlessBest} floors`) : tr(`通關第 ${ENDLESS_UNLOCK} 級解鎖`, `Clear Tier ${ENDLESS_UNLOCK} to unlock`)}</small></div><small>${tr(`由第 ${ENDLESS_START} 級開始，每過一層（3 張地圖）升一級，打到倒為止。寶箱同金幣死咗都照拎。`, `Starts at Tier ${ENDLESS_START}; every floor (3 maps) is one tier higher, until you fall. Chests and coins are kept when you die.`)}</small></button>`;
 }
 
 // ---------- 排行榜 ----------
@@ -240,7 +249,7 @@ function showWorldBoss(ctx: HomeCtx): void {
         <p class="sub" style="margin:4px 0 10px">${wb.desc}${EN ? `. ${WB_TIME / 60} min limit; the Boss has 3 phases.` : `。限時 ${WB_TIME / 60} 分鐘，Boss 有三個階段。`}</p>
         <div class="tier">
           <button data-lv="-1" ${level <= WB_MIN_LEVEL ? 'disabled' : ''}>◀</button>
-          <div style="text-align:center"><div class="val">Lv ${level}</div><small style="color:var(--muted)">${tr('最高', 'Max')} Lv ${maxLv} · ${tr('打死跌有名傳說機會', 'Named Legendary on kill')} ${Math.round(namedChance(level) * 100)}%</small></div>
+          <div style="text-align:center"><div class="val">Lv ${level}</div><small style="color:var(--muted)">${tr('最高', 'Max')} Lv ${maxLv} · ${tr('打死跌有名傳說機會', 'Named Legendary on kill')} ${Math.round(namedChance(level) * 100)}%${level > 100 ? ` · 💠 ${tr('雙傳說', 'Twin Legendary')} ${Math.round(doubleChance(level) * 100)}%` : level >= 80 ? ` · 💠 ${tr('Lv 101 起有雙傳說', 'Twin Legendaries from Lv 101')}` : ''}</small></div>
           <button data-lv="1" ${level >= maxLv ? 'disabled' : ''}>▶</button>
         </div>
         ${tipCard(save, 'worldboss')}
@@ -554,7 +563,7 @@ function undeadLine(save: SaveData): string {
   const cnt = (t: SpecialId) => all.filter((x) => x === t).length;
   const name = undeadName({ tank: sp.has('utTank'), ranged: sp.has('utRanged'), caster: sp.has('utCaster'), wraith: sp.has('utWraith'), burst: sp.has('boneBurst') }, all);
   const combos = activeCombos(all);
-  return `<div class="undeadline">💀 ${tr('你嘅亡靈：', 'Your Undead: ')}<b>${name}</b><small>${tr('跟你嘅 HP、攻擊、攻速、移速、防禦、荊棘同關卡入面嘅加成一齊變強', 'They share your HP, ATK, attack speed, move speed, DEF, Thorns and in-run bonuses')}</small>${traits.length ? `<small>${traits.map((t) => cnt(t) > 1 ? `${SPECIALS[t].name} ×${cnt(t)}（${STACK_TEXT[t] ?? ''}${cnt(t) > MAX_STACK ? tr(`；最多計 ${MAX_STACK} 件`, `; only ${MAX_STACK} count`) : ''}）` : SPECIALS[t].name).join(' + ')}</small>` : `<small>${tr('傳說裝備嘅骨特性可以改變亡靈（可以疊；某啲組合會變成新嘅亡靈）', 'Bone traits on legendary gear change your Undead (they stack; some combos create new Undead)')}</small>`}${combos.map((c) => `<small class="combo">✨ <b>${isMax(c, all) ? tr('極·', 'Max ') : ''}${c.name}</b>（${needText(c.needs)}）：${c.desc}${c.power ? tr(`，亡靈傷害 ×${c.power}`, `, Undead damage ×${c.power}`) : ''}</small>`).join('')}<details class="combolist"><summary>${tr('所有骨組合', 'All bone combos')}</summary><small>${tr(`同一種骨特性最多計 ${MAX_STACK} 件。三件一樣係純組合；裝夠 ${MAX_STACK} 件變「極」，亡靈傷害再 ×${MAX_POWER}`, `Up to ${MAX_STACK} copies of one bone trait count. Three of a kind make a pure form; ${MAX_STACK} make its Max form (Undead damage ×${MAX_POWER} more)`)}</small>${BONE_COMBOS.map((c) => `<small>${combos.includes(c) ? '✅' : '▫️'} <b>${c.name}</b>：${needText(c.needs)} → ${c.desc}${c.power ? tr(`，亡靈傷害 ×${c.power}`, `, Undead damage ×${c.power}`) : ''}</small>`).join('')}</details></div>`;
+  return `<div class="undeadline">💀 ${tr('你嘅亡靈：', 'Your Undead: ')}<b>${name}</b><small>${tr('跟你嘅 HP、攻擊、攻速、移速、防禦、荊棘同關卡入面嘅加成一齊變強', 'They share your HP, ATK, attack speed, move speed, DEF, Thorns and in-run bonuses')}</small>${traits.length ? `<small>${traits.map((t) => cnt(t) > 1 ? `${SPECIALS[t].name} ×${cnt(t)}（${STACK_TEXT[t] ?? ''}${cnt(t) > MAX_STACK ? tr(`；最多計 ${MAX_STACK} 件`, `; only ${MAX_STACK} count`) : ''}）` : SPECIALS[t].name).join(' + ')}</small>` : `<small>${tr('傳說裝備嘅骨特性可以改變亡靈（可以疊；某啲組合會變成新嘅亡靈）', 'Bone traits on legendary gear change your Undead (they stack; some combos create new Undead)')}</small>`}${combos.map((c) => `<small class="combo">✨ <b>${isMax(c, all) ? tr('極·', 'Max ') : ''}${c.name}</b>（${needText(c.needs)}）：${c.desc}${c.power ? tr(`，亡靈傷害 ×${c.power}`, `, Undead damage ×${c.power}`) : ''}</small>`).join('')}<details class="combolist"><summary>${tr('所有骨組合', 'All bone combos')}</summary><small>${tr('幾個組合同時生效：亡靈傷害只計最高嗰個，其他每個 +20%（唔會相乘）', 'Several combos: only the highest Undead damage counts, +20% for each other one (they don\'t multiply)')}</small><small>${tr(`同一種骨特性最多計 ${MAX_STACK} 件。三件一樣係純組合；裝夠 ${MAX_STACK} 件變「極」，亡靈傷害再 ×${MAX_POWER}`, `Up to ${MAX_STACK} copies of one bone trait count. Three of a kind make a pure form; ${MAX_STACK} make its Max form (Undead damage ×${MAX_POWER} more)`)}</small>${BONE_COMBOS.map((c) => `<small>${combos.includes(c) ? '✅' : '▫️'} <b>${c.name}</b>：${needText(c.needs)} → ${c.desc}${c.power ? tr(`，亡靈傷害 ×${c.power}`, `, Undead damage ×${c.power}`) : ''}</small>`).join('')}</details></div>`;
 }
 
 // ---------- 終極技 ----------
@@ -634,7 +643,7 @@ function itemRow(save: SaveData, it: Item, opts: { showSlot?: boolean; selectabl
   return `<button class="item ${usable || opts.selectable ? '' : 'unusable'} ${opts.selected ? 'sel' : ''}" data-item="${esc(it.id)}" style="--rc:${RARITY_COLORS[it.rarity]}">
     ${opts.selectable ? `<span class="chk">${opts.selected ? '☑' : '☐'}</span>` : ''}
     <span class="ic">${itemIcon(it)}</span>
-    <span class="nm"><b>${it.locked ? '🔒 ' : ''}${esc(itemName(it))}</b><small>${opts.showSlot ? `${kind} · ` : ''}${lineText(upgradedMain(it))}${it.special ? ` · ✨${SPECIALS[it.special].name}` : ''}${it.proc ? ` · ${PROC_SKILLS[it.proc.id].icon}${PROC_SKILLS[it.proc.id].name} ${it.proc.value}%` : ''}${it.affixes.length ? ` · ${tr('詞綴', 'Affixes')} ${it.affixes.length}` : ''}${it.weapon ? ` · ${weaponUserIcons(it.weapon)}` : ''}${!usable && !opts.selectable ? ` · ${tr('而家用唔到', "Can't use now")}` : ''}</small></span>
+    <span class="nm"><b>${it.locked ? '🔒 ' : ''}${esc(itemName(it))}</b><small>${opts.showSlot ? `${kind} · ` : ''}${lineText(upgradedMain(it))}${it.special ? ` · ✨${SPECIALS[it.special].name}` : ''}${it.special2 ? ` · ✨${SPECIALS[it.special2].name}` : ''}${it.proc ? ` · ${PROC_SKILLS[it.proc.id].icon}${PROC_SKILLS[it.proc.id].name} ${it.proc.value}%` : ''}${it.affixes.length ? ` · ${tr('詞綴', 'Affixes')} ${it.affixes.length}` : ''}${it.weapon ? ` · ${weaponUserIcons(it.weapon)}` : ''}${!usable && !opts.selectable ? ` · ${tr('而家用唔到', "Can't use now")}` : ''}</small></span>
     ${eq ? `<span class="tag">${tr('已裝備', 'Equipped')}</span>` : `<span class="lv">Lv${it.tier}</span>`}
   </button>`;
 }
@@ -683,8 +692,9 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
         </div>
       </div>
       <div class="card">
-        <div class="statline"><h3 style="margin:0">${tr('背包', 'Bag')} ${save.items.length}/${INVENTORY_MAX}</h3>
-          <button data-act="trade" style="font-size:13px;padding:6px 10px">🔁 ${tr('交換', 'Trade')}</button></div>
+        <div class="statline"><h3 style="margin:0">${tr('背包', 'Bag')} ${save.items.length}/${bagMax(save)}</h3>
+          <span>${bagCost(save) !== null ? `<button data-act="bag" style="font-size:13px;padding:6px 10px" ${save.coins < bagCost(save)! ? 'disabled' : ''}>🎒 +${BAG_STEP}（🪙 ${fmt(bagCost(save)!)}）</button>` : ''}
+          <button data-act="trade" style="font-size:13px;padding:6px 10px">🔁 ${tr('交換', 'Trade')}</button></span></div>
         <div class="sellrow">
           <span>${tr('分解：', 'Salvage:')}</span>
           ${RARITIES.map((r) => `<button data-sell="${r}" class="${salvSel.has(r) ? 'on' : ''}" style="--rc:${RARITY_COLORS[r]}">${RARITY_NAMES[r]}</button>`).join('')}
@@ -699,6 +709,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
     if (!b) return;
     if (b.dataset.item) { const it = itemById(save, b.dataset.item); if (it) showItem(ctx, it); }
     else if (b.dataset.act === 'trade') showTrade(ctx);
+    else if (b.dataset.act === 'bag') { if (buyBag(save)) { writeSave(save); showHome(ctx); } }
     else if (b.dataset.necro) { save.necroMode = b.dataset.necro as NecroMode; writeSave(save); showHome(ctx); }
     else if (b.dataset.spell) { save.spellType[save.classId] = b.dataset.spell as SpellType; writeSave(save); showHome(ctx); }
     else if (b.dataset.arrow) {
@@ -762,6 +773,7 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
           ${it.affixes.map((a, i) => `<li>${lineText(a)}${canReroll(it) ? ` <button class="mini" data-reroll="${i}" ${save.coins < rcost ? 'disabled' : ''}>🎲 🪙${fmt(rcost)}</button>` : ''}</li>`).join('')}
           ${it.proc ? `<li class="proc">${procText(it.proc)}</li>` : ''}
           ${it.special ? `<li class="special">✨ ${SPECIALS[it.special].name}${tr('：', ': ')}${SPECIALS[it.special].desc}</li>` : ''}
+          ${it.special2 ? `<li class="special">✨ ${SPECIALS[it.special2].name}${tr('：', ': ')}${SPECIALS[it.special2].desc}</li>` : ''}
         </ul>
         ${it.weapon ? `<p class="note" style="text-align:left;margin:6px 0">🧭 ${tr('邊個用得：', 'Who can use it: ')}${weaponUseText(it.weapon)}${WEAPONS[it.weapon].twoHanded ? tr('（雙手，會佔用副手）', ' (two-handed: takes the off hand)') : ''}<br><small>${tr('混合職業：入面任何一個職業用得就用得；攻擊方式跟主職業計', 'Mixed classes: usable if any of your classes can use it; the attack follows your main class')}</small></p>` : ''}
         ${note ? `<p class="cmp ${note.startsWith('✅') ? 'up' : 'down'}">${note}</p>` : ''}

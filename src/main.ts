@@ -2,11 +2,11 @@ import { DUNGEON, OFFLINE, SIM_DT } from './sim/config';
 import { Sim, type Input, type SimEvent } from './sim/sim';
 import { biomeFor, isBigKind } from './sim/config';
 import { play, setTense, startMusic, unlockAudio } from './audio';
-import { CHEST_NAMES, itemName, RARITY_COLORS, type ChestKind } from './sim/gear';
+import { CHEST_NAMES, doubleChance, itemName, RARITY_COLORS, type ChestKind } from './sim/gear';
 import { Renderer } from './render/renderer';
 import { AWAKEN_TIER } from './sim/awakening';
 import { CLASSES } from './sim/classes';
-import { parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
+import { ENDLESS_START, parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
 import { namedChance, todaysBoss } from './sim/worldboss';
 import { createInput } from './input';
 import { cloudConnect, cloudPush, cloudReady } from './cloud';
@@ -77,6 +77,7 @@ const homeCtx: HomeCtx = {
   setSave: (s) => { save = s; },
   startRun: () => startRun(),
   startWorldBoss: (level: number) => startRun(level),
+  startEndless: () => startRun(undefined, true),
   openCoop: () => showCoopLobby({ ui, save: () => save, start: startCoop, changed: () => document.dispatchEvent(new Event('team-changed')) }),
   coopAvailable,
   teamCode: () => team?.link.code ?? null,
@@ -141,15 +142,15 @@ let hud: {
   sig: HTMLButtonElement | null; sigFill: HTMLElement | null; sigTime: HTMLElement | null;
 } | null = null;
 
-function startRun(worldBossLevel?: number): void {
+function startRun(worldBossLevel?: number, endless = false): void {
   if (team) { banner(team.link.isHost ? tr('你喺隊伍入面：用「🤝 合作模式」開始，或者先離開隊伍', 'You are in a team: start from Co-op, or leave the team first') : tr('你喺隊伍入面：等主機開始，或者先離開隊伍', 'You are in a team: wait for the host, or leave the team first')); return; }
   const wbId = worldBossLevel ? todaysBoss() : undefined;
   // a ticket is only used when you take the rewards (a failed fight can be retried for free)
   if (wbId && wbTicketsLeft(save) <= 0) { banner(tr('今日嘅挑戰次數用晒喇', 'No attempts left today')); return; }
   if (wbId) { save.wbLevel = worldBossLevel!; writeSave(save); }
   sim = new Sim({
-    tier: worldBossLevel ?? save.selectedTier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: save.autoPickCards,
-    worldBoss: wbId, ...runSetup(save),
+    tier: endless ? ENDLESS_START : worldBossLevel ?? save.selectedTier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: save.autoPickCards,
+    worldBoss: wbId, endless, ...runSetup(save),
   });
   // testing: an AI copy of your character joins as the second hero (2-player co-op)
   if (coopBotOn()) new Sim({ tier: sim.tier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: true, worldBoss: wbId, world: sim.w, ...runSetup(save) });
@@ -273,7 +274,7 @@ function updateHud(): void {
     hud.map.textContent = EN ? `${sim.wb.icon} Phase ${sim.wbPhase + 1}` : `${sim.wb.icon} 第 ${sim.wbPhase + 1} 階段`;
     hud.kills.textContent = `${tr('傷害', 'Damage')} ${Math.floor((sim.wbDamage / (sim.boss?.maxHp ?? (sim.wbDamage || 1))) * 100)}%`;
   } else {
-    hud.map.textContent = `${tr('地圖', 'Map')} ${sim.map + 1}/${DUNGEON.maps}`;
+    hud.map.textContent = sim.endless ? `♾️ ${tr(`第 ${sim.floors + 1} 層 · 第 ${sim.tier} 級 · ${sim.map + 1}/${DUNGEON.maps}`, `Floor ${sim.floors + 1} · T${sim.tier} · ${sim.map + 1}/${DUNGEON.maps}`)}` : `${tr('地圖', 'Map')} ${sim.map + 1}/${DUNGEON.maps}`;
     hud.kills.textContent = sim.bossSpawned ? tr('Boss 戰', 'Boss fight') : `${tr('擊殺', 'Kills')} ${sim.kills}/${sim.quota}`;
   }
   hud.coins.textContent = `🪙 ${fmt(sim.runCoins)} · 👻 ${fmt(sim.runSouls)}${sim.runRunes ? ` · 🔷 ${sim.runRunes}` : ''}${sim.runCrystals ? ` · 💎 ${sim.runCrystals}` : ''}`;
@@ -485,12 +486,14 @@ function finishRun(won: boolean, reason: string): void {
   addAccountXp(save, s.runXp);
   let unlocked = false;
   let firstClear = 0; // 💎 bonus for clearing a tier for the first time (gate tiers much more)
-  if (won && s.tier > save.highestCleared) {
+  const endlessNew = s.endless && s.floors > save.endlessBest;
+  if (s.endless) save.endlessBest = Math.max(save.endlessBest, s.floors);
+  if (won && !s.endless && s.tier > save.highestCleared) {
     for (let t = save.highestCleared + 1; t <= s.tier; t++) firstClear += t % 5 === 0 ? 15 : 3;
     save.highestCleared = s.tier; unlocked = true;
     save.crystals += firstClear;
   }
-  const loot = won ? openChests(save, s.chests, s.tier) : { items: [], autoSalvaged: 0, kept: [] };
+  const loot = won || s.endless ? openChests(save, s.chests, s.tier) : { items: [], autoSalvaged: 0, kept: [] };
   save.runs++;
   save.lastSeen = Date.now();
   writeSave(save);
@@ -498,12 +501,13 @@ function finishRun(won: boolean, reason: string): void {
   const inTeam = s.coop ? team : null; // co-op: the team stays together; the host starts the next run for both
   const chestText = (c: Record<ChestKind, number>) => [c.gold ? `${tr('金箱', 'Gold Chest')}×${c.gold}` : '', c.silver ? `${tr('銀箱', 'Silver Chest')}×${c.silver}` : ''].filter(Boolean).join(tr('、', ', '));
   // chests are emptied on death, so remember what was lost from the HUD count before it was cleared
-  const lost = !won ? lostChests : null;
+  const lost = !won && !s.endless ? lostChests : null;
 
   ui.innerHTML = '';
   const el = h(`
     <div class="screen dim result">
-      <div class="big">${won ? tr('🏆 通關！', '🏆 Cleared!') : reasonLabel(reason)}</div>
+      <div class="big">${s.endless ? `♾️ ${tr(`無盡模式：過咗 ${s.floors} 層`, `Endless: ${s.floors} floors`)}` : won ? tr('🏆 通關！', '🏆 Cleared!') : reasonLabel(reason)}</div>
+      ${s.endless ? `<div class="card">${tr(`去到第 ${s.tier} 級 · 最佳 ${save.endlessBest} 層`, `Reached Tier ${s.tier} · Best ${save.endlessBest} floors`)}${endlessNew ? tr(' · 🎉 新紀錄', ' · 🎉 New best') : ''}</div>` : ''}
       <div class="sub" style="margin-top:0">${s.cls.icon} ${s.cls.name} · ${EN ? `Tier ${s.tier} · Reached Map ${s.map + 1} · ${mmss(s.time)}` : `第 ${s.tier} 級地城 · 去到地圖 ${s.map + 1} · 用咗 ${mmss(s.time)}`}</div>
       <div class="rewards">
         <div class="card">${tr('金幣', 'Coins')}<b style="color:var(--gold)">+${fmt(coins)}</b></div>
@@ -523,7 +527,8 @@ function finishRun(won: boolean, reason: string): void {
       ${unlocked && s.tier === AWAKEN_TIER ? `<div class="card" style="color:var(--gold)">✨ ${tr('可以覺醒喇！去「出發」頁揀第二職業', 'You can Awaken! Pick a second class on the Play tab')}</div>` : ''}
       ${inTeam && !inTeam.link.isHost ? `<div class="card teamwait">🤝 ${tr('你仲喺隊伍入面。主機開始下一舖，你就會自動入地城。', 'You are still in the team. When the host starts the next run you will join automatically.')}</div>` : ''}
       <div class="col">
-        ${inTeam && !inTeam.link.isHost ? '' : `
+        ${s.endless ? `<button class="primary" data-act="endless">♾️ ${tr('再挑戰無盡模式', 'Endless again')}</button>` : ''}
+        ${inTeam && !inTeam.link.isHost || s.endless ? '' : `
         ${won && (!inTeam || s.tier + 1 <= teamMaxTier(save)) ? `<button class="primary" data-act="next">${EN ? `Try Tier ${s.tier + 1}` : `挑戰第 ${s.tier + 1} 級`}${inTeam ? tr('（全隊）', ' (team)') : ''}</button>` : ''}
         <button ${won ? '' : 'class="primary"'} data-act="again">${EN ? `Retry Tier ${s.tier}` : `再挑戰第 ${s.tier} 級`}${inTeam ? tr('（全隊）', ' (team)') : ''}</button>
         ${won ? `<button data-act="auto-repeat" class="${save.autoRepeat ? 'on' : ''}">${save.autoRepeat ? (EN ? '🔁 Auto-repeat: ON' : '🔁 自動再挑戰：開') : (EN ? '🔁 Auto-repeat: OFF' : '🔁 自動再挑戰：關')}</button>` : ''}
@@ -565,6 +570,7 @@ function finishRun(won: boolean, reason: string): void {
     }
     if (b.dataset.act === 'next') { save.selectedTier = s.tier + 1; writeSave(save); if (inTeam) teamRun(s.tier + 1); else startRun(); }
     if (b.dataset.act === 'again') { save.selectedTier = s.tier; if (inTeam) teamRun(s.tier); else startRun(); }
+    if (b.dataset.act === 'endless') startRun(undefined, true);
     if (b.dataset.act === 'team-room') { showHome(); homeCtx.openCoop(); }
     if (b.dataset.act === 'team-leave') { leaveTeam(); showHome(); }
     if (b.dataset.act === 'gear') showHome('gear');
@@ -628,7 +634,7 @@ function claimWbRun(s: Sim, killed: boolean, reason: string): void {
   save.runs++;
   save.lastSeen = Date.now();
   writeSave(save);
-  const items = [...(res.named ? [res.named] : []), ...res.chestItems];
+  const items = [...(res.named ? [res.named] : []), ...(res.twin ? [res.twin] : []), ...res.chestItems];
   ui.innerHTML = '';
   const el = h(`
     <div class="screen dim result">
@@ -641,6 +647,7 @@ function claimWbRun(s: Sim, killed: boolean, reason: string): void {
         <div class="card">${tr('符文', 'Runes')}<b style="color:var(--rune)">+${res.reward.runes + s.runRunes + res.reward.silver + res.reward.gold * 2} 🔷</b></div>
         <div class="card">${tr('靈晶', 'Crystals')}<b style="color:var(--crystal)">+${crystals} 💎</b></div>
       </div>
+      ${res.twin ? `<div class="card named"><div class="big" style="font-size:18px">💠 ${tr('雙傳說！', 'Twin Legendary!')}</div><b style="color:${RARITY_COLORS.legendary}">${esc(itemName(res.twin))}</b></div>` : s.tier > 100 ? `<p class="note">${tr(`雙傳說機會：${Math.round(doubleChance(s.tier) * 100)}%`, `Twin Legendary chance: ${Math.round(doubleChance(s.tier) * 100)}%`)}</p>` : ''}
       ${res.named ? `<div class="card named"><div class="big" style="font-size:18px">🌟 ${tr('有名傳說！', 'Named Legendary!')}</div><b style="color:${RARITY_COLORS.legendary}">${esc(itemName(res.named))}</b></div>` : killed ? `<p class="note">${EN ? `No named Legendary this time (${Math.round(namedChance(s.tier) * 100)}% chance)` : `今次冇跌有名傳說（機會 ${Math.round(namedChance(s.tier) * 100)}%）`}</p>` : ''}
       ${items.length ? `<div class="card loot"><h3>🎁 ${[res.reward.gold ? `${tr('金箱', 'Gold Chest')}×${res.reward.gold}` : '', res.reward.silver ? `${tr('銀箱', 'Silver Chest')}×${res.reward.silver}` : ''].filter(Boolean).join(tr('、', ', ')) || tr('獎勵', 'Rewards')}</h3>
         ${items.map((it) => `<div class="lootrow" style="--rc:${RARITY_COLORS[it.rarity]}">${esc(itemName(it))}<small>Lv${it.tier}</small></div>`).join('')}

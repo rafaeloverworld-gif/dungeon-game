@@ -216,6 +216,8 @@ export const MAX_STACK = 4;
 export const isPure = (c: BoneCombo) => new Set(c.needs).size === 1;
 export const isMax = (c: BoneCombo, sp: Iterable<SpecialId>) => isPure(c) && [...sp].filter((s) => s === c.needs[0]).length >= MAX_STACK;
 export const MAX_POWER = 1.5;
+/** Several bone combos at once: only the strongest one's undead damage counts; each other one adds this much. */
+export const COMBO_EXTRA = 0.2;
 /** The same bone trait worn more than once is stronger: what each extra copy does. */
 export const STACK_TEXT: Partial<Record<SpecialId, string>> = {
   utTank: tr('每件 +100% HP', '+100% HP per copy'), utRanged: tr('2 件：骨箭穿透 1 隻', '2 copies: bone arrows pierce 1'), utCaster: tr('每多 1 件爆炸 +20%', '+20% blast size per extra copy'),
@@ -248,6 +250,7 @@ export interface Item {
   main: StatLine;
   affixes: StatLine[];
   special?: SpecialId; // legendary only
+  special2?: SpecialId; // 雙傳說 (World Boss level 100+): a second legendary line
   proc?: { id: ProcId; value: number }; // weapon skill (some weapons) or accessory skill (always)
   named?: string; // named legendary id (world boss drop)
   plus: number; // upgrade level 0..MAX_PLUS
@@ -371,9 +374,9 @@ export const registerNamed = (id: string, name: string) => { namedNames[id] = na
 export function itemName(it: Item): string {
   if (it.named && namedNames[it.named]) return `${namedNames[it.named]}${it.plus ? ` +${it.plus}` : ''}`;
   const plus = it.plus ? ` +${it.plus}` : '';
-  if (getLang() === 'en') return `${RARITY_NAMES[it.rarity]}${it.special ? ` ${SPECIALS[it.special].name}` : ''} ${baseName(it)}${plus}`;
-  const sp = it.special ? `${SPECIALS[it.special].name}之` : '';
-  return `${RARITY_NAMES[it.rarity]}${sp}${baseName(it)}${plus}`;
+  if (getLang() === 'en') return `${it.special2 ? 'Twin ' : ''}${RARITY_NAMES[it.rarity]}${it.special ? ` ${SPECIALS[it.special].name}` : ''}${it.special2 ? ` & ${SPECIALS[it.special2].name}` : ''} ${baseName(it)}${plus}`;
+  const sp = it.special ? `${SPECIALS[it.special].name}${it.special2 ? `・${SPECIALS[it.special2].name}` : ''}之` : '';
+  return `${it.special2 ? '雙' : ''}${RARITY_NAMES[it.rarity]}${sp}${baseName(it)}${plus}`;
 }
 
 export function lineText(l: StatLine): string {
@@ -400,6 +403,7 @@ export function itemScore(it: Item): number {
     else s += (l.flat ?? 0) * w[l.stat];
   }
   if (it.special) s += 15;
+  if (it.special2) s += 15;
   if (it.proc) s += it.proc.value * 0.6;
   return Math.round(s * 10) / 10;
 }
@@ -434,6 +438,24 @@ export function openChest(kind: ChestKind, tier: number, nextId: () => string, r
     out.push(makeItem(nextId(), k, rollRarity(kind, tier, rand), tier, rand));
   }
   return out;
+}
+
+// ---------- 雙傳說: World Boss level 100+ ----------
+/** Chance of a double-legendary item after a World Boss fight: 1% per level above 100 (max 50%). */
+export const doubleChance = (level: number) => Math.min(0.5, Math.max(0, level - 100) * 0.01);
+/** A legendary with two different legendary lines (both follow that slot's rules). */
+export function makeDoubleLegendary(id: string, tier: number, rand: () => number = Math.random): Item {
+  for (let guard = 0; guard < 200; guard++) {
+    const slot = SLOTS[Math.floor(rand() * SLOTS.length)];
+    const k: ItemKind = isWeaponSlot(slot) ? { weapon: WEAPON_TYPES[Math.floor(rand() * WEAPON_TYPES.length)] } : { armour: slot };
+    const it = makeItem(id, k, 'legendary', tier, rand);
+    if (!it.special) continue;
+    for (let j = 0; j < 60; j++) {
+      const other = makeItem(id, k, 'legendary', tier, rand).special;
+      if (other && other !== it.special) { it.special2 = other; return it; }
+    }
+  }
+  return makeItem(id, { armour: 'chest' }, 'legendary', tier, rand);
 }
 
 // ---------- trading: 5 unwanted items -> 1 item of the type you pick ----------

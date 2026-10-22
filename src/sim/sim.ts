@@ -12,7 +12,7 @@ import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { mergeBonus } from './stats';
 import { updateAbilities } from './abilities';
 import { ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, MINION_PROC, PROC_ULTS, type UltId, type UltRun } from './ultimates';
-import { activeCombos, isMax, MAX_POWER, MAX_STACK, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
+import { activeCombos, COMBO_EXTRA, isMax, MAX_POWER, MAX_STACK, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
 import { WB_TIME, WORLD_BOSSES, type WorldBossDef, type WorldBossId } from './worldboss';
 
 export interface Vec2 { x: number; z: number }
@@ -153,6 +153,7 @@ export interface RunSetup {
   specials?: SpecialId[]; // legendary special affixes on worn gear
   procs?: { id: ProcId; value: number }[]; // weapon / accessory skills on worn gear
   worldBoss?: WorldBossId; // world boss fight instead of a dungeon (tier = boss level)
+  endless?: boolean; // 無盡模式: after each floor's final Boss the next floor starts one tier higher, until you fall
   ults?: { id: UltId; level: number }[]; // equipped 終極技
   world?: World; // co-op: join this hero to an existing party's dungeon
 }
@@ -203,7 +204,10 @@ export function buildStats(classId: ClassId, bonus: StatBonus): PlayerStats {
 }
 
 export class Sim {
-  readonly tier: number;
+  tier: number; // 無盡模式 raises it every floor
+  readonly endless: boolean;
+  floors = 0; // 無盡模式: floors cleared
+  floorStart = 0; // 無盡模式: when this floor started
   readonly cls: ClassDef;
   readonly awk: AwakenedDef | null;
   readonly weapons: RunSetup['weapons'] | null;
@@ -218,7 +222,7 @@ export class Sim {
   reactions = 0; // 元素反應 this run
   private spellCasts = 0; // 元素同調: every 2nd staff cast adds a second element
   dmgDealt = 0; // all damage this hero (and their undead / ultimates) dealt this run, for the DPS meter
-  get timeLimit(): number { return this.wb ? WB_TIME : DUNGEON.timeLimit; }
+  get timeLimit(): number { return this.wb ? WB_TIME : this.endless ? this.floorStart + DUNGEON.timeLimit : DUNGEON.timeLimit; } // 無盡模式: 10 minutes per floor
   /** 守關 dungeon (every 5th tier): its bosses are much tougher. */
   get isGate(): boolean { return !this.wb && DUNGEON.gateBossHp > 1 && this.tier % DUNGEON.gateEvery === 0; }
   get theme(): number { return this.wb ? this.wb.theme : biomeFor(this.tier).theme; }
@@ -319,6 +323,7 @@ export class Sim {
     this.w.heroes.push(this);
     this.pid = this.w.heroes.length - 1;
     this.tier = setup.tier;
+    this.endless = !!setup.endless && !setup.worldBoss;
     this.cls = CLASSES[setup.classId];
     this.awk = mixFor(setup.classId, setup.subClassId, setup.subClass2Id);
     this.weapons = setup.weapons ?? null;
@@ -370,7 +375,9 @@ export class Sim {
       else if (sp === 'utCrown') this.ut.crown = true;
     }
     for (const sp of setup.specials ?? []) this.utn[sp] = Math.min(MAX_STACK, (this.utn[sp] ?? 0) + 1); // at most 4 copies count
-    for (const c of activeCombos(setup.specials ?? [])) { this.combo.add(c.id); this.comboPower *= (c.power ?? 1) * (isMax(c, setup.specials ?? []) ? MAX_POWER : 1); } // ×4 = 極 form
+    // combos: the strongest one's undead damage counts, each other combo adds +20% (they don't multiply); ×4 = 極 form
+    const powers = activeCombos(setup.specials ?? []).map((c) => { this.combo.add(c.id); return (c.power ?? 1) * (isMax(c, setup.specials ?? []) ? MAX_POWER : 1); }).sort((a, b) => b - a);
+    if (powers.length) this.comboPower = powers[0] * (1 + COMBO_EXTRA * (powers.length - 1));
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
     this.stats.multishot += (fx?.multishot ?? 0) + (this.awk?.extraMultishot ?? 0) + extraMulti;
@@ -1586,7 +1593,13 @@ export class Sim {
   private onBossDead(): void {
     // every coin left on the map gets pulled in
     for (const c of this.coins) c.magnet = true;
-    if (this.map >= DUNGEON.maps - 1) {
+    if (this.map >= DUNGEON.maps - 1 && this.endless) {
+      // 無盡模式: next floor, one tier higher (the chests are kept)
+      for (const h of this.heroes) { h.runCoins += Math.round(10 * this.tier); h.floors++; h.tier++; h.floorStart = this.time; h.events.push({ type: 'mapClear', map: this.map }); }
+      this.map = -1;
+      this.phase = 'transition';
+      this.transitionTimer = 2.2;
+    } else if (this.map >= DUNGEON.maps - 1) {
       this.vacuumCoins();
       for (const h of this.heroes) h.runCoins += Math.round(10 * this.tier); // clear bonus
       this.phase = 'won';
@@ -1718,7 +1731,7 @@ export class Sim {
     for (const h of this.heroes) {
       h.player.hp = Math.max(0, h.player.hp);
       h.picking = false;
-      h.chests = { silver: 0, gold: 0 }; // chests are only yours once the dungeon is cleared
+      if (!this.endless) h.chests = { silver: 0, gold: 0 }; // chests are only yours once the dungeon is cleared (無盡模式 keeps them)
       h.events.push({ type: 'dead' });
     }
   }

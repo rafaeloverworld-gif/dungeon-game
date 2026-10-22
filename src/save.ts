@@ -2,7 +2,7 @@
 import { ACCOUNT, OFFLINE, SHOP, type ShopKey } from './sim/config';
 import { ARROW_TYPES, CLASS_IDS, SPELL_TYPES, type ArrowType, type ClassId, type NecroMode, type SpellType } from './sim/classes';
 import {
-  addItemBonus, canReroll, isAccessorySlot, INVENTORY_MAX, isWeaponSlot, MAX_PLUS, openChest, RARITIES, rerollAffix, rerollCost, salvageValue,
+  addItemBonus, canReroll, doubleChance, makeDoubleLegendary, isAccessorySlot, INVENTORY_MAX, isWeaponSlot, MAX_PLUS, openChest, RARITIES, rerollAffix, rerollCost, salvageValue,
   EQUIP_SLOTS, itemSlotOf, type EquipSlot, PROC_IDS, SLOTS, SPECIAL_IDS, TRADE_COUNT, tradeResult, upgradeChance, upgradeCost, WEAPON_TYPES, weaponOptions, WEAPONS,
   type ChestKind, type Item, type ItemKind, type Rarity, type Slot, type SpecialId, type StatLine, type WeaponSlot, type WeaponType,
 } from './sim/gear';
@@ -35,7 +35,9 @@ export interface SaveData {
   subClass: Partial<Record<ClassId, ClassId>>; // second class per main class (permanent)
   subClass2: Partial<Record<ClassId, ClassId>>; // third class per main class (昇華)
   arrowType: Partial<Record<ClassId, ArrowType>>; // bows: chosen arrows per class
-  arrowMix: Partial<Record<ClassId, ArrowType[]>>; // 多重箭袋: extra arrow types used at the same time
+  arrowMix: Partial<Record<ClassId, ArrowType[]>>;
+  endlessBest: number; // 無盡模式: most floors cleared in one run
+  bagBuys: number; // extra bag space bought with coins (+10 each) // 多重箭袋: extra arrow types used at the same time
   spellType: Partial<Record<ClassId, SpellType>>; // staffs: chosen spell per class
   necroMode: NecroMode; // necromancer: shadow bolts or summoner
   board: string[]; // unlocked skill-board panels (all three boards, shared by the character)
@@ -68,7 +70,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, spellType: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, bagBuys: 0, endlessBest: 0, spellType: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -107,6 +109,7 @@ function sanitizeItem(raw: unknown): Item | null {
     tier: Math.max(1, Math.floor(num(r.tier, 1))),
     main, affixes: Array.isArray(r.affixes) ? r.affixes.map(sanitizeLine).filter((l): l is StatLine => !!l) : [],
     special: SPECIAL_IDS.includes(r.special as SpecialId) ? (r.special as SpecialId) : undefined,
+    special2: SPECIAL_IDS.includes(r.special2 as SpecialId) ? (r.special2 as SpecialId) : undefined,
     proc: r.proc && PROC_IDS.includes(r.proc.id) && Number.isFinite(r.proc.value) ? { id: r.proc.id, value: Math.max(0, Math.min(90, r.proc.value)) } : undefined,
     plus: Math.min(MAX_PLUS, Math.max(0, Math.floor(num(r.plus, 0)))),
     spent: Math.max(0, num(r.spent, 0)),
@@ -156,6 +159,8 @@ function sanitize(raw: unknown): SaveData {
     spellType: Object.fromEntries(Object.entries(r.spellType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && SPELL_TYPES.includes(a as SpellType))) as SaveData['spellType'],
     arrowType: Object.fromEntries(Object.entries(r.arrowType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && ARROW_TYPES.includes(a as ArrowType))) as SaveData['arrowType'],
     arrowMix: Object.fromEntries(Object.entries(r.arrowMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => ARROW_TYPES.includes(x as ArrowType)))]])) as SaveData['arrowMix'],
+    endlessBest: Math.max(0, Math.floor(num(r.endlessBest, 0))),
+    bagBuys: Math.min(BAG_BUYS_MAX, Math.max(0, Math.floor(num(r.bagBuys, 0)))),
     wbDay: typeof r.wbDay === 'string' ? r.wbDay : '',
     wbUsed: Math.max(0, Math.floor(num(r.wbUsed, 0))),
     wbLevel: Math.max(WB_MIN_LEVEL, Math.floor(num(r.wbLevel, WB_MIN_LEVEL))),
@@ -366,7 +371,7 @@ export function openChests(s: SaveData, chests: Record<ChestKind, number>, tier:
   const kept: Item[] = [];
   for (const it of items) {
     const tooLow = RARITIES.indexOf(it.rarity) <= AUTO_SALVAGE_MAX[s.autoSalvage];
-    if (!tooLow && s.items.length < INVENTORY_MAX) { s.items.push(it); kept.push(it); }
+    if (!tooLow && s.items.length < bagMax(s)) { s.items.push(it); kept.push(it); }
     else { const v = salvageValue(it); s.coins += v; autoSalvaged += v; }
   }
   // fill empty slots automatically so new players feel the upgrade
@@ -558,16 +563,33 @@ export function resetAwakening(s: SaveData): { souls: number; runes: number } {
 
 export { BOARD_NODES };
 
+// ---------- 無盡模式 ----------
+export const ENDLESS_UNLOCK = 50; // clear tier 50 first
+export const ENDLESS_START = 50; // floor 1 is tier 50, +1 tier per floor
+
+// ---------- bag space (bought with coins) ----------
+export const BAG_STEP = 10;
+export const BAG_BUYS_MAX = 10;
+export const bagMax = (s: SaveData) => INVENTORY_MAX + BAG_STEP * s.bagBuys;
+/** Coins for the next +10 bag slots (null when maxed). */
+export const bagCost = (s: SaveData): number | null => (s.bagBuys >= BAG_BUYS_MAX ? null : Math.round(2000 * Math.pow(1.6, s.bagBuys)));
+export function buyBag(s: SaveData): boolean {
+  const c = bagCost(s);
+  if (c === null || s.coins < c) return false;
+  s.coins -= c; s.bagBuys++;
+  return true;
+}
+
 /** 多重箭袋: how many arrow types you can use at once (1 + every +1 on items with it, up to all of them). */
 export function arrowSlots(s: SaveData): number {
   if (arrowMaxForm(s)) return ARROW_TYPES.length;
-  const extra = equippedItems(s).filter((i) => i.special === 'multiArrow').reduce((a, i) => a + i.plus, 0);
+  const extra = equippedItems(s).filter((i) => i.special === 'multiArrow' || i.special2 === 'multiArrow').reduce((a, i) => a + i.plus, 0);
   return Math.min(ARROW_TYPES.length, 1 + extra + (isSharpshooter(s) ? 1 : 0)); // 神射手: one more arrow type
 }
 /** 神射手 (archer + archer, or a three-class mix grown from it). */
 export const isSharpshooter = (s: SaveData) => { const m = mixOf(s); return m?.id === 'archer_archer' || m?.base === 'archer_archer'; };
 /** 極·神射: a Sharpshooter with a 多重箭袋 item at max upgrade — every arrow type at once, and extra types cost less. */
-export const arrowMaxForm = (s: SaveData) => isSharpshooter(s) && equippedItems(s).some((i) => i.special === 'multiArrow' && i.plus >= MAX_PLUS);
+export const arrowMaxForm = (s: SaveData) => isSharpshooter(s) && equippedItems(s).some((i) => (i.special === 'multiArrow' || i.special2 === 'multiArrow') && i.plus >= MAX_PLUS);
 /** The arrow types in use: the main one first, then the extra ones (as many as 多重箭袋 allows). */
 export function arrowsInUse(s: SaveData): ArrowType[] {
   const main = s.arrowType[s.classId] ?? 'normal';
@@ -578,7 +600,7 @@ export function arrowsInUse(s: SaveData): ArrowType[] {
 export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPickCards'> {
   const sub = subOf(s);
   const worn = equippedItems(s);
-  const specials = worn.map((i) => i.special).filter((x): x is SpecialId => !!x);
+  const specials = worn.flatMap((i) => [i.special, i.special2]).filter((x): x is SpecialId => !!x);
   const procs = worn.map((i) => i.proc).filter((p): p is NonNullable<Item['proc']> => !!p);
   const skills = boardEffects(activeBoard(s));
   // awakened-board panels that work like gear skills / legendary specials
@@ -610,7 +632,7 @@ export function useWbTicket(s: SaveData): boolean {
 }
 export const wbMaxLevel = (s: SaveData) => Math.max(WB_MIN_LEVEL, s.highestCleared);
 
-export interface WbResult { reward: WbReward; named: Item | null; chestItems: Item[]; autoSalvaged: number; kept: Item[] }
+export interface WbResult { reward: WbReward; named: Item | null; twin: Item | null; chestItems: Item[]; autoSalvaged: number; kept: Item[] }
 
 /** Pay out a world boss fight. Chest items follow the usual auto-salvage / full-bag rules. */
 export function claimWorldBoss(s: SaveData, bossId: ReturnType<typeof todaysBoss>, level: number, dmgFrac: number, killed: boolean): WbResult {
@@ -628,7 +650,10 @@ export function claimWorldBoss(s: SaveData, bossId: ReturnType<typeof todaysBoss
     s.items.push(named); // named items always go in, even if the bag is full
     s.collection[def.id] = (s.collection[def.id] ?? 0) + 1;
   }
-  return { reward, named, chestItems: loot.items, autoSalvaged: loot.autoSalvaged, kept: loot.kept };
+  // 雙傳說: from level 101, +1% chance per level for an item with two legendary lines
+  let twin: Item | null = null;
+  if (Math.random() < doubleChance(level)) { twin = makeDoubleLegendary(`i${s.nextItemId++}`, level); s.items.push(twin); }
+  return { reward, named, twin, chestItems: loot.items, autoSalvaged: loot.autoSalvaged, kept: loot.kept };
 }
 
 // ---------- 終極技 ----------
