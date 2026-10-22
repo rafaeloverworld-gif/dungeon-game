@@ -21,12 +21,12 @@ const HALF_HEIGHT: Record<SmallKind, number> = { grunt: 0.48, shooter: 0.6, swar
 /** Elites: gold, with a hint of their trait. */
 const ELITE_COLORS = { swift: 0xffe066, armored: 0xd9b45a, enraged: 0xffa040, regen: 0xc8e070 } as const;
 const FX_COLORS: Record<FxKind, number> = { fire: 0xff8a2a, frost: 0x7fd8ff, holy: 0xfff2a8, arcane: 0xc58aff, physical: 0xffe2a8, shadow: 0x9b4dff, heal: 0x5fd08a };
-import type { ClassId } from '../sim/classes';
+import type { AttackKind, ClassId } from '../sim/classes';
 import { weaponReq, WEAPONS, type WeaponType } from '../sim/gear';
 import { ULT } from '../sim/ultimates';
 import { value } from '../sim/stats';
 import { prefs as fxPrefs } from '../audio';
-import { Actor, dungeonGeo, dungeonTexture, flipbook, loadModels, setModelsError, type DungeonPiece, type Look, type PropName } from './models';
+import { Actor, dungeonGeo, dungeonTexture, flipbook, loadModels, setModelsError, type AttackAnim, type DungeonPiece, type Look, type PropName } from './models';
 
 /** How each biome dresses the dungeon pieces (stone tint, floor kind, banner colour, torch flame). */
 const BIOME_LOOKS: { floor: DungeonPiece; floorRough: DungeonPiece; floorTint: number; stone: number; banner: DungeonPiece; flame: number }[] = [
@@ -69,6 +69,22 @@ function lanceGeo(len: number): THREE.BufferGeometry {
   const shaft = new THREE.CylinderGeometry(0.035, 0.035, len, 6); shaft.rotateX(Math.PI / 2);
   const tip = new THREE.ConeGeometry(0.09, 0.32, 6); tip.rotateX(Math.PI / 2); tip.translate(0, 0, len / 2 + 0.14);
   return mergeGeos([shaft, tip]);
+}
+/** Which attack animation fits the attack style and what is in the hands. */
+function attackAnim(kind: AttackKind, main: WeaponType | null, off: WeaponType | null): AttackAnim {
+  if (kind === 'javelin') return 'throw'; // an Archer holding a spear throws it
+  if (kind === 'arc') return main === 'spear' ? 'stab' : off === 'sword' || off === 'dagger' ? 'dual' : 'chop';
+  if (kind === 'reap') return 'slice2h';
+  if (kind === 'arrow') return main === 'longbow' ? 'shoot2h' : 'shoot';
+  if (kind === 'summon') return 'summon';
+  return 'cast'; // fireball / shadow bolt
+}
+/** A spear in the right hand (there's no lance in the model packs). */
+function addLance(actor: Actor, archer: boolean): void {
+  const lance = new THREE.Mesh(lanceGeo(archer ? 1.9 : 2.4), new THREE.MeshLambertMaterial({ color: 0xd8c49a }));
+  lance.rotation.x = -Math.PI / 2;
+  lance.position.y = 0.2;
+  actor.root.getObjectByName('handslot.r')?.add(lance) ?? actor.root.getObjectByName('handslotr')?.add(lance);
 }
 interface PlayerLook { id: ClassId; sub: ClassId | null; sub2: ClassId | null; main: WeaponType | null; off: WeaponType | null; custom: boolean }
 /** Where third-class props sit on the bones (bone space, KayKit units). */
@@ -131,8 +147,9 @@ export class Renderer {
   private warnMeshes: THREE.Mesh[] = [];
   // models (null until loaded)
   private actor: Actor | null = null;
+  private hands: { main: WeaponType | null; off: WeaponType | null } = { main: null, off: null };
   /** Co-op teammates (everyone except you), by party slot. */
-  private partners = new Map<number, { g: THREE.Group; actor: Actor | null; body: THREE.Mesh; ring: THREE.Mesh; revive: THREE.Mesh; lastAtk: number; wasDown: boolean }>();
+  private partners = new Map<number, { g: THREE.Group; actor: Actor | null; body: THREE.Mesh; ring: THREE.Mesh; revive: THREE.Mesh; lastAtk: number; wasDown: boolean; main: WeaponType | null; off: WeaponType | null }>();
   private look: PlayerLook | null = null;
   private floater: THREE.Object3D | null = null; // third-class extra that floats beside the player
   private lastAtk = 0;
@@ -468,7 +485,7 @@ export class Renderer {
       if (sim.phase === 'dead') a.die();
       else if (p.attackTimer > this.lastAtk + 0.02 && p.attackTimer > 0.08) {
         const k = sim.attack.kind;
-        a.attack(k === 'arc' || k === 'reap' || k === 'javelin' ? 'chop' : k === 'arrow' ? 'shoot' : 'cast', p.attackTimer); // summon / fireball / shadow = cast
+        a.attack(attackAnim(k, this.hands.main, this.hands.off), p.attackTimer);
       }
       this.lastAtk = p.attackTimer;
       a.flash(this.hurtFlash > 0 ? 0x992222 : p.invuln > 0 && Math.sin(t * 30) > 0 ? 0x333333 : 0);
@@ -963,17 +980,18 @@ export class Renderer {
         revive.rotation.x = -Math.PI / 2; revive.position.y = 0.05; revive.visible = false;
         g.add(body, ring, revive);
         let actor: Actor | null = null;
+        const w = h.weapons;
+        const def = weaponReq(h.cls.id, h.awk?.sub ?? null);
+        const mainW = w ? w.main ?? def.mainWeapon : def.mainWeapon;
+        const offW = w ? (mainW && WEAPONS[mainW].twoHanded ? null : w.blocked ? null : w.sub ?? (w.main ? null : def.subWeapon)) : def.subWeapon;
         if (this.flips) {
-          const w = h.weapons;
-          const def = weaponReq(h.cls.id, h.awk?.sub ?? null);
-          const mainW = w ? w.main ?? def.mainWeapon : def.mainWeapon;
-          const offW = w ? (mainW && WEAPONS[mainW].twoHanded ? null : w.blocked ? null : w.sub ?? (w.main ? null : def.subWeapon)) : def.subWeapon;
           actor = new Actor({ char: PLAYER_CHARS[h.cls.id], right: mainW ? WEAPON_PROPS[mainW] ?? null : null, left: offW ? WEAPON_PROPS[offW] ?? null : null, height: PLAYER_HEIGHT }, h.cls.id === 'necro' ? { hue: 'necro' } : {});
+          if (mainW === 'spear') addLance(actor, h.cls.id === 'archer');
           g.add(actor.root);
           body.visible = false;
         }
         this.scene.add(g);
-        v = { g, actor, body, ring, revive, lastAtk: 0, wasDown: false };
+        v = { g, actor, body, ring, revive, lastAtk: 0, wasDown: false, main: mainW, off: offW };
         this.partners.set(h.pid, v);
       }
       const p = h.player;
@@ -985,7 +1003,7 @@ export class Renderer {
         else if (!h.down && v.wasDown) v.actor.cheer();
         else if (!h.down && p.attackTimer > v.lastAtk + 0.02 && p.attackTimer > 0.08) {
           const k = h.attack.kind;
-          v.actor.attack(k === 'arc' || k === 'reap' || k === 'javelin' ? 'chop' : k === 'arrow' ? 'shoot' : 'cast', p.attackTimer);
+          v.actor.attack(attackAnim(k, v.main, v.off), p.attackTimer);
         }
         v.lastAtk = p.attackTimer;
         v.actor.flash(p.invuln > 0 && !h.down && Math.sin(t * 30) > 0 ? 0x333333 : 0);
@@ -1012,19 +1030,14 @@ export class Renderer {
     const def = weaponReq(id, sub);
     const mainW = L.custom ? L.main ?? def.mainWeapon : def.mainWeapon;
     const offW = L.custom ? (mainW && WEAPONS[mainW].twoHanded ? null : L.off ?? (L.main ? null : def.subWeapon)) : def.subWeapon;
+    this.hands = { main: mainW, off: offW };
     if (this.flips) {
       const right = mainW ? WEAPON_PROPS[mainW] ?? null : null;
       const left = offW ? WEAPON_PROPS[offW] ?? null : null;
       const look: Look = { char: PLAYER_CHARS[id], right, left, height: PLAYER_HEIGHT };
       this.actor = new Actor(look, id === 'necro' ? { hue: 'necro' } : {});
       this.player.add(this.actor.root);
-      if (mainW === 'spear') {
-        // no lance in the model packs: a simple one in the right hand, pointing along the hand
-        const lance = new THREE.Mesh(lanceGeo(id === 'archer' ? 1.9 : 2.4), new THREE.MeshLambertMaterial({ color: 0xd8c49a }));
-        lance.rotation.x = -Math.PI / 2;
-        lance.position.y = 0.2;
-        this.actor.root.getObjectByName('handslot.r')?.add(lance) ?? this.actor.root.getObjectByName('handslotr')?.add(lance);
-      }
+      if (mainW === 'spear') addLance(this.actor, id === 'archer');
       if (sub2) this.addThirdClass(id, sub, sub2);
     }
     for (const o of this.primitiveLook) o.visible = !this.actor;

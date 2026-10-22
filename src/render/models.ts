@@ -152,6 +152,13 @@ function recolor(tex: THREE.Texture, filter: string): THREE.Texture {
 type Layer = { cur: THREE.AnimationAction | null; name: string };
 
 /** An animated character: run/idle on the legs, idle/run/attack on the arms. */
+/** Attack animations, by what the character is holding. */
+export type AttackAnim = 'chop' | 'shoot' | 'cast' | 'spin' | 'punch' | 'throw' | 'stab' | 'slice2h' | 'shoot2h' | 'dual' | 'summon';
+const ATTACK_CLIP: Record<AttackAnim, string> = {
+  chop: '1H_Melee_Attack_Chop', shoot: '1H_Ranged_Shoot', cast: 'Spellcast_Shoot', spin: '2H_Melee_Attack_Spin', punch: 'Unarmed_Melee_Attack_Punch_A',
+  throw: 'Throw', stab: '1H_Melee_Attack_Stab', slice2h: '2H_Melee_Attack_Slice', shoot2h: '2H_Ranged_Shoot', dual: 'Dualwield_Melee_Attack_Chop', summon: 'Spellcast_Summon',
+};
+
 export class Actor {
   readonly root: THREE.Group;
   private mixer: THREE.AnimationMixer;
@@ -198,9 +205,9 @@ export class Actor {
   }
 
   /** Attack / cast / shoot on the arms (legs keep running). */
-  attack(kind: 'chop' | 'shoot' | 'cast' | 'spin' | 'punch', interval = 0.6): void {
+  attack(kind: AttackAnim, interval = 0.6): void {
     if (this.dead) return;
-    const name = kind === 'chop' ? '1H_Melee_Attack_Chop' : kind === 'shoot' ? '1H_Ranged_Shoot' : kind === 'cast' ? 'Spellcast_Shoot' : kind === 'spin' ? '2H_Melee_Attack_Spin' : 'Unarmed_Melee_Attack_Punch_A';
+    const name = ATTACK_CLIP[kind];
     const c = clips[name];
     if (!c) return;
     // play the swing fast enough to fit the attack speed (never slower than the clip)
