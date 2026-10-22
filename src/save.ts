@@ -42,7 +42,7 @@ export interface SaveData {
   runes: number; // 🔷 unlock skill panels
   boardResets: Partial<Record<BoardKey, number>>;
   boardSpent: Partial<Record<BoardKey, { souls: number; runes: number }>>; // what was really paid per board (refunds)
-  autoSalvage: 'off' | 'common' | 'rare'; // salvage chest drops at or below this rarity
+  autoSalvage: 'off' | 'common' | 'rare' | 'epic'; // salvage chest drops at or below this rarity
   autoRepeat: boolean; // after a clear, start the same tier again by itself
   wbDay: string; // local date the tickets below belong to
   wbUsed: number; // world boss tickets used today
@@ -149,7 +149,7 @@ function sanitize(raw: unknown): SaveData {
     lastSeen: num(r.lastSeen, Date.now()),
     updatedAt: num(r.updatedAt, 0),
     ...sanitizeSkills(r),
-    autoSalvage: r.autoSalvage === 'common' || r.autoSalvage === 'rare' ? r.autoSalvage : 'off',
+    autoSalvage: r.autoSalvage === 'common' || r.autoSalvage === 'rare' || r.autoSalvage === 'epic' ? r.autoSalvage : 'off',
     autoRepeat: r.autoRepeat === true,
     necroMode: r.necroMode === 'summon' ? 'summon' : 'bolt',
     spellType: Object.fromEntries(Object.entries(r.spellType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && SPELL_TYPES.includes(a as SpellType))) as SaveData['spellType'],
@@ -350,7 +350,7 @@ export function trade(s: SaveData, ids: string[], target: ItemKind): Item | null
   return out;
 }
 
-const AUTO_SALVAGE_MAX: Record<SaveData['autoSalvage'], number> = { off: -1, common: 0, rare: 1 };
+const AUTO_SALVAGE_MAX: Record<SaveData['autoSalvage'], number> = { off: -1, common: 0, rare: 1, epic: 2 };
 
 /** Open chests won in a run. Auto-salvage setting and a full bag turn drops into coins. */
 export function openChests(s: SaveData, chests: Record<ChestKind, number>, tier: number): { items: Item[]; autoSalvaged: number; kept: Item[] } {

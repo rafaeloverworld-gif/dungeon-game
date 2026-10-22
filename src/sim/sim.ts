@@ -70,6 +70,8 @@ export interface Projectile {
   shard?: boolean; // ice shard
   owner?: Sim; // co-op: the hero who fired it (damage, procs and kills are theirs)
   elem?: Elem; // leaves this element on what it hits
+  homing?: boolean; // 追蹤箭: steers towards an enemy; after piercing one, turns to the next
+  seek?: number; // id of the enemy it is chasing
 }
 
 /** Necromancer allies: skeletons from skills, or slain enemies raised as undead (they keep their kind:
@@ -850,19 +852,42 @@ export class Sim {
     const n = this.stats.multishot + (type === 'spread' ? 2 : 0);
     const spread = type === 'spread' ? 0.2 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
-    const dm = type === 'normal' ? 1.4 : type === 'blast' ? 0.8 : type === 'frost' ? 1 : type === 'spread' ? 0.8 : 1;
+    const dm = type === 'normal' ? 1.4 : type === 'blast' ? 0.8 : type === 'frost' ? 1 : type === 'spread' ? 0.8 : type === 'homing' ? 0.75 : 1;
+    const homing = type === 'homing';
     for (let i = 0; i < n; i++) {
       const a = base + (i - (n - 1) / 2) * spread;
       const { dmg: raw, crit } = this.rollDamage();
       this.projectiles.push({
         x: p.x, z: p.z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed,
         dmg: raw * mult * dm * 1.15, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.15,
-        pierce: type === 'blast' ? 0 : this.stats.pierce + 1 + (type === 'pierce' ? 3 : type === 'frost' ? 2 : type === 'normal' ? 1 : 0),
+        pierce: type === 'blast' ? 0 : homing ? this.stats.pierce + (this.awk?.id === 'archer_archer' || this.awk?.base === 'archer_archer' ? 5 : 3) : this.stats.pierce + 1 + (type === 'pierce' ? 3 : type === 'frost' ? 2 : type === 'normal' ? 1 : 0), homing: homing || undefined,
         radius: 0.3, hit: [],
         blast: type === 'blast' ? 1.5 * Math.sqrt(value(this.stats.area)) : undefined, fx: type === 'blast' ? 'fire' : undefined,
         slow: type === 'frost' ? 0.5 : undefined, ap: type === 'pierce' || undefined, elem: type === 'frost' ? 'frost' : type === 'blast' ? 'fire' : undefined,
       });
     }
+  }
+
+  /** 追蹤箭: turn towards the enemy it chases (picks the nearest one it hasn't hit, ahead of it first). */
+  private steer(pr: Projectile, dt: number): void {
+    let t = pr.seek !== undefined ? this.enemies.find((e) => e.id === pr.seek && e.hp > 0) : undefined;
+    const sp = Math.hypot(pr.vx, pr.vz) || 1;
+    if (!t) {
+      let bd = 9;
+      for (const e of this.enemies) {
+        if (e.hp <= 0 || pr.hit.includes(e.id)) continue;
+        const dx = e.x - pr.x, dz = e.z - pr.z, d = Math.hypot(dx, dz);
+        const score = d + (1 - (dx * pr.vx + dz * pr.vz) / (sp * (d || 1))) * 2; // prefer ones in front
+        if (score < bd) { bd = score; t = e; }
+      }
+      pr.seek = t?.id;
+    }
+    if (!t) return;
+    const dx = t.x - pr.x, dz = t.z - pr.z, d = Math.hypot(dx, dz) || 1;
+    const k = Math.min(1, 9 * dt);
+    pr.vx += ((dx / d) * sp - pr.vx) * k; pr.vz += ((dz / d) * sp - pr.vz) * k;
+    const s2 = Math.hypot(pr.vx, pr.vz) || 1;
+    pr.vx *= sp / s2; pr.vz *= sp / s2;
   }
 
   /** Summoner necromancer: a basic attack raises skeletons towards the target (renews the oldest at the cap). */
@@ -1292,6 +1317,7 @@ export class Sim {
     const H = this.heroes;
     const keep: Projectile[] = [];
     for (const pr of this.projectiles) {
+      if (pr.homing) this.steer(pr, dt);
       pr.x += pr.vx * dt;
       pr.z += pr.vz * dt;
       pr.life -= dt;
@@ -1320,7 +1346,7 @@ export class Sim {
               e.x += (pr.vx / v) * pr.knock; e.z += (pr.vz / v) * pr.knock;
             }
             if (pr.slow) { e.slowTimer = 2; e.slowMult = Math.min(e.slowMult, pr.slow); }
-            if (pr.pierce > 0) pr.pierce--;
+            if (pr.pierce > 0) { pr.pierce--; if (pr.homing) { pr.seek = undefined; pr.life = Math.max(pr.life, 0.9); this.steer(pr, 1); } } // 追蹤箭: turn to the next enemy
             else { alive = false; break; }
           }
         }

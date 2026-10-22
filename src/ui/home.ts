@@ -896,8 +896,8 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
         <div class="seg fxprefs">${([['sfx', tr('🔊 音效', '🔊 SFX')], ['music', tr('🎵 音樂', '🎵 Music')], ['numbers', tr('💥 傷害數字', '💥 Damage numbers')]] as const).map(([k, n]) => `<button data-fx="${k}" class="${fxPrefs[k] ? 'on' : ''}">${n}</button>`).join('')}</div>
       </div>
       <div class="card"><h3>${tr('遊戲', 'Game')}</h3>${ctx.autoPickToggle()}
-        <div class="setrow"><div><b>${tr('開寶箱自動分解', 'Auto-salvage chest loot')}</b><small>${tr('鎖定咗嘅唔受影響', 'Locked items are safe')}</small></div>
-          <div class="seg">${([['off', tr('關', 'Off')], ['common', tr('普通', 'Common')], ['rare', tr('稀有或以下', 'Rare & below')]] as const).map(([k, n]) => `<button data-salv="${k}" class="${save.autoSalvage === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+        <div class="setrow stack"><div><b>${tr('開寶箱自動分解', 'Auto-salvage chest loot')}</b><small>${tr('揀咗嘅品質或以下會自動賣做金幣；傳說永遠唔會賣', 'Drops at or below this rarity turn into coins; legendaries never do')}</small></div>
+          <div class="seg">${([['off', tr('關', 'Off')], ['common', tr('普通', 'Common')], ['rare', tr('稀有或以下', 'Rare & below')], ['epic', tr('史詩或以下', 'Epic & below')]] as const).map(([k, n]) => `<button data-salv="${k}" class="${save.autoSalvage === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
       </div>
       <div class="card">
         <h3>${tr('存檔', 'Save')}${cloudReady() ? tr('（☁️ 雲端同步：電腦同手機用同一個存檔）', ' (☁️ Cloud sync: same save on PC and phone)') : tr('（只存喺呢個瀏覽器）', ' (this browser only)')}</h3>
