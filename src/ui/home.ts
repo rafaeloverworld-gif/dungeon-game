@@ -38,6 +38,8 @@ export interface HomeCtx {
   setSave: (s: SaveData) => void;
   startRun: () => void;
   startWorldBoss: (level: number) => void;
+  openCoop: () => void;
+  coopAvailable: () => boolean;
   autoPickToggle: () => string;
   wireToggles: (root: HTMLElement) => void;
   banner: (text: string, icon?: string) => void;
@@ -138,6 +140,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
       </div>
       <button class="primary start" data-act="start">${tr('開始挑戰', 'Start')}</button>
       ${worldBossCard(save)}
+      ${onlineSupported() || ctx.coopAvailable() ? `<button class="card boardcard" data-act="coop"><div class="statline"><h3 style="margin:0">🤝 ${tr('合作模式（2 人）', 'Co-op (2 players)')}</h3><small>${ctx.coopAvailable() ? tr('開房 / 入房', 'Open / join a room') : tr('要網上帳號', 'Needs an online account')}</small></div><small>${tr('同朋友一齊打同一個地城，每人都攞足獎勵', 'Clear a dungeon together with a friend; everyone gets full rewards')}</small></button>` : ''}
       ${onlineSupported() ? `<button class="card boardcard" data-act="board"><div class="statline"><h3 style="margin:0">🏆 ${tr('排行榜', 'Leaderboards')}</h3><small>${onlineState().playerId ? `👤 ${esc(onlineState().playerId!)}` : tr('開帳號先上榜', 'Make an account to join')}</small></div><small>${tr('最高通關、同職業排名、今日世界 Boss 傷害', 'Best tier, your class, today\'s World Boss damage')}</small></button>` : ''}
       <div class="note">${tr('唔掂螢幕 = 自動駕駛。掂住螢幕拖動（或 WASD）= 自己操控，放手 2 秒變返自動。<br>打低小 Boss 有機會得銀箱，最終 Boss 一定有金箱，<b>通關先入袋</b>。', 'Hands off = Autopilot. Drag (or WASD) to steer; let go for 2s to return to auto.<br>Mini-bosses may drop a Silver Chest; the final Boss always drops a Gold Chest. <b>Loot is kept only on a clear.</b>')}</div>
     </div>`));
@@ -149,6 +152,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
     else if (b.dataset.act === 'ascend') showAscend(ctx);
     else if (b.dataset.act === 'worldboss') showWorldBoss(ctx);
     else if (b.dataset.act === 'board') showBoard(ctx);
+    else if (b.dataset.act === 'coop') { if (ctx.coopAvailable()) ctx.openCoop(); else { ctx.banner(tr('先去「設定 → 網上帳號」開個帳號', 'Make an account first: Settings → Online account')); showHome(ctx, 'settings'); } }
     else if (b.dataset.act === 'claim') { const got = claimQuest(save); if (got) { showHome(ctx); ctx.banner(`${tr('任務完成！', 'Quest done! ')}🪙 +${got}`); } }
     else if (b.dataset.act === 'tier-') { save.selectedTier--; writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'tier+') { save.selectedTier++; writeSave(save); showHome(ctx); }
@@ -157,6 +161,12 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
 }
 
 // ---------- 排行榜 ----------
+/** World Boss board score → "Lv 12 · 64%" (or a kill). */
+function wbScore(v: number): string {
+  const lv = Math.floor(v), f = v - lv;
+  return `Lv ${lv} · ${f >= 0.995 ? tr('擊殺', 'Kill') : `${Math.round((f / 0.99) * 100)}%`}`;
+}
+
 function showBoard(ctx: HomeCtx): void {
   const save = ctx.getSave();
   let kind: BoardKind = 'all';
@@ -168,7 +178,7 @@ function showBoard(ctx: HomeCtx): void {
   };
   const row = (r: Board['rows'][number]) => `<div class="brow ${r.me ? 'me' : ''}"><b class="brank">${r.rank <= 3 ? ['🥇', '🥈', '🥉'][r.rank - 1] : r.rank}</b>
     <span class="bname"><b>${esc(r.playerId)}</b><small>${mixName(r.mixId, r.classId)} · Lv ${r.level}</small></span>
-    <b class="bval">${kind === 'wb' ? fmt(r.wbDamage) : EN ? `Tier ${r.bestTier}` : `第 ${r.bestTier} 級`}</b></div>`;
+    <b class="bval">${kind === 'wb' ? wbScore(r.wbDamage) : EN ? `Tier ${r.bestTier}` : `第 ${r.bestTier} 級`}</b></div>`;
   const draw = () => {
     const signedIn = !!onlineState().playerId;
     const list = board === 'loading' ? `<p class="note">${tr('載入緊…', 'Loading…')}</p>`
@@ -179,6 +189,7 @@ function showBoard(ctx: HomeCtx): void {
     el.innerHTML = `<div class="card boardmodal">
       <h2 style="margin:0 0 8px">🏆 ${tr('排行榜', 'Leaderboards')}</h2>
       <div class="seg boardtabs">${([['all', tr('總榜', 'All')], ['class', `${CLASSES[save.classId].icon} ${CLASSES[save.classId].name}`], ['wb', tr('今日世界 Boss', "Today's World Boss")]] as const).map(([k, n]) => `<button data-kind="${k}" class="${kind === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+      ${kind === 'wb' ? `<p class="note" style="text-align:left;margin:0 0 8px">${tr('排法：Boss 等級高先贏，同級再比打咗 Boss 幾多 % 血。', 'Ranked by Boss level first, then by how much of its HP you took.')}</p>` : ''}
       <div class="blist">${list}${mine}</div>
       ${signedIn ? '' : `<p class="note" style="text-align:left">${tr('你仲未上榜：去「設定 → 網上帳號」開個帳號，成績就會自動上傳。', "You're not on the boards yet: make an account in Settings → Online account and your results upload automatically.")}</p><button data-act="tosettings" style="width:100%;margin-bottom:8px">${tr('去開帳號', 'Make an account')}</button>`}
       <button class="ghost" data-act="close" style="width:100%">${tr('關閉', 'Close')}</button></div>`;

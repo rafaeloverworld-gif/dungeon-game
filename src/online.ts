@@ -176,7 +176,7 @@ export type BoardKind = 'all' | 'class' | 'wb';
 export interface BoardRow { rank: number; playerId: string; classId: ClassId | null; mixId: string | null; bestTier: number; level: number; wbDamage: number; me: boolean }
 export interface Board { rows: BoardRow[]; me: BoardRow | null }
 
-/** Today's World Boss: keep this account's best damage of the day. */
+/** Today's World Boss: keep this account's best fight of the day. score = boss level + share of its HP taken (0–0.999). */
 export async function reportWorldBoss(damage: number): Promise<void> {
   if (!session || !playerId || !(damage > 0)) return;
   try {
@@ -184,7 +184,7 @@ export async function reportWorldBoss(damage: number): Promise<void> {
     const today = dayKey();
     const { data } = await c.from('scores').select('wb_day, wb_damage').eq('user_id', session.user.id).maybeSingle();
     if (data && data.wb_day === today && (data.wb_damage as number) >= damage) return;
-    await c.from('scores').upsert({ user_id: session.user.id, player_id: playerId, wb_day: today, wb_damage: Math.round(damage), updated_at: new Date().toISOString() });
+    await c.from('scores').upsert({ user_id: session.user.id, player_id: playerId, wb_day: today, wb_damage: Math.round(damage * 1000) / 1000, updated_at: new Date().toISOString() });
   } catch { /* the board just misses this fight */ }
 }
 
@@ -226,3 +226,7 @@ export async function fetchBoard(kind: BoardKind, classId?: ClassId): Promise<Bo
     return null;
   }
 }
+
+/** For the co-op rooms (net/room.ts): the shared client and who is signed in. */
+export const supa = (): SupabaseClient => client();
+export const myUid = (): string | null => session?.user.id ?? null;

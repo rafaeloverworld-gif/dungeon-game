@@ -1,5 +1,5 @@
 import { DUNGEON, OFFLINE, SIM_DT } from './sim/config';
-import { Sim, type SimEvent } from './sim/sim';
+import { Sim, type Input, type SimEvent } from './sim/sim';
 import { biomeFor, isBigKind } from './sim/config';
 import { play, setTense, startMusic, unlockAudio } from './audio';
 import { CHEST_NAMES, itemName, RARITY_COLORS, type ChestKind } from './sim/gear';
@@ -17,10 +17,12 @@ import { showRunTip, welcomeModal } from './ui/onboarding';
 import { getLang, langChosen, setLang, tr } from './i18n';
 import { ico } from './ui/icons';
 import { coopBotOn } from './coopbot';
+import { coopAvailable, endSession, session, showCoopLobby, snapRate, type Setup } from './net/coop';
+import { applySnap, buildSnap, resetGuest, smooth, SHARED, syncDebug, type Snap } from './net/sync';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 /** Death reasons stay Chinese inside the sim (compared below); this is only the label shown. */
-const reasonLabel = (reason: string) => reason === '時間到' ? tr('⏱ 時間到', '⏱ Time\'s up') : reason === '放棄' ? tr('🏳️ 放棄', '🏳️ Gave up') : tr('💀 陣亡', '💀 Defeated');
+const reasonLabel = (reason: string) => reason === '時間到' ? tr('⏱ 時間到', '⏱ Time\'s up') : reason === '放棄' ? tr('🏳️ 放棄', '🏳️ Gave up') : reason === '斷線' ? tr('📡 主機斷線', '📡 Host disconnected') : tr('💀 陣亡', '💀 Defeated');
 
 const app = document.getElementById('app')!;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -57,7 +59,7 @@ const autoPickToggle = () => `
 function setAutoPick(on: boolean): void {
   save.autoPickCards = on;
   writeSave(save);
-  sim?.setAutoPick(on);
+  if (session?.role === 'guest') session.link.send('autopick', on); else sim?.setAutoPick(on);
   document.querySelectorAll<HTMLInputElement>('input[data-set=autopick]').forEach((i) => { i.checked = on; });
 }
 
@@ -75,6 +77,8 @@ const homeCtx: HomeCtx = {
   setSave: (s) => { save = s; },
   startRun: () => startRun(),
   startWorldBoss: (level: number) => startRun(level),
+  openCoop: () => showCoopLobby({ ui, save: () => save, start: startCoop }),
+  coopAvailable,
   autoPickToggle,
   wireToggles,
   banner: (t, i) => banner(t, i),
@@ -147,14 +151,49 @@ function startRun(worldBossLevel?: number): void {
   });
   // testing: an AI copy of your character joins as the second hero (2-player co-op)
   if (coopBotOn()) new Sim({ tier: sim.tier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: true, worldBoss: wbId, world: sim.w, ...runSetup(save) });
+  beginRun();
+}
+
+/** Co-op: both phones build the same two heroes; the host runs the dungeon, the guest shows the host's snapshots. */
+function startCoop(o: { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean; role: 'host' | 'guest' }): void {
+  const hostSim = new Sim({ tier: o.tier, seed: o.seed, autoPickCards: o.role === 'host' ? save.autoPickCards : true, ...o.host });
+  const guestSim = new Sim({ tier: o.tier, seed: o.seed + 1, autoPickCards: o.role === 'host' ? o.guestAutoPick : save.autoPickCards, world: hostSim.w, ...o.guest });
+  sim = o.role === 'host' ? hostSim : guestSim;
+  if (o.role === 'guest') resetGuest();
+  if (session) session.link.onMessage = onCoopMessage;
+  pickedOffer = -1;
+  beginRun();
+}
+
+let pickedOffer = -1; // guest: the card offer already answered (until the host's next snapshot catches up)
+
+function onCoopMessage(t: string, d: unknown): void {
+  const s = session;
+  if (!s || !sim) return;
+  if (s.role === 'host') {
+    const g = sim.heroes[1];
+    if (t === 'in') { s.remoteInput = d as Input; s.lastInputAt = performance.now(); }
+    else if (t === 'card' && g) { const m = d as { oi: number; i: number }; if (g.offerId === m.oi) g.chooseCard(m.i); }
+    else if (t === 'sig') g?.requestSignature();
+    else if (t === 'autopick') g?.setAutoPick(!!d);
+    else if (t === 'peerLeft') { s.remoteInput = { x: 0, z: 0, manual: false }; toast(tr('隊友斷線咗，佢嘅角色改做自動打', 'Teammate disconnected: their hero fights on autopilot'), '🤝'); }
+  } else {
+    if (t === 'snap') s.snaps.push(d as Snap);
+    else if (t === 'peerLeft' && (sim.phase === 'playing' || sim.phase === 'transition')) { sim.w.phase = 'dead'; sim.w.deathReason = '斷線'; }
+  }
+}
+
+function beginRun(): void {
+  if (!sim) return;
   renderer.reset(sim);
   paused = false;
   acc = 0;
   lastPhase = '';
   input.enabled = true;
   buildHud();
+  if (hud) hud.speedBtn.style.display = session ? 'none' : '';
   setTimeout(() => { if (sim) showRunTip(ui, save, 'controls'); }, 1800);
-  banner(sim.wb ? `${sim.wb.icon} ${tr('世界 Boss：', 'World Boss: ')}${sim.wb.name} Lv${sim.tier}` : `${biomeFor(sim.tier).icon} ${biomeFor(sim.tier).name} · ${EN ? `Tier ${sim.tier}` : `第 ${sim.tier} 級`}`);
+  banner(sim.coop && session ? `🤝 ${tr('合作模式', 'Co-op')} · ${EN ? `Tier ${sim.tier}` : `第 ${sim.tier} 級`}` : sim.wb ? `${sim.wb.icon} ${tr('世界 Boss：', 'World Boss: ')}${sim.wb.name} Lv${sim.tier}` : `${biomeFor(sim.tier).icon} ${biomeFor(sim.tier).name} · ${EN ? `Tier ${sim.tier}` : `第 ${sim.tier} 級`}`);
 }
 
 function buildHud(): void {
@@ -186,7 +225,7 @@ function buildHud(): void {
     chests: q('[data-k=chests]'),
     sig: root.querySelector('.sigbtn'), sigFill: root.querySelector('.sigfill'), sigTime: root.querySelector('.sigtime'),
   };
-  hud.sig?.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); sim?.requestSignature(); });
+  hud.sig?.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); if (session?.role === 'guest') session.link.send('sig', 1); else sim?.requestSignature(); });
   root.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b) return;
@@ -318,7 +357,8 @@ function showLevelUp(): void {
   cardEl.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b || !sim) return;
-    sim.chooseCard(Number(b.dataset.i));
+    if (session?.role === 'guest') { pickedOffer = sim.offerId; session.link.send('card', { oi: sim.offerId, i: Number(b.dataset.i) }); hideLevelUp(); lastPhase = 'playing'; }
+    else sim.chooseCard(Number(b.dataset.i));
   });
   ui.appendChild(cardEl);
 }
@@ -328,17 +368,46 @@ function hideLevelUp(): void {
   cardEl = null;
 }
 
+// ---------- co-op guest: draw the host's dungeon ----------
+function guestFrame(now: number, dt: number): void {
+  const s = session!, me = sim!;
+  for (const snap of s.snaps.splice(0)) {
+    let evs: SimEvent[] | null = null;
+    try { evs = applySnap(me, snap, now); } catch (e) { console.error('snap', e); }
+    if (!evs) continue;
+    s.lastSnapAt = now;
+    if (me.phase === 'playing') lostChests = { ...me.chests };
+    renderer.handleEvents(evs);
+    handleEvents(evs);
+  }
+  const stick = input.read();
+  if (now - s.inputAt > 80) { s.inputAt = now; s.link.send('in', stick, true); }
+  if (!paused) smooth(me, now, dt, stick.manual ? stick : null);
+  if (now - s.lastSnapAt > 8000 && (me.phase === 'playing' || me.phase === 'transition')) { me.w.phase = 'dead'; me.w.deathReason = '斷線'; }
+  const phase = me.picking && me.offerId !== pickedOffer ? 'levelup' : me.phase === 'levelup' ? 'playing' : me.phase;
+  if (phase !== lastPhase) {
+    if (lastPhase === 'levelup') hideLevelUp();
+    if (phase === 'levelup') showLevelUp();
+    lastPhase = phase;
+  } else if (phase === 'levelup' && (cardEl === null || shownOffer !== me.offerId)) { hideLevelUp(); showLevelUp(); }
+  updateHud();
+  renderer.render(me, dt);
+  if (me.phase === 'won') { finishRun(true, ''); endSession(); }
+  else if (me.phase === 'dead') { finishRun(false, me.deathReason); endSession(); }
+}
+
 // ---------- pause & end ----------
 let pauseEl: HTMLElement | null = null;
 function showPause(): void {
   if (!sim || pauseEl) return;
-  paused = true;
+  paused = !session; // co-op keeps running (the other phone is still playing)
   pauseEl = h(`
     <div class="screen dim">
       <h2 style="text-align:center">${tr('暫停', 'Paused')}</h2>
       <div class="col">
+        ${session ? `<p class="note">${tr('合作模式唔會暫停，遊戲照行緊。', 'Co-op does not pause; the dungeon keeps going.')}</p>` : ''}
         <button class="primary" data-act="resume">${tr('繼續', 'Resume')}</button>
-        <button data-act="quit">${tr('放棄地城（保留金幣同經驗）', 'Give up (keep Coins & XP)')}</button>
+        <button data-act="quit">${session ? tr('離開合作（保留金幣同經驗）', 'Leave co-op (keep Coins & XP)') : tr('放棄地城（保留金幣同經驗）', 'Give up (keep Coins & XP)')}</button>
         <div class="card">${autoPickToggle()}</div>
       </div>
     </div>`);
@@ -348,6 +417,7 @@ function showPause(): void {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b || !sim) return;
     if (b.dataset.act === 'resume') { paused = false; pauseEl?.remove(); pauseEl = null; last = performance.now(); }
+    if (b.dataset.act === 'quit' && session) { pauseEl?.remove(); pauseEl = null; paused = false; endSession(); finishRun(false, '放棄'); return; }
     if (b.dataset.act === 'quit') { pauseEl?.remove(); pauseEl = null; paused = false; finishRun(false, '放棄'); }
   });
   ui.appendChild(pauseEl);
@@ -474,7 +544,10 @@ function finishWorldBoss(killed: boolean, reason: string): void {
   const s = sim!;
   sim = null;
   input.enabled = false;
-  void reportWorldBoss(s.wbDamage); // today's World Boss board keeps your best fight
+  { // today's World Boss board: boss level + how much of its HP you took (a kill counts as 99.9%)
+    const maxHp = s.wb!.hp * Math.pow(1.15, s.tier - 1) * s.coopHp;
+    void reportWorldBoss(s.tier + (killed ? 0.999 : Math.min(0.99, (s.wbDamage / maxHp) * 0.99)));
+  }
   if (killed) { claimWbRun(s, true, reason); return; }
   // failed: retry for free (no rewards), or spend a ticket to take the rewards for the damage done
   const wb = s.wb!;
@@ -560,6 +633,7 @@ document.addEventListener('click', (ev) => { if ((ev.target as HTMLElement).clos
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  if (sim && session?.role === 'guest') { guestFrame(now, dt); requestAnimationFrame(frame); return; }
 
   if (sim && !paused && hitStop > 0) {
     hitStop -= dt; // brief freeze on big kills
@@ -571,7 +645,15 @@ function frame(now: number): void {
       acc -= SIM_DT;
       steps++;
       lostChests = { ...sim.chests };
-      sim.step(input.read());
+      const mine = input.read();
+      if (session) {
+        // host: the guest's stick drives hero 2 (autopilot when its input goes quiet)
+        if (performance.now() - session.lastInputAt > 1500) session.remoteInput = { x: 0, z: 0, manual: false };
+        sim.stepParty([mine, session.remoteInput]);
+        for (const e of sim.events) if (SHARED.has(e.type)) session.evBuf.push(e);
+        for (const e of sim.heroes[1]?.events ?? []) session.evBuf.push(e);
+        if (session.evBuf.length > 400) session.evBuf.splice(0, session.evBuf.length - 400);
+      } else sim.step(mine);
       renderer.handleEvents(sim.events);
       // co-op: what the teammates do shows too (hits, slashes, blasts), but not their personal alerts
       for (const o of sim.heroes) if (o !== sim) renderer.handleEvents(o.events.filter((e) => PARTNER_FX.has(e.type)));
@@ -579,6 +661,14 @@ function frame(now: number): void {
       if (sim.phase === 'won' || sim.phase === 'dead') break;
     }
     if (acc > SIM_DT * 12) acc = 0;
+    if (session && sim.heroes[1]) {
+      const end = sim.phase === 'won' || sim.phase === 'dead';
+      if (end || now - session.sendAt >= 1000 / snapRate(session)) {
+        session.sendAt = now;
+        session.link.send('snap', buildSnap(sim, sim.heroes[1], ++session.snapN, session.evBuf), !end); // the last one is sent reliably
+        session.evBuf = [];
+      }
+    }
 
     const phase = sim.picking ? 'levelup' : sim.phase; // co-op: card picks don't pause the dungeon
     if (phase !== lastPhase) {
@@ -589,15 +679,15 @@ function frame(now: number): void {
     if (!sim.wb && sim.kills >= 10 && !save.tips.includes('quota')) showRunTip(ui, save, 'quota');
     updateHud();
     renderer.render(sim, dt);
-    if (sim.phase === 'won') finishRun(true, '');
-    else if (sim.phase === 'dead') finishRun(false, sim.deathReason);
+    if (sim.phase === 'won') { finishRun(true, ''); if (session) setTimeout(endSession, 1500); }
+    else if (sim.phase === 'dead') { finishRun(false, sim.deathReason); if (session) setTimeout(endSession, 1500); }
   } else if (sim) {
     renderer.render(sim, 0);
   }
   requestAnimationFrame(frame);
 }
 
-document.addEventListener('visibilitychange', () => { if (document.hidden && sim) showPause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && sim && !session) showPause(); });
 
 showHome();
 if (!langChosen()) {
@@ -696,4 +786,4 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 requestAnimationFrame(frame);
 
 // for automated testing
-(window as unknown as { __game: unknown }).__game = { get sim() { return sim; }, get save() { return save; }, get renderer() { return renderer; } };
+(window as unknown as { __game: unknown }).__game = { get sim() { return sim; }, get save() { return save; }, get renderer() { return renderer; }, get coop() { return session; }, get sync() { return { ...syncDebug(), paused, hitStop }; } };
