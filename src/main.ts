@@ -5,10 +5,12 @@ import { play, setTense, startMusic, unlockAudio } from './audio';
 import { CHEST_NAMES, itemName, RARITY_COLORS, type ChestKind } from './sim/gear';
 import { Renderer } from './render/renderer';
 import { AWAKEN_TIER } from './sim/awakening';
+import { CLASSES } from './sim/classes';
 import { parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
 import { namedChance, todaysBoss } from './sim/worldboss';
 import { createInput } from './input';
 import { cloudConnect, cloudPush, cloudReady } from './cloud';
+import { onlineConnect, onlinePush, onlineState, type RemoteSave } from './online';
 import { esc, fmt, h, mmss } from './ui/dom';
 import { showHome as renderHome, type HomeCtx, type Tab } from './ui/home';
 import { showRunTip, welcomeModal } from './ui/onboarding';
@@ -618,10 +620,12 @@ else checkOffline();
 startCloud();
 
 // ---------- cloud save (only when running as a Claude artifact) ----------
+// every save goes to whichever cloud is connected (Claude artifact store, or the online account)
+setSaveHook((json, s) => { if (cloudReady()) cloudPush(json, s.updatedAt); onlinePush(s); });
+
 async function startCloud(): Promise<void> {
   const remote = await cloudConnect();
-  if (!cloudReady()) return;
-  setSaveHook((json, s) => cloudPush(json, s.updatedAt));
+  if (!cloudReady()) { void startOnline(); return; }
   if (remote && remote.updatedAt > save.updatedAt) {
     if (sim) return; // mid-run: keep this device's progress, it will be newer when the run ends
     try {
@@ -637,6 +641,51 @@ async function startCloud(): Promise<void> {
   const flushNow = () => cloudPush(JSON.stringify(save), save.updatedAt, true);
   window.addEventListener('pagehide', flushNow);
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushNow(); });
+}
+
+// ---------- online account (GitHub Pages: Supabase) ----------
+async function startOnline(): Promise<void> {
+  const remote = await onlineConnect();
+  if (!onlineState().signedIn) return;
+  if (!sim && !document.querySelector('.modal')) renderHome(homeCtx); // show the account as logged in
+  syncWithRemote(remote);
+  const flushNow = () => onlinePush(save, true);
+  window.addEventListener('pagehide', flushNow);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushNow(); });
+}
+// logging in from the Settings tab hands over the account's cloud save
+window.addEventListener('online-login', (ev) => syncWithRemote((ev as CustomEvent<RemoteSave | null>).detail));
+
+/** Newest save wins, unless the older one has more progress: then ask which to keep. */
+function syncWithRemote(remote: RemoteSave | null): void {
+  const push = () => onlinePush(save, true);
+  if (!remote) { push(); return; }
+  let r: SaveData;
+  try { r = parseSave(remote.json); } catch { push(); return; }
+  if (remote.updatedAt === save.updatedAt) return;
+  const remoteNewer = remote.updatedAt > save.updatedAt;
+  const remoteMore = r.level > save.level || r.highestCleared > save.highestCleared;
+  const localMore = save.level > r.level || save.highestCleared > r.highestCleared;
+  const useRemote = () => {
+    if (sim) return; // mid-run: keep this device's progress
+    save = r; writeSaveLocalOnly(save); showHome(); checkOffline();
+    banner(tr('☁️ 已載入雲端存檔', '☁️ Cloud save loaded'));
+  };
+  if (!(remoteNewer ? localMore : remoteMore)) { if (remoteNewer) useRemote(); else push(); return; }
+  const line = (s: SaveData) => `Lv ${s.level} · ${EN ? `best Tier ${s.highestCleared}` : `最高通關 ${s.highestCleared}`} · ${CLASSES[s.classId].icon} ${CLASSES[s.classId].name}`;
+  const el = h(`<div class="screen dim modal"><div class="card welcome">
+      <h2>${tr('揀邊個存檔？', 'Which save?')}</h2>
+      <p class="sub">${tr('雲端同呢部機嘅存檔唔一樣。揀咗嗰個會覆蓋另一個。', 'The cloud save and this device differ. The one you pick replaces the other.')}</p>
+      <button class="primary" data-pick="remote" style="width:100%;margin-bottom:8px">☁️ ${tr('雲端', 'Cloud')}：${line(r)}</button>
+      <button data-pick="local" style="width:100%">📱 ${tr('呢部機', 'This device')}：${line(save)}</button>
+    </div></div>`);
+  el.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-pick]');
+    if (!b) return;
+    el.remove();
+    if (b.dataset.pick === 'remote') useRemote(); else push();
+  });
+  ui.appendChild(el);
 }
 
 // PWA: only works when served over http(s), not when the HTML file is opened directly

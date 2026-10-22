@@ -336,3 +336,11 @@
   - 自動駕駛會行去救倒低嘅隊友，唔會離隊太遠
 - 同一部機測試：設定 → 測試用 → 「🤝 AI 隊友」。機械人測試：2 人（敵人 ×1.7 血）同單人難度差唔多，略為易少少
 - 未做：網絡（B1–B2）、隊友嘅終極技範圍 / 地上效果未畫出嚟
+
+## 34. 網上帳號 A1（2026-10-22）
+- 後台：Supabase project「Only a Dungeon」（倫敦）。數據表見 `supabase/schema.sql`：profiles（玩家 ID）、saves（雲端存檔）、scores（排行榜）
+- 帳號 = 玩家 ID + 密碼（設定頁「網上帳號」）。暗地裏用一個假 email（帳號編號@players.onlyadungeon.app）登入，所以 Supabase 要關「Confirm email」
+- 存檔自動上雲（每 5 秒最多一次，離開頁面即刻上）。換機：用同一個 ID 同密碼登入
+- 兩邊存檔唔同：新嗰個贏；但如果舊嗰個進度高啲，就問玩家揀邊個
+- 只喺 GitHub Pages 版出現；Claude Beta 版照用原本嘅雲端同步
+- 密碼冇得補發（冇真 email）

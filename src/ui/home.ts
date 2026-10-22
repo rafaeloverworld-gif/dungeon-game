@@ -25,6 +25,7 @@ import { claimQuest, markTip, questCard, tipCard, type TipId } from './onboardin
 import { clearLang, getLang, setLang, tr } from '../i18n';
 import { ico, icoG } from './icons';
 import { coopBotOn, setCoopBot } from '../coopbot';
+import { createAccount, ID_RULE, login, logout, onlinePush, onlineState, onlineSupported, PASSWORD_MIN, type AccountError } from '../online';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 
@@ -817,6 +818,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
         <div class="saverow"><button data-act="export">${tr('匯出存檔', 'Export')}</button><button data-act="import">${tr('匯入存檔', 'Import')}</button></div>
         <p class="note" style="margin:10px 0 0">${EN ? `Dungeon runs: ${save.runs}` : `已玩 ${save.runs} 次地城`}</p>
       </div>
+      ${onlineSupported() ? onlineCard() : ''}
       <div class="card">
         <h3>${tr('重置帳號', 'Reset account')}</h3>
         <button data-act="reset-all" class="danger" style="width:100%">${tr('🗑️ 重置所有進度', '🗑️ Reset all progress')}</button>
@@ -843,6 +845,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
     const b = (ev.target as HTMLElement).closest('button');
     if (b?.dataset.fx) { const k = b.dataset.fx as 'sfx' | 'music' | 'numbers'; setPref(k, !fxPrefs[k]); showHome(ctx); return; }
     if (b?.dataset.lang) { if (b.dataset.lang !== getLang()) setLang(b.dataset.lang as 'zh' | 'en'); return; }
+    if (b?.dataset.act?.startsWith('ol-')) { void onlineAction(ctx, body, b.dataset.act); return; }
     if (b?.dataset.coopbot) { setCoopBot(b.dataset.coopbot === '1'); showHome(ctx); return; }
     if (b?.dataset.salv) { save.autoSalvage = b.dataset.salv as SaveData['autoSalvage']; writeSave(save); showHome(ctx); return; }
     if (b?.dataset.act === 'export') void doExport(save);
@@ -884,6 +887,57 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       ctx.banner(tr('已復原重置前嘅存檔', 'Save restored'));
     }
   });
+}
+
+// ---------- online account (Settings) ----------
+const ACCOUNT_ERRORS: Record<AccountError, string> = {
+  badId: tr('玩家 ID 要 3–16 個字：英文、數字、中文、_ 或 -', 'Player ID: 3–16 letters, digits, Chinese characters, _ or -'),
+  taken: tr('呢個玩家 ID 已經有人用咗', 'That Player ID is taken'),
+  badPassword: tr(`密碼最少 ${PASSWORD_MIN} 個字`, `Password needs at least ${PASSWORD_MIN} characters`),
+  network: tr('連唔到伺服器，檢查吓網絡再試', "Can't reach the server; check your connection and try again"),
+  wrongLogin: tr('玩家 ID 或者密碼唔啱', 'Wrong Player ID or password'),
+  noAccount: tr('冇呢個玩家 ID', 'No account with that Player ID'),
+  unknown: tr('出咗問題，再試一次', 'Something went wrong, please try again'),
+};
+
+function onlineCard(): string {
+  const st = onlineState();
+  if (st.signedIn && st.playerId && st.hasPassword) {
+    const when = st.lastSync ? new Date(st.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+    return `<div class="card"><h3>${tr('網上帳號', 'Online account')}</h3>
+      <div class="statline"><b>👤 ${esc(st.playerId)}</b><small>${st.status === 'error' ? tr('⚠️ 未同步到', '⚠️ Not synced') : when ? `${tr('☁️ 已同步', '☁️ Synced')} ${when}` : tr('☁️ 自動同步', '☁️ Auto-sync on')}</small></div>
+      <p class="note" style="margin:6px 0 10px;text-align:left">${tr('存檔會自動上雲。換機：喺另一部機用同一個玩家 ID 同密碼登入。', 'Your save goes to the cloud automatically. New device? Log in there with the same Player ID and password.')}</p>
+      <div class="saverow"><button data-act="ol-sync">${tr('立即同步', 'Sync now')}</button><button data-act="ol-logout">${tr('登出', 'Log out')}</button></div></div>`;
+  }
+  return `<div class="card"><h3>${tr('網上帳號', 'Online account')}</h3>
+    <p class="note" style="margin:0 0 10px;text-align:left">${tr('開個帳號：存檔自動上雲，換機都唔會冇，之後仲有排行榜同合作模式。密碼冇得補發，記得記低。', 'Make an account: your save goes to the cloud so a new device keeps your progress, and it unlocks leaderboards and co-op later. Passwords can\'t be recovered, so note it down.')}</p>
+    <input id="ol-id" class="olin" maxlength="16" autocomplete="username" placeholder="${tr('玩家 ID（3–16 字）', 'Player ID (3–16)')}" value="${esc(st.playerId ?? '')}">
+    <input id="ol-pw" class="olin" type="password" autocomplete="current-password" placeholder="${tr(`密碼（最少 ${PASSWORD_MIN} 字）`, `Password (min ${PASSWORD_MIN})`)}">
+    <div class="saverow"><button class="primary" data-act="ol-create">${tr('開新帳號', 'Create account')}</button><button data-act="ol-login">${tr('登入舊帳號', 'Log in')}</button></div></div>`;
+}
+
+async function onlineAction(ctx: HomeCtx, body: HTMLElement, act: string): Promise<void> {
+  const save = ctx.getSave();
+  if (act === 'ol-sync') { onlinePush(save, true); ctx.banner(tr('☁️ 同步緊', '☁️ Syncing')); setTimeout(() => showHome(ctx), 1500); return; }
+  if (act === 'ol-logout') { await logout(); ctx.banner(tr('已登出（呢部機嘅存檔照留）', 'Logged out (this device keeps its save)')); showHome(ctx); return; }
+  const id = (body.querySelector('#ol-id') as HTMLInputElement | null)?.value.trim() ?? '';
+  const pw = (body.querySelector('#ol-pw') as HTMLInputElement | null)?.value ?? '';
+  if (!ID_RULE.test(id)) { ctx.banner(ACCOUNT_ERRORS.badId); return; }
+  const unlock = () => { for (const b of body.querySelectorAll<HTMLButtonElement>('[data-act^="ol-"]')) b.disabled = false; };
+  for (const b of body.querySelectorAll<HTMLButtonElement>('[data-act^="ol-"]')) b.disabled = true;
+  if (act === 'ol-create') {
+    const r = await createAccount(id, pw);
+    if (!r.ok) { ctx.banner(ACCOUNT_ERRORS[r.error]); unlock(); return; }
+    onlinePush(save, true);
+    ctx.banner(tr(`👤 帳號開好喇：${id}`, `👤 Account created: ${id}`));
+    showHome(ctx);
+  } else {
+    const r = await login(id, pw);
+    if (!r.ok) { ctx.banner(ACCOUNT_ERRORS[r.error]); unlock(); return; }
+    ctx.banner(tr(`👤 已登入：${id}`, `👤 Logged in: ${id}`));
+    showHome(ctx);
+    window.dispatchEvent(new CustomEvent('online-login', { detail: r.remote }));
+  }
 }
 
 async function doExport(save: SaveData): Promise<void> {
