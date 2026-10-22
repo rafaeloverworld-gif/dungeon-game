@@ -1,6 +1,6 @@
 import { prefs as fxPrefs, setPref } from '../audio';
 // Home screen: 出發 (class + dungeon), 裝備 (gear), 強化 (shop), 設定 (settings + save).
-import { ACCOUNT, DUNGEON, SHOP, type ShopKey, biomeFor, ENEMY_UNLOCKS, ELITES } from '../sim/config';
+import { ACCOUNT, DUNGEON, SHOP, type ShopKey, biomeFor, ENEMY_UNLOCKS, ELITES, tierPower } from '../sim/config';
 import { ARROW_TYPES, ARROWS, ATTACK_NAMES, CLASSES, CLASS_IDS, SPELL_TYPES, SPELLS, NECRO_MODES, type ArrowType, type ClassId, type NecroMode, type SpellType } from '../sim/classes';
 import {
   ACCESSORY_SLOTS, ARMOUR_SLOTS, canReroll, procText, PROC_SKILLS, INVENTORY_MAX, isWeaponSlot, itemIcon, itemName, itemScore, lineText, MAX_PLUS, RARITIES, RARITY_COLORS,
@@ -128,7 +128,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
         <h3>${tr('地城等級', 'Dungeon Tier')}</h3>
         <div class="tier">
           <button data-act="tier-" ${save.selectedTier <= 1 ? 'disabled' : ''}>◀</button>
-          <div style="text-align:center"><div class="val">${EN ? `Tier ${save.selectedTier}` : `第 ${save.selectedTier} 級`}</div><small style="display:block;color:var(--text)">${biomeFor(save.selectedTier).icon} ${biomeFor(save.selectedTier).name}${newFoe(save.selectedTier)}</small><small style="color:var(--muted)">${tr('敵人強度', 'Enemy power')} ×${Math.pow(DUNGEON.tierGrowth, save.selectedTier - 1).toFixed(2)} · ${tr('最高通關：', 'Best clear: ')}${save.highestCleared || tr('未有', 'none')}</small></div>
+          <div style="text-align:center"><div class="val">${EN ? `Tier ${save.selectedTier}` : `第 ${save.selectedTier} 級`}</div><small style="display:block;color:var(--text)">${biomeFor(save.selectedTier).icon} ${biomeFor(save.selectedTier).name}${newFoe(save.selectedTier)}</small><small style="color:var(--muted)">${tr('敵人強度', 'Enemy power')} ×${tierPower(save.selectedTier).toFixed(2)} · ${tr('最高通關：', 'Best clear: ')}${save.highestCleared || tr('未有', 'none')}</small></div>
           <button data-act="tier+" ${save.selectedTier >= maxTier ? 'disabled' : ''}>▶</button>
         </div>
       </div>

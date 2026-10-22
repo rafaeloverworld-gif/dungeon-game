@@ -1,7 +1,7 @@
 // Game simulation. Pure logic: no Three.js, no DOM.
 // The renderer only reads this state, so later a "host" phone can run it for co-op.
 import type { UniqueId } from './skills';
-import { ARENA_HALF, biomeFor, CHESTS, DROPS, DUNGEON, ELITE_TRAITS, ELITES, ENEMIES, ENEMY_UNLOCKS, isBigKind, LEVEL, PLAYER, SIM_DT, type EliteTrait, type EnemyKind } from './config';
+import { ARENA_HALF, biomeFor, tierPower, CHESTS, DROPS, DUNGEON, ELITE_TRAITS, ELITES, ENEMIES, ENEMY_UNLOCKS, isBigKind, LEVEL, PLAYER, SIM_DT, type EliteTrait, type EnemyKind } from './config';
 import { CARDS, type Card } from './cards';
 import { applyBonus, defMultiplier, stat, value, type PlayerStats, type StatBonus } from './stats';
 import { ATTACK_STYLES, CLASSES, type ArrowType, type AttackStyle, type NecroMode, type SpellType, type ClassDef, type ClassId } from './classes';
@@ -300,7 +300,7 @@ export class Sim {
 
   private spawnWorldBoss(): void {
     const wb = this.wb!;
-    const m = Math.pow(DUNGEON.tierGrowth, this.tier - 1);
+    const m = tierPower(this.tier);
     const e = this.addEnemy('worldboss', 0, 9);
     e.hp = e.maxHp = wb.hp * m;
     e.speed = wb.speed;
@@ -327,7 +327,7 @@ export class Sim {
   get xpToNext(): number { return LEVEL.xpFor(this.player.level); }
   private get diff(): number {
     const ramp = this.wb ? 1 : Math.min(DUNGEON.rampCap, 1 + DUNGEON.ramp * (this.tier - 1));
-    return Math.pow(DUNGEON.tierGrowth, this.tier - 1) * Math.pow(DUNGEON.mapGrowth, this.map) * ramp;
+    return tierPower(this.tier) * Math.pow(DUNGEON.mapGrowth, this.map) * ramp;
   }
   private get coinValue(): number { return 1 + 0.2 * (this.tier - 1); }
 

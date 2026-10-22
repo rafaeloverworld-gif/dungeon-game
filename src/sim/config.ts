@@ -5,10 +5,18 @@ export const SIM_DT = 1 / 60;
 
 export const ARENA_HALF = 22; // each map is a square from -22 to +22
 
+/** Enemy strength from the dungeon tier alone (before the early ramp and the map bonus). */
+export const tierPower = (tier: number): number => {
+  const early = Math.min(tier, DUNGEON.lateFrom) - 1;
+  const late = Math.max(0, tier - DUNGEON.lateFrom);
+  return Math.pow(DUNGEON.tierGrowth, early) * Math.pow(DUNGEON.lateGrowth, late);
+};
+
 export const DUNGEON = {
   maps: 3,
   killQuota: [70, 90, 110], // kills needed on each map before its boss appears
   tierGrowth: 1.2, // enemy HP / damage multiplier per dungeon tier
+  lateFrom: 20, lateGrowth: 1.16, // past tier 20 enemies grow slower (gear and boards grow roughly linearly)
   // extra enemy strength that builds up over the first tiers (hardcore curve): ×(1 + ramp × (tier − 1)), capped
   ramp: 0.8, rampCap: 8,
   gateEvery: 5, // every 5th tier is a 守關 (gate) dungeon: bosses much tougher, a wall to farm for

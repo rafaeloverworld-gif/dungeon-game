@@ -289,8 +289,8 @@ const FRAMES = 8;
 const flipCache = new Map<string, Flipbook>();
 
 /** Bakes `frames` poses of an animation into static meshes (one group per texture). */
-export function flipbook(look: Look, clipName = 'Running_A', frames = FRAMES): Flipbook | null {
-  const key = `${look.char}|${look.right}|${look.left}|${look.height}|${clipName}|${frames}`;
+export function flipbook(look: Look, clipName = 'Running_A', frames = FRAMES, once = false): Flipbook | null {
+  const key = `${look.char}|${look.right}|${look.left}|${look.height}|${clipName}|${frames}|${once}`;
   const hit = flipCache.get(key);
   if (hit) return hit;
   if (!chars[look.char] || !clips[clipName]) return null;
@@ -305,7 +305,7 @@ export function flipbook(look: Look, clipName = 'Running_A', frames = FRAMES): F
   const skinIdx = new THREE.Vector4(), skinW = new THREE.Vector4();
   const nm = new THREE.Matrix3();
   for (let f = 0; f < frames; f++) {
-    mixer.setTime((f / frames) * dur);
+    mixer.setTime(once ? (f / (frames - 1)) * dur * 0.999 : (f / frames) * dur); // a one-shot (death) ends on its last pose
     g.updateMatrixWorld(true);
     const buckets = new Map<THREE.Texture | null, { pos: number[]; nor: number[]; uv: number[] }>();
     g.traverse((o) => {

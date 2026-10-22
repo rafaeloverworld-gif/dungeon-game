@@ -61,6 +61,8 @@ const WEAPON_PROPS: Partial<Record<WeaponType, PropName>> = {
 };
 const PLAYER_CHARS = { warrior: 'Knight', archer: 'Rogue', mage: 'Mage', necro: 'Rogue_Hooded' } as const;
 const PLAYER_HEIGHT = 2.5;
+/** What each small enemy plays when it attacks. */
+const ENEMY_ATTACK_CLIP: Record<SmallKind, string> = { grunt: '1H_Melee_Attack_Chop', shield: '1H_Melee_Attack_Chop', swarm: 'Unarmed_Melee_Attack_Punch_A', bomber: 'Unarmed_Melee_Attack_Punch_A', shooter: '1H_Ranged_Shoot', healer: 'Spellcast_Shoot' };
 /** A lance / javelin along +z: wooden shaft, steel tip. */
 function lanceGeo(len: number): THREE.BufferGeometry {
   const shaft = new THREE.CylinderGeometry(0.035, 0.035, len, 6); shaft.rotateX(Math.PI / 2);
@@ -132,6 +134,11 @@ export class Renderer {
   private floater: THREE.Object3D | null = null; // third-class extra that floats beside the player
   private lastAtk = 0;
   private flips: Record<SmallKind, THREE.InstancedMesh[]> | null = null;
+  private flipsAtk: Record<SmallKind, THREE.InstancedMesh[]> | null = null;
+  private flipsDie: Record<SmallKind, THREE.InstancedMesh[]> | null = null;
+  private enemyPrev = new Map<number, { x: number; z: number; moving: number }>();
+  private corpses: { kind: SmallKind; x: number; z: number; rot: number; t: number }[] = [];
+  private bossDying: { g: THREE.Group; actor: Actor; t: number }[] = [];
   private undeadFlips: Record<UndeadKind, THREE.InstancedMesh[]> | null = null;
   private bossActors = new Map<number, { actor: Actor; x: number; z: number; atk: number }>();
   private lastWarnCount = 0;
@@ -305,10 +312,10 @@ export class Renderer {
 
   /** Models arrived: build the crowd flipbooks and swap the player to the real model. */
   private onModels(): void {
-    const flipSet = <K extends string>(looks: Record<K, Look>, ghost: boolean): Record<K, THREE.InstancedMesh[]> | null => {
+    const flipSet = <K extends string>(looks: Record<K, Look>, ghost: boolean, clip: (k: K) => string = () => 'Running_A', once = false): Record<K, THREE.InstancedMesh[]> | null => {
       const out = {} as Record<K, THREE.InstancedMesh[]>;
       for (const k of Object.keys(looks) as K[]) {
-        const fb = flipbook(looks[k]);
+        const fb = flipbook(looks[k], clip(k), 8, once);
         if (!fb) return null;
         const mats = fb.material.map((m) => {
           if (!ghost) return m;
@@ -329,6 +336,9 @@ export class Renderer {
       return out;
     };
     this.flips = flipSet(ENEMY_LOOKS, false);
+    // attack poses (melee chop / punch, shooting, casting) and a death fall for every small enemy
+    this.flipsAtk = flipSet(ENEMY_LOOKS, false, (k) => ENEMY_ATTACK_CLIP[k]);
+    this.flipsDie = flipSet(ENEMY_LOOKS, false, () => 'Death_A', true);
     this.undeadFlips = flipSet(UNDEAD_LOOKS, true);
     if (this.flips) for (const m of Object.values(this.enemyMeshes)) m.visible = false;
     if (this.undeadFlips) {
@@ -352,7 +362,7 @@ export class Renderer {
     m.setColorAt(i, this.tmpColor.setHex(color));
   }
   private flipFlush(): void {
-    const all = [...Object.values(this.flips ?? {}), ...Object.values(this.undeadFlips ?? {})] as THREE.InstancedMesh[][];
+    const all = [this.flips, this.flipsAtk, this.flipsDie, this.undeadFlips].flatMap((s) => Object.values(s ?? {})) as THREE.InstancedMesh[][];
     for (const set of all) for (const m of set) {
       m.count = this.flipCounts.get(m) ?? 0;
       m.instanceMatrix.needsUpdate = true;
@@ -417,6 +427,7 @@ export class Renderer {
   handleEvents(events: SimEvent[]): void {
     for (const ev of events) {
       if (ev.type === 'hit') { this.burst(ev.x, ev.z, ev.crit ? 0xfff27a : 0xffffff, ev.crit ? 5 : 2); this.addNumber(ev.x, ev.z, ev.dmg, ev.crit); }
+      else if (ev.type === 'kill' && this.flipsDie && !isBigKind(ev.kind) && this.corpses.length < 60) { this.corpses.push({ kind: ev.kind as SmallKind, x: ev.x, z: ev.z, rot: Math.random() * Math.PI * 2, t: 0 }); this.burst(ev.x, ev.z, 0xd0d0d0, 4); }
       else if (ev.type === 'kill') this.burst(ev.x, ev.z, isBigKind(ev.kind) ? 0xffc23a : 0xd0d0d0, ev.kind === 'boss' || ev.kind === 'worldboss' ? 40 : ev.kind === 'miniboss' ? 24 : 6);
       else if (ev.type === 'hurt') { this.shake = Math.max(this.shake, 0.25); this.hurtFlash = 0.15; }
       else if (ev.type === 'boss') this.shake = 0.5;
@@ -496,7 +507,15 @@ export class Renderer {
         const base = e.elite ? ELITE_COLORS[e.elite] : ENEMY_TINTS[kind];
         const col = e.hitFlash > 0 ? 0xff6a6a : e.markTimer > 0 ? 0xffd23a : e.slowTimer > 0 ? 0x8fd8ff : kind === 'bomber' && e.fuse !== undefined && Math.sin(t * 30) > 0 ? 0xffffff : base;
         const spd = kind === 'swarm' ? 1.6 : kind === 'shield' ? 0.8 : 1.1;
-        this.flipPut(this.flips[kind], (t * spd * FLIP_FPS) / 0.8 + e.id * 0.37, col);
+        // moving or attacking? (melee: close to you; shooters / healers: standing still)
+        const prev = this.enemyPrev.get(e.id);
+        const step = prev ? Math.hypot(e.x - prev.x, e.z - prev.z) / Math.max(dt, 0.001) : 1;
+        const moving = prev ? prev.moving * 0.8 + (step > 0.5 ? 0.2 : 0) : 1;
+        this.enemyPrev.set(e.id, { x: e.x, z: e.z, moving });
+        const ranged = kind === 'shooter' || kind === 'healer';
+        const attacking = ranged ? moving < 0.3 : Math.hypot(p.x - e.x, p.z - e.z) < e.radius + 1.4;
+        if (attacking && this.flipsAtk) this.flipPut(this.flipsAtk[kind], t * (ranged ? 0.9 : 1.3) + e.id * 0.37, col);
+        else this.flipPut(this.flips[kind], (t * spd * FLIP_FPS) / 0.8 + e.id * 0.37, col);
         continue;
       }
       const mesh = this.enemyMeshes[kind];
@@ -520,7 +539,19 @@ export class Renderer {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
-    for (const [id, g] of this.bossMeshes) if (!liveBosses.has(id)) { this.scene.remove(g); this.bossMeshes.delete(id); this.bossActors.get(id)?.actor.dispose(); this.bossActors.delete(id); }
+    for (const [id, g] of this.bossMeshes) if (!liveBosses.has(id)) {
+      // a slain boss falls over before it disappears
+      const b = this.bossActors.get(id);
+      if (b) { b.actor.die(); this.bossDying.push({ g, actor: b.actor, t: 0 }); } else this.scene.remove(g);
+      this.bossMeshes.delete(id); this.bossActors.delete(id);
+    }
+    this.bossDying = this.bossDying.filter((d) => {
+      d.t += dt;
+      d.actor.update(dt, false);
+      if (d.t > 1.4) d.g.position.y -= dt * 2.5;
+      if (d.t > 2.4) { this.scene.remove(d.g); d.actor.dispose(); return false; }
+      return true;
+    });
     // a new floor warning means a boss just started a telegraphed attack: show it casting
     if (sim.warnings.length > this.lastWarnCount) for (const b of this.bossActors.values()) b.actor.attack('cast', 0.9);
     this.lastWarnCount = sim.warnings.length;
@@ -632,6 +663,19 @@ export class Renderer {
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
 
+    // fallen enemies: play the death fall, lie a moment, then sink into the floor
+    if (this.flipsDie) {
+      this.corpses = this.corpses.filter((c) => (c.t += dt) < 1.6);
+      for (const c of this.corpses) {
+        const sink = Math.max(0, c.t - 0.9) * 1.4;
+        this.tmp.position.set(c.x, -sink, c.z);
+        this.tmp.rotation.set(0, c.rot, 0);
+        this.tmp.scale.setScalar(1);
+        this.tmp.updateMatrix();
+        this.flipPut(this.flipsDie[c.kind], Math.min(0.999, c.t / 0.6) * 0.999 / 1, 0x9a9490);
+      }
+    }
+    if (this.enemyPrev.size > 600) this.enemyPrev.clear();
     if (this.flips || this.undeadFlips) this.flipFlush();
 
     // 附魔領域 zones
@@ -886,6 +930,10 @@ export class Renderer {
     this.bossMeshes.clear();
     for (const b of this.bossActors.values()) b.actor.dispose();
     this.bossActors.clear();
+    for (const d of this.bossDying) { this.scene.remove(d.g); d.actor.dispose(); }
+    this.bossDying = [];
+    this.corpses = [];
+    this.enemyPrev.clear();
     this.lastWarnCount = 0;
     this.lastAtk = 0;
     this.sparkData = [];
