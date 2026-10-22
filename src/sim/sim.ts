@@ -266,7 +266,8 @@ export class Sim {
   proc = { double: 0, execute: 0, frenzy: 0, lifesteal: 0, frenzyTimer: 0, lifestealCd: 0 };
   sp = { echo: 0, bossDmg: 0, critBurst: false, frostGuard: false, thorns: false, secondWind: false, secondWindUsed: false, cdMult: 1, boneBurst: false };
   /** Undead traits from gear (stack into combos, e.g. 鐵甲骨法師). */
-  ut = { tank: false, ranged: false, caster: false, wraith: false };
+  ut = { tank: false, ranged: false, caster: false, wraith: false, frenzy: false, lasting: false, edge: false, leech: false };
+  private leechCd = 0; // 噬魂: at most 5 heals a second
 
   chests = { silver: 0, gold: 0 }; // held until the dungeon is cleared; lost on death
   runCoins = 0; // collected this run
@@ -324,6 +325,10 @@ export class Sim {
       else if (sp === 'utRanged') this.ut.ranged = true;
       else if (sp === 'utCaster') this.ut.caster = true;
       else if (sp === 'utWraith') this.ut.wraith = true;
+      else if (sp === 'utFrenzy') this.ut.frenzy = true;
+      else if (sp === 'utLasting') this.ut.lasting = true;
+      else if (sp === 'utEdge') this.ut.edge = true;
+      else if (sp === 'utLeech') this.ut.leech = true;
     }
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
@@ -584,7 +589,7 @@ export class Sim {
     const sm = value(this.stats.summon);
     const hpMult = 0.45 * sm * (o.big ? 1.5 : 1) * MINION_KINDS[kind].hp * (this.ut.tank ? 2 : 1);
     const hp = this.maxHp * hpMult;
-    this.minions.push({ id: this.minionId++, x, z, kind, hp, maxHp: hp, life: o.life ?? 25, atkTimer: 0.3, power: o.power ?? 1, big: !!o.big, hurtCd: 0, hpMult });
+    this.minions.push({ id: this.minionId++, x, z, kind, hp, maxHp: hp, life: (o.life ?? 25) * (this.ut.lasting ? 1.5 : 1), atkTimer: 0.3, power: o.power ?? 1, big: !!o.big, hurtCd: 0, hpMult });
     this.events.push({ type: 'explode', x, z, r: 0.9, fx: 'shadow' });
     return true;
   }
@@ -595,9 +600,10 @@ export class Sim {
     const atk = value(this.stats.atk) * value(this.stats.summon);
     const armour = defMultiplier(value(this.stats.def));
     // undead share your stats: HP, attack, attack speed, move speed, armour, thorns, and every in-run bonus
-    const atkSpd = value(this.stats.atkSpeed) * (this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1);
+    const atkSpd = value(this.stats.atkSpeed) * (this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1) * (this.ut.frenzy ? 1.3 : 1); // 狂骨
     const moveMul = value(this.stats.moveSpeed) / this.cls.base.moveSpeed;
     this.minionBuff = Math.max(0, this.minionBuff - dt);
+    this.leechCd = Math.max(0, this.leechCd - dt);
     for (const m of this.minions) {
       const newMax = this.maxHp * m.hpMult;
       if (Math.abs(newMax - m.maxHp) > 0.5) { m.hp *= newMax / m.maxHp; m.maxHp = newMax; }
@@ -631,7 +637,8 @@ export class Sim {
         m.atkTimer = def.every / atkSpd;
         const crit = this.rand() < value(this.stats.crit);
         const buff = this.minionBuff > 0 ? this.minionBuffMult : 1;
-        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) : 1);
+        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (this.ut.edge ? 1.5 : 1) : 1); // 骨刃: crits hit harder
+        if (this.ut.leech && this.leechCd <= 0) { this.leechCd = 0.2; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.004); } // 噬魂
         const blast = this.ut.caster ? 1.7 * (this.ut.ranged ? 1.4 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (with 骨弓: bigger blasts)
         const slow = this.ut.wraith ? 0.65 : undefined; // 怨靈
         if (ranged) {
@@ -751,7 +758,7 @@ export class Sim {
       // at the cap: renew the one with the least time left
       const old = this.minions.reduce<Minion | null>((m, n) => (!m || n.life < m.life ? n : m), null);
       if (!old) continue;
-      old.life = Math.max(old.life, 18);
+      old.life = Math.max(old.life, 18 * (this.ut.lasting ? 1.5 : 1));
       old.hp = Math.min(old.maxHp, old.hp + old.maxHp * 0.3);
       old.power = Math.max(old.power, 1.1 * mult);
       this.events.push({ type: 'explode', x: old.x, z: old.z, r: 0.9, fx: 'shadow' });
