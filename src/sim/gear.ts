@@ -206,7 +206,7 @@ export const INVENTORY_MAX = 60;
 export const TRADE_COUNT = 5;
 
 const AFFIX_POOL: { stat: StatKey; kind: 'flat' | 'pct'; min: number; max: number; necroOnly?: boolean }[] = [
-  // 召喚冷卻: only on necromancer weapons and accessories (useless to everyone else)
+  // 召喚冷卻: on necromancer weapons, armour and accessories (never on other classes' weapons)
   { stat: 'summonCd', kind: 'flat', min: 0.05, max: 0.1, necroOnly: true },
   { stat: 'atk', kind: 'pct', min: 0.03, max: 0.07 },
   { stat: 'maxHp', kind: 'pct', min: 0.04, max: 0.08 },
@@ -233,9 +233,9 @@ function armourStat(slot: ArmourSlot, tier: number): StatLine {
   }
 }
 
-/** Items that can roll necromancer-only affixes. */
+/** Items that can roll necromancer-only affixes: necromancer weapons, and every armour piece and accessory. */
 const allowsNecroAffix = (it: { weapon?: WeaponType; slot: Slot }) =>
-  it.weapon ? ['scythe', 'skull', 'greatscythe'].includes(it.weapon) : it.slot === 'ring' || it.slot === 'amulet';
+  it.weapon ? ['scythe', 'skull', 'greatscythe'].includes(it.weapon) : true;
 
 function rollAffix(exclude: StatKey[], tier: number, rand: () => number, necro = false): StatLine | null {
   const pool = AFFIX_POOL.filter((a) => !exclude.includes(a.stat) && (necro || !a.necroOnly));
