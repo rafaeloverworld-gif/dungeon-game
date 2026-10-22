@@ -13,6 +13,7 @@ import { esc, fmt, h, mmss } from './ui/dom';
 import { showHome as renderHome, type HomeCtx, type Tab } from './ui/home';
 import { showRunTip, welcomeModal } from './ui/onboarding';
 import { getLang, langChosen, setLang, tr } from './i18n';
+import { ico } from './ui/icons';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 /** Death reasons stay Chinese inside the sim (compared below); this is only the label shown. */
@@ -73,7 +74,7 @@ const homeCtx: HomeCtx = {
   startWorldBoss: (level: number) => startRun(level),
   autoPickToggle,
   wireToggles,
-  banner: (t) => banner(t),
+  banner: (t, i) => banner(t, i),
 };
 
 function showHome(tab?: Tab): void {
@@ -168,7 +169,7 @@ function buildHud(): void {
       </div>
       <div class="bossbar" style="display:none"><div class="name"></div><div class="bar boss" style="height:14px"><i></i></div></div>
       <div class="mode auto"></div>
-      ${sim?.awk ? `<button class="sigbtn" data-act="sig"><span class="sigicon">${sim.awk.signature.icon}</span><i class="sigfill"></i><b class="sigtime"></b><small>${sim.awk.signature.name}</small></button>` : ''}
+      ${sim?.awk ? `<button class="sigbtn" data-act="sig"><span class="sigicon">${ico(sim.awk.signature.icon)}</span><i class="sigfill"></i><b class="sigtime"></b><small>${sim.awk.signature.name}</small></button>` : ''}
     </div>`);
   const q = (s: string) => root.querySelector(s) as HTMLElement;
   hud = {
@@ -236,17 +237,17 @@ function updateHud(): void {
   } else hud.boss.style.display = 'none';
 }
 
-function banner(text: string): void {
-  const el = h(`<div class="banner"></div>`);
-  el.textContent = text;
+function banner(text: string, icon?: string): void {
+  const el = h(`<div class="banner">${icon ? `${ico(icon)} ` : ''}</div>`);
+  el.append(text);
   ui.appendChild(el);
   setTimeout(() => el.remove(), 1700);
 }
 
 let toastStack = 0;
-function toast(text: string): void {
-  const el = h(`<div class="toast"></div>`);
-  el.textContent = text;
+function toast(text: string, icon?: string): void {
+  const el = h(`<div class="toast">${icon ? `${ico(icon)} ` : ''}</div>`);
+  el.append(text);
   el.style.bottom = `${64 + (toastStack % 3) * 38}px`;
   toastStack++;
   ui.appendChild(el);
@@ -273,8 +274,8 @@ function handleEvents(events: SimEvent[]): void {
     if (ev.type === 'boss') banner((ev.kind === 'boss' ? tr('⚠️ 最終 Boss 出現！', '⚠️ Final Boss appears!') : tr('⚠️ 小 Boss 出現！', '⚠️ Mini-boss appears!')) + (sim?.isGate ? tr('（守關：特別強）', ' (Gate: extra tough)') : ''));
     else if (ev.type === 'mapClear') banner(tr('地圖清除！', 'Map cleared!'));
     else if (ev.type === 'lastStand') banner(tr('🛡️ 不屈！', '🛡️ Last Stand!'));
-    else if (ev.type === 'skill' && ev.signature) toast(`${ev.icon} ${ev.name}`);
-    else if (ev.type === 'levelup' || ev.type === 'autoCard') { if (!save.tips.includes('levelup')) showRunTip(ui, save, 'levelup'); if (ev.type === 'autoCard') toast(`⬆️ ${tr('升級：', 'Level up: ')}${ev.icon} ${ev.name}`); }
+    else if (ev.type === 'skill' && ev.signature) toast(ev.name, ev.icon);
+    else if (ev.type === 'levelup' || ev.type === 'autoCard') { if (!save.tips.includes('levelup')) showRunTip(ui, save, 'levelup'); if (ev.type === 'autoCard') toast(`${tr('升級：', 'Level up: ')}${ev.name}`, ev.icon); }
     else if (ev.type === 'chest') { showRunTip(ui, save, 'chest'); toast(EN ? `🎁 ${CHEST_NAMES[ev.kind]}! Clear to keep it` : `🎁 獲得${CHEST_NAMES[ev.kind]}！通關先入袋`); }
     else if (ev.type === 'newMap' && sim) banner(`${tr('地圖', 'Map')} ${ev.map + 1}${ev.map === DUNGEON.maps - 1 ? tr(' · 最終', ' · Final') : ''}`);
   }
@@ -293,7 +294,7 @@ function showLevelUp(): void {
     <div class="screen dim">
       <h2 style="text-align:center">${tr('升級！揀一個強化', 'Level up! Pick an upgrade')}</h2>
       <div class="cards">
-        ${s.offeredCards.map((c, i) => `<button class="lvcard ${i === suggest ? 'suggest' : ''}" data-i="${i}"><span class="ic">${c.icon}</span><span><b>${c.name}</b><small>${c.desc}</small></span></button>`).join('')}
+        ${s.offeredCards.map((c, i) => `<button class="lvcard ${i === suggest ? 'suggest' : ''}" data-i="${i}"><span class="ic">${ico(c.icon)}</span><span><b>${c.name}</b><small>${c.desc}</small></span></button>`).join('')}
       </div>
       <div class="card">${autoPickToggle()}</div>
     </div>`);

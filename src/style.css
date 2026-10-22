@@ -409,3 +409,12 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .pathplan .down { color: var(--danger); }
 .pathplan button { flex: 0 0 auto; font-size: 13px; padding: 8px 10px; }
 .result button.on { border-color: var(--gold); color: var(--gold); background: rgba(255, 194, 58, 0.1); }
+
+/* hand-drawn icons (ui/icons.ts) */
+.ico { width: 1.2em; height: 1.2em; vertical-align: -0.25em; flex: none; }
+.ic .ico, .sigicon .ico { width: 1em; height: 1em; vertical-align: middle; }
+.uslot .ico { width: 26px; height: 26px; }
+.board .nd .gly { pointer-events: none; }
+.board .nd.on .gly { color: #fff !important; }
+.board .nd.open .gly { opacity: 0.8; }
+.banner .ico, .toast .ico { width: 1.3em; height: 1.3em; }

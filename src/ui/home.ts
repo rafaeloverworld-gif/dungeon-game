@@ -23,6 +23,7 @@ import { cloudDownload, cloudReady } from '../cloud';
 import { modelsError, modelsReady } from '../render/models';
 import { claimQuest, markTip, questCard, tipCard, type TipId } from './onboarding';
 import { clearLang, getLang, setLang, tr } from '../i18n';
+import { ico, icoG } from './icons';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 
@@ -36,7 +37,7 @@ export interface HomeCtx {
   startWorldBoss: (level: number) => void;
   autoPickToggle: () => string;
   wireToggles: (root: HTMLElement) => void;
-  banner: (text: string) => void;
+  banner: (text: string, icon?: string) => void;
 }
 
 let tab: Tab = 'go';
@@ -223,8 +224,8 @@ function awakeningBlock(save: SaveData): string {
       ? `<button class="primary awaken" data-act="ascend" style="margin-top:8px">🌟 ${tr('可以昇華！揀第三職業', 'Ascend! Pick a third class')}</button>`
       : `<small class="line" style="display:block;margin-top:6px">🔒 ${EN ? `Ascension (third class): account Lv ${ASCEND_LEVEL} and clear Tier ${ASCEND_TIER}. Now Lv ${save.level}, best ${save.highestCleared}.` : `昇華（第三職業）：帳號 Lv ${ASCEND_LEVEL} + 通關第 ${ASCEND_TIER} 級。而家 Lv ${save.level}、最高通關 ${save.highestCleared}。`}</small>`;
     return `<div class="awk"><b>${awk.icon} ${awk.name}</b> <small>${EN ? '' : `${awk.en} · `}${CLASSES[save.classId].name} + ${CLASSES[sub!].name}${sub2 ? ` + ${CLASSES[sub2].name}` : ''}</small>
-      <div class="sig">${awk.signature.icon} <b>${awk.signature.name}</b>${tr('：', ': ')}${awk.signature.desc}${EN ? ` (${awk.signature.cooldown}s cooldown)` : `（冷卻 ${awk.signature.cooldown} 秒）`}</div>
-      ${awk.echo ? `<div class="sig">${awk.echo.icon} <b>${awk.echo.name}</b>${tr('：', ': ')}${awk.echo.desc}</div>` : ''}
+      <div class="sig">${ico(awk.signature.icon)} <b>${awk.signature.name}</b>${tr('：', ': ')}${awk.signature.desc}${EN ? ` (${awk.signature.cooldown}s cooldown)` : `（冷卻 ${awk.signature.cooldown} 秒）`}</div>
+      ${awk.echo ? `<div class="sig">${ico(awk.echo.icon)} <b>${awk.echo.name}</b>${tr('：', ': ')}${awk.echo.desc}</div>` : ''}
       <small>${awk.bonusText}</small>${lock}</div>`;
   }
   if (canAwaken(save)) return `<button class="primary awaken" data-act="awaken">✨ ${tr('可以覺醒！揀第二職業', 'Awaken! Pick a second class')}</button>`;
@@ -248,7 +249,7 @@ function showAwaken(ctx: HomeCtx): void {
               <span class="ic">${a.icon}</span>
               <span><b>${a.name}</b> <small>${EN ? '' : `${a.en} · `}${tr('副職業：', 'Second: ')}${CLASSES[sub].name}</small>
               <small class="line">${a.bonusText}</small>
-              <small class="line">${a.signature.icon} ${a.signature.name}${tr('：', ': ')}${a.signature.desc}</small>
+              <small class="line">${ico(a.signature.icon)} ${a.signature.name}${tr('：', ': ')}${a.signature.desc}</small>
               <small class="line">🌟 ${EN ? `Unlocks the ${a.name} Board: Signature skill upgrades + unique passives` : `會開一塊「${a.name}板」：招牌技強化 + 專屬被動`}</small></span>
             </button>`;
           }).join('')}
@@ -297,7 +298,7 @@ function showAscend(ctx: HomeCtx): void {
               <span class="ic">${a.icon}</span>
               <span><b>${a.name}</b> <small>${tr('第三職業：', 'Third: ')}${CLASSES[c].name}</small>
               <small class="line">+ ${ESSENCE_INFO[c].bonusText}</small>
-              <small class="line">${a.echo!.icon} ${a.echo!.name}${tr('：', ': ')}${a.echo!.desc}</small></span>
+              <small class="line">${ico(a.echo!.icon)} ${a.echo!.name}${tr('：', ': ')}${a.echo!.desc}</small></span>
             </button>`;
           }).join('')}
           <div class="awkfoot">
@@ -384,7 +385,7 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
     const cls = on ? 'on' : open ? (check === 'ok' ? 'open afford' : 'open') : 'dim';
     return `<g class="nd ${cls} ${n.kind} ${sel?.id === n.id ? 'sel' : ''}" data-node="${pre}${n.id}" style="--bc:${BRANCH_COLORS[n.branch]}" transform="translate(${P(n.x)},${P(n.y)})">
       <circle r="${(n.kind === 'skill' ? 0.56 : 0.46) * unit}"/>
-      <text dy="0.36em">${n.icon}</text>${on ? `<text class="ok" x="${(n.kind === 'skill' ? 0.42 : 0.34) * unit}" y="${-(n.kind === 'skill' ? 0.34 : 0.26) * unit}">✅</text>` : ''}</g>`;
+      ${icoG(n.icon, (n.kind === 'skill' ? 0.74 : 0.6) * unit) ?? `<text dy="0.36em">${n.icon}</text>`}${on ? `<text class="ok" x="${(n.kind === 'skill' ? 0.42 : 0.34) * unit}" y="${-(n.kind === 'skill' ? 0.34 : 0.26) * unit}">✅</text>` : ''}</g>`;
   }).join('');
 
   let detail = `<p class="note" style="margin:0">${tr('撳板上面嘅格睇效果同解鎖（遠啲嘅格可以一次過解鎖成條路）。', 'Tap a panel to see its effect and unlock it (far panels can unlock the whole path at once).')}</p>`;
@@ -394,8 +395,8 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
     const par = sel.parent ? nodeById(sel.parent) : null;
     plan = pathPlan(save, selId!);
     const msg = check === 'section' ? (EN ? `Clear Tier ${sel.gate} to open Section ${sel.section}` : `要通關第 ${sel.gate} 級地城先開第 ${sel.section} 段`)
-      : check === 'locked' && par ? (EN ? `Unlock the panel before it first: ${par.icon} ${par.name} (${BRANCH_NAMES[par.branch]} #${par.step})` : `要先解鎖佢前面嗰格：${par.icon} ${par.name}（${BRANCH_NAMES[par.branch]}第 ${par.step} 格）`) : UNLOCK_MSG[check];
-    detail = `<div class="statline"><b class="nname">${sel.icon} ${sel.name}</b><span class="tagb" style="--bc:${BRANCH_COLORS[sel.branch]}">${BRANCH_NAMES[sel.branch]} · ${EN ? `Section ${sel.section}` : `第 ${sel.section} 段`}</span></div>
+      : check === 'locked' && par ? (EN ? `Unlock the panel before it first: ${ico(par.icon)} ${par.name} (${BRANCH_NAMES[par.branch]} #${par.step})` : `要先解鎖佢前面嗰格：${ico(par.icon)} ${par.name}（${BRANCH_NAMES[par.branch]}第 ${par.step} 格）`) : UNLOCK_MSG[check];
+    detail = `<div class="statline"><b class="nname">${ico(sel.icon)} ${sel.name}</b><span class="tagb" style="--bc:${BRANCH_COLORS[sel.branch]}">${BRANCH_NAMES[sel.branch]} · ${EN ? `Section ${sel.section}` : `第 ${sel.section} 段`}</span></div>
       <p class="neff">${effectText(sel.fx, sel.board)}</p>
       ${others.length && 'skill' in sel.fx ? `<small class="cmp ${otherHas(sel.id) ? 'up' : ''}" style="display:block;margin:-2px 0 6px">${otherHas(sel.id) ? tr('✨ 另一塊板都有呢個技能：兩塊都解 = 強化版', '✨ Also unlocked on the other board: upgraded version active') : tr('另一塊板都解埋呢個技能，就會變強化版', 'Unlock it on the other board too for an upgraded version')}</small>` : ''}
       <div class="statline"><span class="cost">${owned.has(sel.id) ? `✅ ${tr('已解鎖', 'Unlocked')}` : (() => { const c = panelCost(save, selId!); return `👻 ${fmt(c.souls)}${c.runes ? ` · 🔷 ${c.runes}` : ''}`; })()}</span>
@@ -408,7 +409,7 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
   }
 
   const fx = boardEffects(activeBoard(save));
-  const skillList = fx.autoSkills.map((s) => `${AUTO_SKILLS[s.id].icon}${AUTO_SKILLS[s.id].name}${s.level === 2 ? '+' : ''}`).join(tr('、', ', '));
+  const skillList = fx.autoSkills.map((s) => `${ico(AUTO_SKILLS[s.id].icon)}${AUTO_SKILLS[s.id].name}${s.level === 2 ? '+' : ''}`).join(tr('、', ', '));
   const resetCostNow = boardResetCost(save, board);
 
   body.appendChild(h(`
@@ -456,12 +457,12 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
     if (b.dataset.act === 'unlock' && sel && selId && unlockNode(save, selId)) {
       writeSave(save);
       showHome(ctx);
-      ctx.banner(`${tr('解鎖：', 'Unlocked: ')}${sel.icon} ${sel.name}`);
+      ctx.banner(`${tr('解鎖：', 'Unlocked: ')}${sel.name}`, sel.icon);
       return;
     }
     if (b.dataset.act === 'unlock-path' && sel && selId) {
       const n = unlockPath(save, selId);
-      if (n) { writeSave(save); showHome(ctx); ctx.banner(EN ? `Unlocked ${n} panels up to ${sel.icon} ${sel.name}` : `解鎖咗 ${n} 格，去到 ${sel.icon} ${sel.name}`); }
+      if (n) { writeSave(save); showHome(ctx); ctx.banner(EN ? `Unlocked ${n} panels up to ${sel.name}` : `解鎖咗 ${n} 格，去到 ${sel.name}`, sel.icon); }
       return;
     }
     if (b.dataset.act === 'reset-board') {
@@ -504,7 +505,7 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
     <div class="col">
       <div class="card ulthead">
         <div><small>${tr('靈晶', 'Crystals')}</small><b style="color:var(--crystal)">💎 ${fmt(save.crystals)}</b></div>
-        <div class="ultslots">${slots.map((u) => `<span class="uslot ${u ? 'on' : ''}">${u ? ULT[u].icon : '＋'}</span>`).join('')}</div>
+        <div class="ultslots">${slots.map((u) => `<span class="uslot ${u ? 'on' : ''}">${u ? ico(ULT[u].icon) : '＋'}</span>`).join('')}</div>
       </div>
       <p class="note" style="margin:0;text-align:left">${EN ? `Screen-clearing skills for any class; equip up to ${ULT_SLOTS}. Ultimate hits can crit; Lv ${ULT_LIMIT_LEVEL} unlocks a Limit effect, max Lv ${ULT_MAX_LEVEL}. 💎 Crystals: Mini-bosses 1, Bosses 3 (double in gate dungeons), elites sometimes 1, first clear of a tier +3 (gate tiers +15), and World Bosses.` : `全場清怪技能，任何職業都用得，最多同時裝 ${ULT_SLOTS} 個。終極技傷害會暴擊；Lv ${ULT_LIMIT_LEVEL} 解鎖「極限」效果，最高 Lv ${ULT_MAX_LEVEL}。💎 靈晶：小 Boss 1、Boss 3（守關地城雙倍）、精英怪有機會跌 1、首次通關每級 +3（守關級 +15），仲有世界 Boss。`}</p>
       ${ULT_IDS.map((id) => {
@@ -513,7 +514,7 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
         const on = save.ultEquip.includes(id);
         const full = !on && save.ultEquip.length >= ULT_SLOTS;
         return `<div class="card ultcard ${on ? 'on' : ''} ${lv ? '' : 'locked'}">
-          <div class="statline"><b class="uname">${ULT[id].icon} ${ULT[id].name}</b><span class="ulv">${lv ? `Lv ${lv}/${ULT_MAX_LEVEL}` : tr('未解鎖', 'Locked')}</span></div>
+          <div class="statline"><b class="uname">${ico(ULT[id].icon)} ${ULT[id].name}</b><span class="ulv">${lv ? `Lv ${lv}/${ULT_MAX_LEVEL}` : tr('未解鎖', 'Locked')}</span></div>
           <p class="udesc">${ultDesc(id, Math.max(1, lv))}</p>
           ${lv && lv < ULT_MAX_LEVEL ? `<small class="unext">${tr('下一級：', 'Next: ')}${ultDesc(id, lv + 1)}</small>` : ''}
           <small class="unext" style="${lv >= ULT_LIMIT_LEVEL ? 'color:var(--gold)' : 'opacity:.7'}">${lv >= ULT_LIMIT_LEVEL ? '✨ ' : `🔒 Lv ${ULT_LIMIT_LEVEL} · `}${ULT_LIMIT[id]}</small>
@@ -530,7 +531,7 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
     if (b.dataset.ultBuy) {
       const id = b.dataset.ultBuy as UltId;
       const first = !save.ults[id];
-      if (ultBuy(save, id)) { writeSave(save); showHome(ctx); ctx.banner(`${ULT[id].icon} ${ULT[id].name} ${first ? tr('解鎖咗', 'unlocked') : `${tr('升到', 'now')} Lv ${save.ults[id]}`}`); }
+      if (ultBuy(save, id)) { writeSave(save); showHome(ctx); ctx.banner(`${ULT[id].name} ${first ? tr('解鎖咗', 'unlocked') : `${tr('升到', 'now')} Lv ${save.ults[id]}`}`, ULT[id].icon); }
     }
     if (b.dataset.ultEq && ultToggle(save, b.dataset.ultEq as UltId)) { writeSave(save); showHome(ctx); }
   });
