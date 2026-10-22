@@ -50,6 +50,8 @@ export const ELEM_TIME = 4;
 export const VULN = 0.4;
 /** 多重箭袋: every extra arrow type used at once multiplies arrow damage by this. */
 export const MIX_PENALTY = 0.75;
+/** 極·神射: each extra arrow type only costs this. */
+export const MIX_PENALTY_MAX = 0.88;
 
 /** A telegraphed attack: a red warning on the floor that hits when the timer runs out. */
 export interface Warning { x: number; z: number; r: number; timer: number; max: number; dmg: number; line?: { x2: number; z2: number; w: number } }
@@ -144,6 +146,7 @@ export interface RunSetup {
   weapons?: { main: WeaponType | null; sub: WeaponType | null; blocked: boolean }; // what is equipped (for the look)
   arrowType?: ArrowType; // bows: which arrows (Gear tab)
   arrowTypes?: ArrowType[]; // 多重箭袋: several arrow types at once (the first is arrowType)
+  arrowMax?: boolean; // 極·神射: extra arrow types cost less
   spellType?: SpellType; // staffs (fireball attack): which spell (Gear tab)
   necroMode?: NecroMode; // necromancer with a staff / no weapon: shadow bolts or summoner
   skills?: SkillEffects | null; // from the skill trees
@@ -208,6 +211,7 @@ export class Sim {
   readonly attack: AttackStyle;
   readonly arrowType: ArrowType;
   readonly arrowTypes: ArrowType[];
+  readonly arrowMax: boolean;
   readonly spellType: SpellType;
   readonly wb: WorldBossDef | null;
   wbDamage = 0; // damage dealt to the world boss
@@ -323,6 +327,7 @@ export class Sim {
     this.attack = ATTACK_STYLES[kind0 === 'shadow' && setup.necroMode === 'summon' ? 'summon' : kind0];
     this.arrowType = setup.arrowType ?? 'normal';
     this.arrowTypes = setup.arrowTypes?.length ? setup.arrowTypes : [this.arrowType];
+    this.arrowMax = !!setup.arrowMax;
     this.spellType = setup.spellType ?? 'fire';
     this.wb = setup.worldBoss ? WORLD_BOSSES[setup.worldBoss] : null;
     this.autoPickCards = setup.autoPickCards;
@@ -887,7 +892,7 @@ export class Sim {
     const n = this.stats.multishot + (t.has('spread') ? 2 : 0);
     const spread = t.has('spread') ? 0.2 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
-    let dm = 1.15 * MIX_PENALTY ** (types.length - 1);
+    let dm = 1.15 * (this.arrowMax ? MIX_PENALTY_MAX : MIX_PENALTY) ** (types.length - 1);
     if (t.has('normal')) dm *= 1.4;
     if (t.has('spread')) dm *= 0.8;
     if (t.has('homing')) dm *= 0.75;

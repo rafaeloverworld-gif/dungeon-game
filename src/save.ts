@@ -560,9 +560,14 @@ export { BOARD_NODES };
 
 /** 多重箭袋: how many arrow types you can use at once (1 + every +1 on items with it, up to all of them). */
 export function arrowSlots(s: SaveData): number {
+  if (arrowMaxForm(s)) return ARROW_TYPES.length;
   const extra = equippedItems(s).filter((i) => i.special === 'multiArrow').reduce((a, i) => a + i.plus, 0);
-  return Math.min(ARROW_TYPES.length, 1 + extra);
+  return Math.min(ARROW_TYPES.length, 1 + extra + (isSharpshooter(s) ? 1 : 0)); // 神射手: one more arrow type
 }
+/** 神射手 (archer + archer, or a three-class mix grown from it). */
+export const isSharpshooter = (s: SaveData) => { const m = mixOf(s); return m?.id === 'archer_archer' || m?.base === 'archer_archer'; };
+/** 極·神射: a Sharpshooter with a 多重箭袋 item at max upgrade — every arrow type at once, and extra types cost less. */
+export const arrowMaxForm = (s: SaveData) => isSharpshooter(s) && equippedItems(s).some((i) => i.special === 'multiArrow' && i.plus >= MAX_PLUS);
 /** The arrow types in use: the main one first, then the extra ones (as many as 多重箭袋 allows). */
 export function arrowsInUse(s: SaveData): ArrowType[] {
   const main = s.arrowType[s.classId] ?? 'normal';
@@ -579,7 +584,7 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
-  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), spellType: s.spellType[s.classId] ?? 'fire', necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
+  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), spellType: s.spellType[s.classId] ?? 'fire', necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
 }
 
 /** Stats preview including skills and awakening (for the home screen). */

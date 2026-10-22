@@ -59,7 +59,7 @@ export const AWAKENED: Record<string, AwakenedDef> = {
   }),
   archer_archer: A({
     id: 'archer_archer', main: 'archer', sub: 'archer', name: tr('神射手', 'Sharpshooter'), en: 'Sharpshooter', icon: '🏹',
-    bonus: { crit: { flat: 0.2 }, moveSpeed: { mult: 1.2 } }, bonusText: tr('暴擊率 +20%、移速 ×1.2；散射箭會追蹤（每下 60%）；追蹤箭連穿 6 隻', 'Crit +20%, Move ×1.2; scatter arrows home in (60% each); homing arrows chain 6'),
+    bonus: { crit: { flat: 0.2 }, moveSpeed: { mult: 1.2 } }, bonusText: tr('暴擊率 +20%、移速 ×1.2；散射箭會追蹤（每下 60%）；追蹤箭連穿 6 隻；可以多用一種箭；多重箭袋強化到 +10 變「極·神射」（所有箭種同時用）', 'Crit +20%, Move ×1.2; scatter arrows home in (60% each); homing arrows chain 6; one more arrow type at once; a +10 Arrow Mix item unlocks Max Sharpshooter (every arrow type at once)'),
     signature: { kind: 'snipe', name: tr('狙擊', 'Snipe'), desc: tr('一發超遠距離穿透箭（800%）', 'One long-range piercing shot (800%)'), cooldown: 9, icon: '🎯' },
     focusStat: { key: 'critDmg', flat: 0.15, label: tr('暴擊傷害 +15%', 'Crit Dmg +15%') },
   }),

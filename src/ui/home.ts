@@ -13,7 +13,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
+  activeBoard, activeBoards, arrowMaxForm, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -659,7 +659,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
   const awk = mixOf(save);
   const mainNow = equippedIn(save, 'mainWeapon');
   const atkKind = (mainNow?.weapon ? attackFor(mainNow.weapon, save.classId) : null) ?? CLASSES[save.classId].attack;
-  const arrowMax = arrowSlots(save), arrowUse = arrowsInUse(save);
+  const arrowMax = arrowSlots(save), arrowUse = arrowsInUse(save), arrowJi = arrowMaxForm(save);
   const spellNow = save.spellType[save.classId] ?? 'fire';
   body.appendChild(h(`
     <div class="col">
@@ -669,7 +669,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
         <h3>${awk ? `${awk.icon} ${awk.name}` : `${CLASSES[save.classId].icon} ${CLASSES[save.classId].name}`} · ${tr('裝備', 'Gear')}</h3>
         ${statSummary(save)}
         <div class="undeadline">⚔️ ${tr('攻擊方式：', 'Attack: ')}<b>${ATTACK_NAMES[atkKind === 'shadow' && save.necroMode === 'summon' ? 'summon' : atkKind]}</b><small>${tr('由主武器決定（劍 / 槍 = 斬擊（弓手揸槍 = 擲槍）、弓 = 射箭、法杖 = 火球（死靈 = 暗影彈）、鐮刀 = 橫掃）', 'Set by your main-hand weapon (sword / spear = slash (an Archer throws the spear), bow = arrows, staff = fireballs (shadow bolts for a Necromancer), scythe = sweep)')}</small>
-          ${atkKind === 'arrow' ? `${arrowMax > 1 ? `<small>🏹 ${tr(`多重箭袋：可以同時用 ${arrowMax} 種箭（已揀 ${arrowUse.length}）。撳一下揀／取消；效果疊埋，每多一種全部箭傷害 ×0.75`, `Arrow Mix: use up to ${arrowMax} arrow types at once (${arrowUse.length} picked). Tap to add / remove; effects combine, each extra type: all arrows ×0.75 damage`)}</small>` : ''}<div class="arrowpick">${ARROW_TYPES.map((a) => `<button data-arrow="${a}" class="${arrowUse.includes(a) ? 'on' : ''}">${ARROWS[a].icon} ${ARROWS[a].name}</button>`).join('')}</div>${arrowUse.map((a) => `<small>${ARROWS[a].icon} <b>${ARROWS[a].name}</b>${tr('：', ': ')}${ARROWS[a].desc}</small>`).join('')}` : ''}
+          ${atkKind === 'arrow' ? `${arrowMax > 1 ? `<small>🏹 ${arrowJi ? tr(`<b>極·神射</b>：所有箭種可以同時用（已揀 ${arrowUse.length}）。每多一種全部箭傷害只係 ×0.88`, `<b>Max Sharpshooter</b>: every arrow type at once (${arrowUse.length} picked). Each extra type only costs ×0.88 damage`) : tr(`可以同時用 ${arrowMax} 種箭（已揀 ${arrowUse.length}）。撳一下揀／取消；效果疊埋，每多一種全部箭傷害 ×0.75`, `Use up to ${arrowMax} arrow types at once (${arrowUse.length} picked). Tap to add / remove; effects combine, each extra type: all arrows ×0.75 damage`)}</small>` : ''}<div class="arrowpick">${ARROW_TYPES.map((a) => `<button data-arrow="${a}" class="${arrowUse.includes(a) ? 'on' : ''}">${ARROWS[a].icon} ${ARROWS[a].name}</button>`).join('')}</div>${arrowUse.map((a) => `<small>${ARROWS[a].icon} <b>${ARROWS[a].name}</b>${tr('：', ': ')}${ARROWS[a].desc}</small>`).join('')}` : ''}
           ${atkKind === 'shadow' ? `<div class="arrowpick">${(['bolt', 'summon'] as NecroMode[]).map((a) => `<button data-necro="${a}" class="${save.necroMode === a ? 'on' : ''}">${NECRO_MODES[a].icon} ${NECRO_MODES[a].name}</button>`).join('')}</div><small>${NECRO_MODES[save.necroMode].icon} <b>${NECRO_MODES[save.necroMode].name}</b>${tr('：', ': ')}${NECRO_MODES[save.necroMode].desc}</small>` : ''}
           ${atkKind === 'fireball' ? `<div class="arrowpick">${SPELL_TYPES.map((a) => `<button data-spell="${a}" class="${spellNow === a ? 'on' : ''}">${SPELLS[a].icon} ${SPELLS[a].name}</button>`).join('')}</div><small>${SPELLS[spellNow].icon} <b>${SPELLS[spellNow].name}</b>${tr('：', ': ')}${SPELLS[spellNow].desc}</small>` : ''}</div>
         ${undeadLine(save)}
