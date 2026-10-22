@@ -161,11 +161,12 @@ export const SPECIALS = {
   thorns: { family: 'armour', name: tr('荊棘', 'Thorns'), desc: tr('敵人撞到你時受到 150% 攻擊力反傷', 'Enemies touching you take 150% ATK as damage') },
   secondWind: { family: 'armour', name: tr('再起', 'Second Wind'), desc: tr('每張地圖一次：HP 跌到 30% 以下即刻回復 40%', 'Once per map: heal 40% when HP drops below 30%') },
   // rings (legendary rings: 50% chance)
-  // necromancer weapons (and some amulets / rings): undead traits — they stack into combos
+  // necromancer weapons, armour (30% of legendary armour), rings and amulets: undead traits — they stack into combos
   utTank: { family: 'death', name: tr('骨甲', 'Ironbone'), desc: tr('亡靈特性：亡靈 HP ×2，敵人會優先打佢（可以同其他特性疊）', 'Undead trait: Undead HP ×2 and enemies go for them first (stacks with other traits)') },
   utRanged: { family: 'death', name: tr('骨弓', 'Bonebow'), desc: tr('亡靈特性：亡靈改為遠距離射骨箭（可以同其他特性疊）', 'Undead trait: Undead shoot bone arrows from range (stacks with other traits)') },
   utCaster: { family: 'death', name: tr('骨法', 'Bonecaster'), desc: tr('亡靈特性：亡靈變成骷髏法師，喺遠處射會爆炸嘅暗影彈（同骨弓疊：爆炸範圍大 40%）', 'Undead trait: Undead become skeleton mages that cast exploding shadow bolts from range (with Bone Archer: 40% bigger blasts)') },
   utWraith: { family: 'death', name: tr('怨靈', 'Wraith'), desc: tr('亡靈特性：亡靈行快 60%，打中會令敵人減速（可以同其他特性疊）', 'Undead trait: Undead move 60% faster and slow what they hit (stacks with other traits)') },
+  // rings only: it changes how the class plays
   boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 150% × 亡靈強度（骨甲令佢更痛；自爆唔會觸發終極技）', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × 150% × Undead Power (Ironbone makes it hurt more; blasts don\'t trigger Ultimates)') },
 } as const;
 export type SpecialId = keyof typeof SPECIALS;
@@ -202,6 +203,8 @@ export interface Item {
 }
 
 export const MAX_PLUS = 10;
+/** Legendary armour: chance its special is an undead trait instead of an armour special. */
+export const ARMOUR_TRAIT_CHANCE = 0.3;
 export const INVENTORY_MAX = 60;
 export const TRADE_COUNT = 5;
 
@@ -262,6 +265,8 @@ export function makeItem(id: string, kind: ItemKind, rarity: Rarity, tier: numbe
     const family = weapon ? WEAPONS[weapon].family : 'armour';
     const pool = SPECIAL_IDS.filter((s) => SPECIALS[s].family === family);
     special = pool[Math.floor(rand() * pool.length)];
+    // armour can carry an undead trait too (30%); 骨爆 changes how the class plays, so it stays on rings only
+    if (!weapon && !isAccessorySlot(slot) && rand() < ARMOUR_TRAIT_CHANCE) special = UNDEAD_TRAITS[Math.floor(rand() * UNDEAD_TRAITS.length)];
   }
   let proc: Item['proc'];
   const accessory = !weapon && isAccessorySlot(slot);
