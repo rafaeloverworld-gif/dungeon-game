@@ -60,6 +60,7 @@ export interface Projectile {
   javelin?: boolean; // drawn as a javelin
   meteor?: boolean; // drawn as a big meteor (explodes like a fireball)
   shard?: boolean; // ice shard
+  owner?: Sim; // co-op: the hero who fired it (damage, procs and kills are theirs)
 }
 
 /** Necromancer allies: skeletons from skills, or slain enemies raised as undead (they keep their kind:
@@ -112,7 +113,9 @@ export type SimEvent =
   | { type: 'mapClear'; map: number }
   | { type: 'newMap'; map: number }
   | { type: 'won' }
-  | { type: 'dead' };
+  | { type: 'dead' }
+  | { type: 'down'; pid: number } // co-op: a hero fell (a teammate can revive them)
+  | { type: 'revive'; pid: number };
 
 export interface RunSetup {
   tier: number;
@@ -131,9 +134,41 @@ export interface RunSetup {
   procs?: { id: ProcId; value: number }[]; // weapon / accessory skills on worn gear
   worldBoss?: WorldBossId; // world boss fight instead of a dungeon (tier = boss level)
   ults?: { id: UltId; level: number }[]; // equipped 終極技
+  world?: World; // co-op: join this hero to an existing party's dungeon
 }
 
 export interface Input { x: number; z: number; manual: boolean }
+
+/** Everything the heroes of one dungeon share. Solo play is a party of one. */
+export interface World {
+  heroes: Sim[];
+  phase: Phase;
+  time: number; // total time in this dungeon
+  mapTime: number;
+  map: number;
+  kills: number;
+  bossSpawned: boolean;
+  boss: Enemy | null;
+  transitionTimer: number;
+  deathReason: string;
+  enemies: Enemy[];
+  projectiles: Projectile[]; // everyone's shots and the enemies' shots
+  coins: Coin[];
+  pillars: Pillar[];
+  warnings: Warning[];
+  nextId: number;
+  spawnAcc: number;
+}
+const newWorld = (): World => ({
+  heroes: [], phase: 'playing', time: 0, mapTime: 0, map: 0, kills: 0, bossSpawned: false, boss: null, transitionTimer: 0, deathReason: '',
+  enemies: [], projectiles: [], coins: [], pillars: [], warnings: [], nextId: 1, spawnAcc: 0,
+});
+/** Co-op: enemies get this much more HP per extra hero. */
+export const COOP_HP_PER_HERO = 0.7;
+/** Co-op: seconds a hero has to pick a level-up card before one is picked for them (the game doesn't pause). */
+export const COOP_CARD_TIME = 10;
+/** Co-op: seconds a teammate must stand next to a fallen hero to revive them, and the HP they come back with. */
+export const COOP_REVIVE = { time: 2.5, range: 2.2, hp: 0.3 };
 
 /** Starting stats for a run: class base stats plus level / shop / gear bonuses. */
 export function buildStats(classId: ClassId, bonus: StatBonus): PlayerStats {
@@ -163,15 +198,34 @@ export class Sim {
   get isGate(): boolean { return !this.wb && DUNGEON.gateBossHp > 1 && this.tier % DUNGEON.gateEvery === 0; }
   get theme(): number { return this.wb ? this.wb.theme : biomeFor(this.tier).theme; }
   get wbPhase(): number { return !this.boss || !this.wb ? 0 : this.boss.hp > this.boss.maxHp * 0.66 ? 0 : this.boss.hp > this.boss.maxHp * 0.33 ? 1 : 2; }
-  phase: Phase = 'playing';
-  time = 0; // total time in this dungeon
-  mapTime = 0;
-  map = 0;
-  kills = 0;
-  bossSpawned = false;
-  boss: Enemy | null = null;
-  transitionTimer = 0;
-  deathReason = '';
+  /** Shared dungeon state (the same object for every hero in a co-op party). */
+  readonly w: World;
+  /** This hero's slot in the party (0 = the host / solo player). */
+  readonly pid: number;
+  get phase(): Phase { return this.w.phase; } set phase(v: Phase) { this.w.phase = v; }
+  get time(): number { return this.w.time; } set time(v: number) { this.w.time = v; }
+  get mapTime(): number { return this.w.mapTime; } set mapTime(v: number) { this.w.mapTime = v; }
+  get map(): number { return this.w.map; } set map(v: number) { this.w.map = v; }
+  get kills(): number { return this.w.kills; } set kills(v: number) { this.w.kills = v; }
+  get bossSpawned(): boolean { return this.w.bossSpawned; } set bossSpawned(v: boolean) { this.w.bossSpawned = v; }
+  get boss(): Enemy | null { return this.w.boss; } set boss(v: Enemy | null) { this.w.boss = v; }
+  get transitionTimer(): number { return this.w.transitionTimer; } set transitionTimer(v: number) { this.w.transitionTimer = v; }
+  get deathReason(): string { return this.w.deathReason; } set deathReason(v: string) { this.w.deathReason = v; }
+  get enemies(): Enemy[] { return this.w.enemies; } set enemies(v: Enemy[]) { this.w.enemies = v; }
+  get projectiles(): Projectile[] { return this.w.projectiles; } set projectiles(v: Projectile[]) { this.w.projectiles = v; }
+  get coins(): Coin[] { return this.w.coins; } set coins(v: Coin[]) { this.w.coins = v; }
+  get pillars(): Pillar[] { return this.w.pillars; } set pillars(v: Pillar[]) { this.w.pillars = v; }
+  get warnings(): Warning[] { return this.w.warnings; } set warnings(v: Warning[]) { this.w.warnings = v; }
+  private get nextId(): number { return this.w.nextId; } private set nextId(v: number) { this.w.nextId = v; }
+  private get spawnAcc(): number { return this.w.spawnAcc; } private set spawnAcc(v: number) { this.w.spawnAcc = v; }
+  /** More than one hero in this dungeon. */
+  get coop(): boolean { return this.w.heroes.length > 1; }
+  get heroes(): Sim[] { return this.w.heroes; }
+  // co-op only: fallen (waiting for a revive), revive progress, and the level-up card timer
+  down = false;
+  reviveT = 0;
+  picking = false;
+  cardTimer = 0;
   /** Damage taken in the last 5 seconds (shown when you die). */
   recentHits: { t: number; src: string; dmg: number }[] = [];
 
@@ -185,10 +239,6 @@ export class Sim {
   lastManual = -999;
   clock = 0; // keeps ticking during level-up menus too, used for the takeover timer
 
-  enemies: Enemy[] = [];
-  projectiles: Projectile[] = [];
-  coins: Coin[] = [];
-  pillars: Pillar[] = [];
 
   // skills
   autoSkills: { id: AutoSkillId; level: 1 | 2; timer: number }[] = [];
@@ -201,7 +251,6 @@ export class Sim {
   spinTick = 0;
   zones: Zone[] = [];
   minions: Minion[] = [];
-  warnings: Warning[] = [];
   minionBuff = 0; // seconds of +50% skeleton damage (骸骨大軍)
   minionBuffMult = 1.5;
   private minionId = 1;
@@ -225,11 +274,12 @@ export class Sim {
   runXp = 0; // total XP earned this run (goes to the permanent character)
   events: SimEvent[] = [];
 
-  private nextId = 1;
-  private spawnAcc = 0;
   private rngState: number;
 
   constructor(setup: RunSetup) {
+    this.w = setup.world ?? newWorld();
+    this.w.heroes.push(this);
+    this.pid = this.w.heroes.length - 1;
     this.tier = setup.tier;
     this.cls = CLASSES[setup.classId];
     this.awk = mixFor(setup.classId, setup.subClassId, setup.subClass2Id);
@@ -294,15 +344,26 @@ export class Sim {
       this.signature = { cooldown: cd, timer: cd * 0.4, dmgMult: 1 + (fx?.sigDmg ?? 0), level: fx?.sigUp ? 2 : 1, echo: (this.awk.echo?.power ?? 0) * (fx?.echoUp ? 1.5 : 1) };
     }
     this.player.hp = value(this.stats.maxHp);
-    this.buildMap();
-    if (this.wb) this.spawnWorldBoss();
+    if (this.pid === 0) {
+      this.buildMap();
+      if (this.wb) this.spawnWorldBoss();
+    } else {
+      // co-op partner: start next to the host, and enemies already out get tougher
+      this.player.x = this.pid * 2;
+      for (const e of this.enemies) { e.hp *= this.coopHpStep; e.maxHp *= this.coopHpStep; }
+    }
   }
+
+  /** Enemy HP multiplier for this party's size. */
+  get coopHp(): number { return 1 + COOP_HP_PER_HERO * (this.w.heroes.length - 1); }
+  /** What existing enemies are multiplied by when this hero joins. */
+  private get coopHpStep(): number { return this.coopHp / (1 + COOP_HP_PER_HERO * (this.w.heroes.length - 2)); }
 
   private spawnWorldBoss(): void {
     const wb = this.wb!;
     const m = tierPower(this.tier);
     const e = this.addEnemy('worldboss', 0, 9);
-    e.hp = e.maxHp = wb.hp * m;
+    e.hp = e.maxHp = wb.hp * m * this.coopHp;
     e.speed = wb.speed;
     e.touchDmg = wb.touchDmg * m;
     e.shotDmg = wb.shotDmg * m;
@@ -348,15 +409,22 @@ export class Sim {
   }
 
   // ---------- main loop ----------
-  step(input: Input): void {
-    this.events.length = 0;
+  step(input: Input): void { this.stepParty([input]); }
+
+  /** Advance the whole dungeon one tick. Call it on the first hero; inputs[i] drives hero i. */
+  stepParty(inputs: Input[]): void {
+    const H = this.w.heroes;
     const dt = SIM_DT;
+    const idle: Input = { x: 0, z: 0, manual: false };
+    for (let i = 0; i < H.length; i++) {
+      const h = H[i], input = inputs[i] ?? idle;
+      h.events.length = 0;
+      if (this.phase !== 'won' && this.phase !== 'dead') h.clock += dt;
+      if (input.manual) h.lastManual = h.clock;
+      h.player.autopilot = h.clock - h.lastManual > PLAYER.takeoverSeconds;
+    }
 
-    if (this.phase !== 'won' && this.phase !== 'dead') this.clock += dt;
-    if (input.manual) this.lastManual = this.clock;
-    this.player.autopilot = this.clock - this.lastManual > PLAYER.takeoverSeconds;
-
-    if (this.phase === 'levelup') return; // waiting for the player to pick a card
+    if (this.phase === 'levelup') return; // waiting for the player to pick a card (solo only)
     if (this.phase === 'transition') {
       this.transitionTimer -= dt;
       if (this.transitionTimer <= 0) this.startNextMap();
@@ -371,21 +439,78 @@ export class Sim {
       return;
     }
 
-    this.updatePlayer(input, dt);
+    for (let i = 0; i < H.length; i++) {
+      if (H[i].down) continue;
+      H[i].updatePlayer(inputs[i] ?? idle, dt);
+      if (H.length > 1) H[i].claimShots();
+    }
     this.spawn(dt);
     this.updateEnemies(dt);
     this.updateWarnings(dt);
     this.updateProjectiles(dt);
-    this.updateCoins(dt);
+    for (const h of H) if (!h.down) h.updateCoins(dt);
 
-    if (this.player.hp <= 0) {
-      if (this.lastStand && !this.lastStand.used) {
-        this.lastStand.used = true;
-        this.player.hp = this.maxHp * (this.lastStand.level === 2 ? 0.6 : 0.3);
-        this.player.invuln = 1.5;
-        this.events.push({ type: 'lastStand' });
-      } else this.die('陣亡');
+    for (const h of H) {
+      if (h.down || h.player.hp > 0) continue;
+      if (h.lastStand && !h.lastStand.used) {
+        h.lastStand.used = true;
+        h.player.hp = h.maxHp * (h.lastStand.level === 2 ? 0.6 : 0.3);
+        h.player.invuln = 1.5;
+        h.events.push({ type: 'lastStand' });
+      } else if (H.length > 1) h.fall();
+      else this.die('陣亡');
     }
+    if (H.length > 1 && this.phase === 'playing') this.updateCoop(dt);
+  }
+
+  /** Co-op: shots fired this tick belong to this hero. */
+  private claimShots(): void {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      if (pr.owner) break; // older shots are already claimed
+      if (pr.fromPlayer) pr.owner = this;
+    }
+  }
+
+  /** Co-op: this hero falls; a teammate standing next to them brings them back. */
+  private fall(): void {
+    this.down = true;
+    this.reviveT = 0;
+    this.player.hp = 0;
+    this.picking = false;
+    for (const h of this.heroes) h.events.push({ type: 'down', pid: this.pid });
+  }
+
+  /** Co-op upkeep: level-up card timers, revives, and the party wipe. */
+  private updateCoop(dt: number): void {
+    const H = this.heroes;
+    for (const h of H) {
+      if (h.picking) { h.cardTimer -= dt; if (h.cardTimer <= 0) h.chooseCard(h.autoPickIndex()); }
+      if (!h.down) continue;
+      const helped = H.some((o) => !o.down && Math.hypot(o.player.x - h.player.x, o.player.z - h.player.z) < COOP_REVIVE.range);
+      h.reviveT = helped ? h.reviveT + dt : Math.max(0, h.reviveT - dt * 0.5);
+      if (h.reviveT >= COOP_REVIVE.time) {
+        h.down = false;
+        h.reviveT = 0;
+        h.player.hp = h.maxHp * COOP_REVIVE.hp;
+        h.player.invuln = 1.5;
+        for (const o of H) o.events.push({ type: 'revive', pid: h.pid });
+      }
+    }
+    if (H.every((h) => h.down)) this.die('陣亡');
+  }
+
+  /** The closest hero still standing (enemies go for them). */
+  nearestHero(x: number, z: number): Sim {
+    const H = this.heroes;
+    if (H.length === 1) return H[0];
+    let best = H[0], bd = Infinity;
+    for (const h of H) {
+      if (h.down) continue;
+      const d = Math.hypot(h.player.x - x, h.player.z - z);
+      if (d < bd) { bd = d; best = h; }
+    }
+    return best;
   }
 
   // ---------- player ----------
@@ -749,7 +874,7 @@ export class Sim {
   dmgLog: Record<string, number> = {}; // damage taken by source, handy for balancing
   private hurtPlayer(dmg: number, src = '?'): boolean {
     const p = this.player;
-    if (p.invuln > 0) return false;
+    if (p.invuln > 0 || this.down) return false;
     if (this.dodge && this.rand() < this.dodge) { p.invuln = 0.15; return false; } // 閃避
     dmg *= defMultiplier(value(this.stats.def));
     if (this.uq.bossGuard && this.boss) dmg *= 0.75; // 騎士之盾
@@ -796,7 +921,8 @@ export class Sim {
   }
 
   private spawnPoint(minDist: number, maxDist: number): Vec2 {
-    const p = this.player;
+    const standing = this.heroes.filter((h) => !h.down);
+    const p = standing.length > 1 ? standing[Math.floor(this.rand() * standing.length)].player : (standing[0] ?? this).player;
     for (let tries = 0; tries < 12; tries++) {
       const a = this.rand() * Math.PI * 2;
       const d = minDist + this.rand() * (maxDist - minDist);
@@ -819,7 +945,7 @@ export class Sim {
     const m = this.diff;
     const e: Enemy = {
       id: this.nextId++, kind, x, z,
-      hp: def.hp * m, maxHp: def.hp * m,
+      hp: def.hp * m * this.coopHp, maxHp: def.hp * m * this.coopHp,
       speed: def.speed, touchDmg: def.touchDmg * m, shotDmg: (def.shotDmg ?? 0) * m,
       radius: def.radius, shotTimer: (def.shotEvery ?? 0) * (0.5 + this.rand() * 0.5), summonTimer: 6,
       burstToggle: false, hitFlash: 0, strafe: this.rand() < 0.5 ? 1 : -1,
@@ -854,8 +980,10 @@ export class Sim {
 
   // ---------- enemies ----------
   private updateEnemies(dt: number): void {
-    const p = this.player;
+    const H = this.heroes;
     for (const e of this.enemies) {
+      const hero = this.nearestHero(e.x, e.z);
+      const p = hero.player;
       e.hitFlash = Math.max(0, e.hitFlash - dt);
       e.markTimer = Math.max(0, e.markTimer - dt);
       if (e.slowTimer > 0) { e.slowTimer -= dt; if (e.slowTimer <= 0) e.slowMult = 1; }
@@ -864,12 +992,15 @@ export class Sim {
       const dPlayer = Math.hypot(p.x - e.x, p.z - e.z);
       // melee minions (not shooters or bosses) go for whichever is closer: you or one of your undead
       let tx = p.x, tz = p.z;
-      if (!isBigKind(e.kind) && e.kind !== 'shooter' && this.minions.length) {
+      if (!isBigKind(e.kind) && e.kind !== 'shooter') {
         let best = dPlayer;
-        const taunt = this.ut.tank ? 0.5 : 1; // 骨甲: enemies go for your undead first
-        for (const m of this.minions) {
-          const dm = Math.hypot(m.x - e.x, m.z - e.z) * taunt;
-          if (dm < best && dm < 8) { best = dm; tx = m.x; tz = m.z; }
+        for (const h of H) {
+          if (!h.minions.length) continue;
+          const taunt = h.ut.tank ? 0.5 : 1; // 骨甲: enemies go for your undead first
+          for (const m of h.minions) {
+            const dm = Math.hypot(m.x - e.x, m.z - e.z) * taunt;
+            if (dm < best && dm < 8) { best = dm; tx = m.x; tz = m.z; }
+          }
         }
       }
       const dx = tx - e.x, dz = tz - e.z;
@@ -887,7 +1018,7 @@ export class Sim {
           if (e.fuse <= 0) { this.bomberBlast(e); continue; }
         }
       }
-      if ((e.kind === 'miniboss' || e.kind === 'boss') && !this.wb) this.bossPattern(e, dt, tx, tz);
+      if ((e.kind === 'miniboss' || e.kind === 'boss') && !this.wb) this.bossPattern(e, dt, tx, tz, hero);
       if (e.dashWind !== undefined) { mx = 0; mz = 0; } // winding up
       if (e.dashT !== undefined && e.dashT > 0) { e.dashT -= dt; mx = 0; mz = 0; e.x += (e.dashVx ?? 0) * dt; e.z += (e.dashVz ?? 0) * dt; }
       if (e.elite === 'regen') e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.02 * dt);
@@ -924,7 +1055,7 @@ export class Sim {
           }
         }
       }
-      if (e.kind === 'worldboss' && this.wb) this.worldBossAct(e, nx, nz, dt);
+      if (e.kind === 'worldboss' && this.wb) this.worldBossAct(e, nx, nz, dt, hero);
       if (e.kind === 'boss') {
         e.summonTimer -= dt;
         if (e.summonTimer <= 0) {
@@ -937,8 +1068,12 @@ export class Sim {
       }
 
       // touch damage
-      if (dPlayer < e.radius + PLAYER.radius && this.hurtPlayer(e.touchDmg, e.kind) && this.sp.thorns) {
-        this.damageEnemy(e, value(this.stats.atk) * 1.5, false, true); // 荊棘
+      for (const h of H) {
+        if (h.down) continue;
+        const dh = h === hero ? dPlayer : Math.hypot(h.player.x - e.x, h.player.z - e.z);
+        if (dh < e.radius + PLAYER.radius && h.hurtPlayer(e.touchDmg, e.kind) && h.sp.thorns) {
+          h.damageEnemy(e, value(h.stats.atk) * 1.5, false, true); // 荊棘
+        }
       }
     }
 
@@ -965,7 +1100,7 @@ export class Sim {
     for (const e of list) this.collideWorld(e, e.radius);
   }
 
-  private worldBossAct(e: Enemy, nx: number, nz: number, dt: number): void {
+  private worldBossAct(e: Enemy, nx: number, nz: number, dt: number, hero: Sim): void {
     const wb = this.wb!;
     const ph = this.wbPhase;
     if (ph === 2) e.speed = wb.speed * 1.35; // enraged
@@ -987,8 +1122,9 @@ export class Sim {
         // fire rain: bullets falling from all sides towards the player
         for (let i = 0; i < 6; i++) {
           const a = this.rand() * Math.PI * 2;
-          const sx = this.player.x + Math.sin(a) * 9, sz = this.player.z + Math.cos(a) * 9;
-          const ang = Math.atan2(this.player.x - sx, this.player.z - sz);
+          const tp = hero.player;
+          const sx = tp.x + Math.sin(a) * 9, sz = tp.z + Math.cos(a) * 9;
+          const ang = Math.atan2(tp.x - sx, tp.z - sz);
           this.projectiles.push({ x: sx, z: sz, vx: Math.sin(ang) * 7, vz: Math.cos(ang) * 7, dmg: e.shotDmg, crit: false, fromPlayer: false, life: 2.5, pierce: 0, radius: 0.35, hit: [] });
         }
       }
@@ -1018,7 +1154,7 @@ export class Sim {
 
   // ---------- projectiles ----------
   private updateProjectiles(dt: number): void {
-    const p = this.player;
+    const H = this.heroes;
     const keep: Projectile[] = [];
     for (const pr of this.projectiles) {
       pr.x += pr.vx * dt;
@@ -1029,17 +1165,18 @@ export class Sim {
 
       let exploded = false;
       if (alive && pr.fromPlayer) {
+        const o = pr.owner ?? this; // whose shot: their damage bonuses, procs and kill effects
         for (const e of this.enemies) {
           if (e.hp <= 0 || pr.hit.includes(e.id)) continue;
           if (Math.hypot(e.x - pr.x, e.z - pr.z) < e.radius + pr.radius) {
             if (pr.blast) {
-              this.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, slow: pr.slow, slowTime: pr.slow ? 1.5 : undefined });
+              o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, slow: pr.slow, slowTime: pr.slow ? 1.5 : undefined });
               exploded = true;
               alive = false;
               break;
             }
             pr.hit.push(e.id);
-            this.damageEnemy(e, pr.dmg, pr.crit, pr.minion, pr.ap);
+            o.damageEnemy(e, pr.dmg, pr.crit, pr.minion, pr.ap);
             if (pr.knock && !isBigKind(e.kind)) {
               const v = Math.hypot(pr.vx, pr.vz) || 1;
               e.x += (pr.vx / v) * pr.knock; e.z += (pr.vz / v) * pr.knock;
@@ -1050,15 +1187,18 @@ export class Sim {
           }
         }
         // a fireball that reaches the end of its flight still explodes
-        if (!alive && pr.blast && !exploded) this.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion });
+        if (!alive && pr.blast && !exploded) o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion });
       } else if (alive && !pr.fromPlayer) {
-        if (Math.hypot(p.x - pr.x, p.z - pr.z) < PLAYER.radius + pr.radius) {
-          this.hurtPlayer(pr.dmg, 'shot');
+        const hit = H.find((h) => !h.down && Math.hypot(h.player.x - pr.x, h.player.z - pr.z) < PLAYER.radius + pr.radius);
+        if (hit) {
+          hit.hurtPlayer(pr.dmg, 'shot');
           alive = false;
         } else {
           // enemy shots also hit your undead
-          const m = this.minions.find((mn) => mn.hp > 0 && Math.hypot(mn.x - pr.x, mn.z - pr.z) < (mn.big ? 0.6 : 0.4) + pr.radius);
-          if (m) { m.hp -= pr.dmg * defMultiplier(value(this.stats.def)); alive = false; }
+          for (const h of H) {
+            const m = h.minions.find((mn) => mn.hp > 0 && Math.hypot(mn.x - pr.x, mn.z - pr.z) < (mn.big ? 0.6 : 0.4) + pr.radius);
+            if (m) { m.hp -= pr.dmg * defMultiplier(value(h.stats.def)); alive = false; break; }
+          }
         }
       }
       if (alive) keep.push(pr);
@@ -1068,11 +1208,11 @@ export class Sim {
   }
 
   /** Bosses' telegraphed attacks: the mini boss charges (tier 2+), the boss slams circles under you; both get more from tier 6 / 11. */
-  private bossPattern(e: Enemy, dt: number, tx: number, tz: number): void {
+  private bossPattern(e: Enemy, dt: number, tx: number, tz: number, hero: Sim): void {
     e.patternTimer = (e.patternTimer ?? 4) - dt;
     if (e.patternTimer > 0) return;
-    this.events.push({ type: 'warn' });
-    const p = this.player;
+    for (const h of this.heroes) h.events.push({ type: 'warn' });
+    const p = hero.player;
     const hard = this.tier >= 11 ? 2 : this.tier >= 6 ? 1 : 0;
     if (e.kind === 'miniboss') {
       e.patternTimer = 6 - hard;
@@ -1103,19 +1243,22 @@ export class Sim {
       if (e.dashWind <= 0) { e.dashWind = undefined; e.dashT = 0.45; }
     }
     if (!this.warnings.length) return;
-    const p = this.player;
+    const H = this.heroes;
     this.warnings = this.warnings.filter((w) => {
       w.timer -= dt;
       if (w.timer > 0) return true;
       if (w.line) {
         // distance from the player to the charge line
         const dx = w.line.x2 - w.x, dz = w.line.z2 - w.z, L2 = dx * dx + dz * dz || 1;
-        const t = Math.max(0, Math.min(1, ((p.x - w.x) * dx + (p.z - w.z) * dz) / L2));
-        if (Math.hypot(p.x - (w.x + dx * t), p.z - (w.z + dz * t)) < w.line.w / 2 + PLAYER.radius) this.hurtPlayer(w.dmg, 'charge');
+        for (const h of H) {
+          const p = h.player;
+          const t = Math.max(0, Math.min(1, ((p.x - w.x) * dx + (p.z - w.z) * dz) / L2));
+          if (Math.hypot(p.x - (w.x + dx * t), p.z - (w.z + dz * t)) < w.line.w / 2 + PLAYER.radius) h.hurtPlayer(w.dmg, 'charge');
+        }
       } else {
         this.events.push({ type: 'explode', x: w.x, z: w.z, r: w.r, fx: 'fire' });
-        if (Math.hypot(p.x - w.x, p.z - w.z) < w.r + PLAYER.radius) this.hurtPlayer(w.dmg, 'slam');
-        for (const m of this.minions) if (Math.hypot(m.x - w.x, m.z - w.z) < w.r) m.hp -= w.dmg;
+        for (const h of H) if (Math.hypot(h.player.x - w.x, h.player.z - w.z) < w.r + PLAYER.radius) h.hurtPlayer(w.dmg, 'slam');
+        for (const h of H) for (const m of h.minions) if (Math.hypot(m.x - w.x, m.z - w.z) < w.r) m.hp -= w.dmg;
       }
       return false;
     });
@@ -1126,8 +1269,8 @@ export class Sim {
     const r = 2.4;
     e.hp = 0;
     this.events.push({ type: 'explode', x: e.x, z: e.z, r, fx: 'fire' });
-    if (Math.hypot(this.player.x - e.x, this.player.z - e.z) < r + PLAYER.radius) this.hurtPlayer(e.touchDmg * 2, 'bomber');
-    for (const m of this.minions) if (Math.hypot(m.x - e.x, m.z - e.z) < r) m.hp -= e.touchDmg * 3;
+    for (const h of this.heroes) if (Math.hypot(h.player.x - e.x, h.player.z - e.z) < r + PLAYER.radius) h.hurtPlayer(e.touchDmg * 2, 'bomber');
+    for (const h of this.heroes) for (const m of h.minions) if (Math.hypot(m.x - e.x, m.z - e.z) < r) m.hp -= e.touchDmg * 3;
   }
 
   damageEnemy(e: Enemy, dmg: number, crit: boolean, noProc = false, armourPierce = false): void {
@@ -1145,7 +1288,7 @@ export class Sim {
       this.proc.lifestealCd = 0.2; // at most 5 heals a second
       this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * 0.01);
     }
-    if (e.kind === 'worldboss') this.wbDamage += Math.min(dmg, e.hp);
+    if (e.kind === 'worldboss') { const d = Math.min(dmg, e.hp); for (const h of this.heroes) h.wbDamage += d; } // co-op: the party's damage counts for everyone
     e.hp -= dmg;
     e.hitFlash = 0.08;
     this.events.push({ type: 'hit', x: e.x, z: e.z, dmg, crit });
@@ -1187,15 +1330,19 @@ export class Sim {
     }
     const soulMult = 1 + 0.1 * (this.tier - 1);
     // 💎 crystals: mini boss 1, boss 3 (gate dungeons double), elites 10% for 1
+    // co-op: every hero gets the full reward for every kill
     const gate = this.isGate ? 2 : 1;
-    if (e.kind === 'miniboss') { this.runSouls += DROPS.soulsMiniboss * soulMult; this.runRunes += DROPS.runesMiniboss; this.runCrystals += 1 * gate; }
-    else if (e.kind === 'boss') { this.runSouls += DROPS.soulsBoss * soulMult; this.runRunes += DROPS.runesBoss; this.runCrystals += 3 * gate; }
-    else if (e.kind !== 'worldboss') this.runSouls += DROPS.soulPerKill * soulMult;
-    if (e.elite && this.rand() < 0.1) this.runCrystals += 1;
+    const crystalRoll = e.elite ? this.rand() < 0.1 : false;
+    for (const h of this.heroes) {
+      if (e.kind === 'miniboss') { h.runSouls += DROPS.soulsMiniboss * soulMult; h.runRunes += DROPS.runesMiniboss; h.runCrystals += 1 * gate; }
+      else if (e.kind === 'boss') { h.runSouls += DROPS.soulsBoss * soulMult; h.runRunes += DROPS.runesBoss; h.runCrystals += 3 * gate; }
+      else if (e.kind !== 'worldboss') h.runSouls += DROPS.soulPerKill * soulMult;
+      if (crystalRoll) h.runCrystals += 1;
+      if (e.elite) h.runSouls += 3 * soulMult;
+    }
     if (this.healOnKill) this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * this.healOnKill);
     const isBoss = isBigKind(e.kind);
     const eliteMul = e.elite ? ELITES.rewards : 1;
-    if (e.elite) this.runSouls += 3 * soulMult;
     const total = def.coins * this.coinValue * eliteMul;
     const pieces = isBoss ? 12 : 1;
     for (let i = 0; i < pieces; i++) {
@@ -1207,18 +1354,18 @@ export class Sim {
       this.boss = null;
       this.vacuumCoins();
       this.phase = 'won';
-      this.events.push({ type: 'won' });
-      this.gainXp(def.xp);
+      for (const h of this.heroes) h.events.push({ type: 'won' });
+      for (const h of this.heroes) h.gainXp(def.xp);
       return;
     }
     if (isBoss) {
       this.boss = null;
-      if (e.kind === 'boss') { this.chests.gold++; this.events.push({ type: 'chest', kind: 'gold' }); }
-      else if (this.rand() < CHESTS.minibossSilverChance) { this.chests.silver++; this.events.push({ type: 'chest', kind: 'silver' }); }
+      if (e.kind === 'boss') { for (const h of this.heroes) { h.chests.gold++; h.events.push({ type: 'chest', kind: 'gold' }); } }
+      else if (this.rand() < CHESTS.minibossSilverChance) { for (const h of this.heroes) { h.chests.silver++; h.events.push({ type: 'chest', kind: 'silver' }); } }
       this.onBossDead();
-      this.gainXp(def.xp); // level-ups wait until the next map starts
+      for (const h of this.heroes) h.gainXp(def.xp); // level-ups wait until the next map starts
     } else {
-      this.gainXp(def.xp);
+      for (const h of this.heroes) h.gainXp(def.xp);
       this.kills++;
       if (!this.wb && !this.bossSpawned && this.kills >= this.quota) this.spawnBoss();
     }
@@ -1229,11 +1376,11 @@ export class Sim {
     for (const c of this.coins) c.magnet = true;
     if (this.map >= DUNGEON.maps - 1) {
       this.vacuumCoins();
-      this.runCoins += Math.round(10 * this.tier); // clear bonus
+      for (const h of this.heroes) h.runCoins += Math.round(10 * this.tier); // clear bonus
       this.phase = 'won';
-      this.events.push({ type: 'won' });
+      for (const h of this.heroes) h.events.push({ type: 'won' });
     } else {
-      this.events.push({ type: 'mapClear', map: this.map });
+      for (const h of this.heroes) h.events.push({ type: 'mapClear', map: this.map });
       this.phase = 'transition';
       this.transitionTimer = 2.2;
     }
@@ -1248,23 +1395,27 @@ export class Sim {
     this.boss = null;
     this.enemies = [];
     this.projectiles = [];
-    this.player.x = 0; this.player.z = 0;
-    this.zones = [];
     this.warnings = [];
-    this.ult.waves = []; this.ult.holes = []; this.ult.missiles = []; this.ult.mines = [];
-    this.spinTimer = 0;
-    if (this.lastStand) this.lastStand.used = false;
-    this.sp.secondWindUsed = false;
-    this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * 0.25);
+    const H = this.heroes;
+    for (const h of H) {
+      h.player.x = H.length > 1 ? (h.pid - (H.length - 1) / 2) * 2 : 0; h.player.z = 0;
+      h.zones = [];
+      h.ult.waves = []; h.ult.holes = []; h.ult.missiles = []; h.ult.mines = [];
+      h.spinTimer = 0;
+      if (h.lastStand) h.lastStand.used = false;
+      h.sp.secondWindUsed = false;
+      if (h.down) { h.down = false; h.reviveT = 0; h.player.hp = h.maxHp * 0.25; } // a fallen co-op hero is back for the next map
+      else h.player.hp = Math.min(h.maxHp, h.player.hp + h.maxHp * 0.25);
+    }
     this.buildMap();
-    for (const m of this.minions) { m.x = this.player.x + (this.rand() - 0.5) * 2; m.z = this.player.z + (this.rand() - 0.5) * 2; }
+    for (const h of H) for (const m of h.minions) { m.x = h.player.x + (this.rand() - 0.5) * 2; m.z = h.player.z + (this.rand() - 0.5) * 2; }
     this.phase = 'playing';
-    this.events.push({ type: 'newMap', map: this.map });
-    if (this.pendingLevelUps > 0) this.openLevelUp();
+    for (const h of H) h.events.push({ type: 'newMap', map: this.map });
+    for (const h of H) if (h.pendingLevelUps > 0 && !h.picking && this.phase === 'playing') h.openLevelUp();
   }
 
   private vacuumCoins(): void {
-    for (const c of this.coins) this.runCoins += c.value;
+    for (const c of this.coins) for (const h of this.heroes) h.runCoins += c.value;
     this.coins = [];
   }
 
@@ -1283,7 +1434,7 @@ export class Sim {
         c.x += (dx / (d || 1)) * Math.min(s, d);
         c.z += (dz / (d || 1)) * Math.min(s, d);
       }
-      if (d < 0.6) { this.runCoins += c.value; this.events.push({ type: 'coin' }); }
+      if (d < 0.6) { for (const h of this.heroes) h.runCoins += c.value; this.events.push({ type: 'coin' }); }
       else keep.push(c);
     }
     this.coins = keep;
@@ -1298,7 +1449,7 @@ export class Sim {
       p.level++;
       this.pendingLevelUps++;
     }
-    if (this.pendingLevelUps > 0 && this.phase === 'playing') this.openLevelUp();
+    if (this.pendingLevelUps > 0 && this.phase === 'playing' && !this.picking) this.openLevelUp();
   }
 
   private openLevelUp(): void {
@@ -1310,7 +1461,11 @@ export class Sim {
     }
     this.offeredCards = picks;
     this.offerId++;
-    this.phase = 'levelup';
+    if (this.coop) {
+      // co-op: the dungeon keeps going; pick within a few seconds or a card is picked for you
+      this.picking = true;
+      this.cardTimer = COOP_CARD_TIME;
+    } else this.phase = 'levelup';
     if (this.autoPickCards) {
       this.chooseCard(this.autoPickIndex());
       return;
@@ -1321,7 +1476,7 @@ export class Sim {
   /** Turn the auto-pick setting on or off mid-run. Turning it on resolves any open card choice. */
   setAutoPick(on: boolean): void {
     this.autoPickCards = on;
-    if (on && this.phase === 'levelup') this.chooseCard(this.autoPickIndex());
+    if (on && (this.phase === 'levelup' || this.picking)) this.chooseCard(this.autoPickIndex());
   }
 
   autoPickIndex(): number {
@@ -1331,7 +1486,7 @@ export class Sim {
   }
 
   chooseCard(index: number): void {
-    if (this.phase !== 'levelup') return;
+    if (this.phase !== 'levelup' && !this.picking) return;
     const card = this.offeredCards[index];
     if (!card) return;
     card.apply(this.stats, (f) => { this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * f); });
@@ -1339,16 +1494,20 @@ export class Sim {
     if (this.autoPickCards) this.events.push({ type: 'autoCard', name: card.name, icon: card.icon });
     this.pendingLevelUps--;
     this.offeredCards = [];
-    this.phase = 'playing';
+    if (this.picking) this.picking = false;
+    else this.phase = 'playing';
     if (this.pendingLevelUps > 0) this.openLevelUp();
   }
 
   private die(reason: string): void {
-    this.player.hp = Math.max(0, this.player.hp);
     this.deathReason = reason;
     this.phase = 'dead';
     this.coins = []; // coins still on the floor are lost
-    this.chests = { silver: 0, gold: 0 }; // chests are only yours once the dungeon is cleared
-    this.events.push({ type: 'dead' });
+    for (const h of this.heroes) {
+      h.player.hp = Math.max(0, h.player.hp);
+      h.picking = false;
+      h.chests = { silver: 0, gold: 0 }; // chests are only yours once the dungeon is cleared
+      h.events.push({ type: 'dead' });
+    }
   }
 }

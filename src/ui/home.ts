@@ -24,6 +24,7 @@ import { modelsError, modelsReady } from '../render/models';
 import { claimQuest, markTip, questCard, tipCard, type TipId } from './onboarding';
 import { clearLang, getLang, setLang, tr } from '../i18n';
 import { ico, icoG } from './icons';
+import { coopBotOn, setCoopBot } from '../coopbot';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 
@@ -828,6 +829,8 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       </div>
       <div class="card">
         <h3>${tr('測試用', 'Testing')}</h3>
+        <div class="setrow" style="margin-bottom:10px"><div><b>${tr('🤝 AI 隊友（雙人合作測試）', '🤝 AI teammate (2-player co-op test)')}</b><small>${tr('地城入面多一個同你一樣嘅角色自動打。敵人血量 ×1.7，升級唔會暫停（10 秒內揀卡）；倒低咗企喺隊友身邊 2.5 秒可以救返。', 'A copy of your character joins your dungeon runs and fights on autopilot. Enemy HP ×1.7, level-ups don\'t pause (pick a card within 10s); stand next to a fallen teammate for 2.5s to revive them.')}</small></div>
+          <div class="seg"><button data-coopbot="1" class="${coopBotOn() ? 'on' : ''}">${tr('開', 'On')}</button><button data-coopbot="0" class="${coopBotOn() ? '' : 'on'}">${tr('關', 'Off')}</button></div></div>
         ${sub2Of(save) ? `<button data-act="reset-ascend" class="danger" style="width:100%;margin-bottom:8px">${EN ? `Reset ${CLASSES[save.classId].name}'s third class` : `重置${CLASSES[save.classId].name}嘅第三職業`}</button>` : ''}
         <button data-act="reset-awaken" class="danger" ${subOf(save) ? '' : 'disabled'} style="width:100%">${EN ? `Reset ${CLASSES[save.classId].name}'s second class` : `重置${CLASSES[save.classId].name}嘅第二職業`}</button>
         <p class="note" style="margin:8px 0 0;text-align:left">${tr('正式版第二職業揀咗就唔可以改。呢個掣只係方便試玩唔同覺醒職業：第二職業板同覺醒板會清空，用咗嘅靈魂同符文全數退返，免費；主職業板唔郁。', 'In the full game the second class is final. This is for trying Awakenings: the second-class and Awakening boards are cleared and all Souls and Runes refunded, free. Your main board is untouched.')}</p>
@@ -840,6 +843,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
     const b = (ev.target as HTMLElement).closest('button');
     if (b?.dataset.fx) { const k = b.dataset.fx as 'sfx' | 'music' | 'numbers'; setPref(k, !fxPrefs[k]); showHome(ctx); return; }
     if (b?.dataset.lang) { if (b.dataset.lang !== getLang()) setLang(b.dataset.lang as 'zh' | 'en'); return; }
+    if (b?.dataset.coopbot) { setCoopBot(b.dataset.coopbot === '1'); showHome(ctx); return; }
     if (b?.dataset.salv) { save.autoSalvage = b.dataset.salv as SaveData['autoSalvage']; writeSave(save); showHome(ctx); return; }
     if (b?.dataset.act === 'export') void doExport(save);
     if (b?.dataset.act === 'reset-tips') { save.tips = []; writeSave(save); ctx.banner(tr('提示已重設', 'Tips reset')); showHome(ctx); return; }

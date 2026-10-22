@@ -14,6 +14,7 @@ import { showHome as renderHome, type HomeCtx, type Tab } from './ui/home';
 import { showRunTip, welcomeModal } from './ui/onboarding';
 import { getLang, langChosen, setLang, tr } from './i18n';
 import { ico } from './ui/icons';
+import { coopBotOn } from './coopbot';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 /** Death reasons stay Chinese inside the sim (compared below); this is only the label shown. */
@@ -142,6 +143,8 @@ function startRun(worldBossLevel?: number): void {
     tier: worldBossLevel ?? save.selectedTier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: save.autoPickCards,
     worldBoss: wbId, ...runSetup(save),
   });
+  // testing: an AI copy of your character joins as the second hero (2-player co-op)
+  if (coopBotOn()) new Sim({ tier: sim.tier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: true, worldBoss: wbId, world: sim.w, ...runSetup(save) });
   renderer.reset(sim);
   paused = false;
   acc = 0;
@@ -214,6 +217,11 @@ function updateHud(): void {
   }
   hud.coins.textContent = `🪙 ${fmt(sim.runCoins)} · 👻 ${fmt(sim.runSouls)}${sim.runRunes ? ` · 🔷 ${sim.runRunes}` : ''}${sim.runCrystals ? ` · 💎 ${sim.runCrystals}` : ''}`;
   hud.timer.textContent = `⏱ ${mmss(Math.max(0, sim.timeLimit - sim.time))}`;
+  if (sim.coop) {
+    let el = hud.root.querySelector('.partnerhp') as HTMLElement | null;
+    if (!el) { el = document.createElement('div'); el.className = 'partnerhp'; hud.root.appendChild(el); }
+    el.innerHTML = sim.heroes.filter((o) => o !== sim).map((o) => `<span>🤝 ${o.cls.icon}</span><i><b style="width:${o.down ? 0 : Math.max(0, o.player.hp / o.maxHp) * 100}%"></b></i>${o.down ? `<small>${tr('倒低咗', 'Down')}</small>` : ''}`).join('');
+  }
   hud.speedBtn.textContent = `×${speed}`;
   if (hud.sig && sim.signature) {
     const left = sim.signature.timer;
@@ -255,8 +263,12 @@ function toast(text: string, icon?: string): void {
 }
 
 let hitStop = 0; // seconds the action freezes for impact (boss kills)
+const PARTNER_FX = new Set<SimEvent['type']>(['hit', 'kill', 'swing', 'explode', 'dash', 'wave', 'lightning']);
+
 function handleEvents(events: SimEvent[]): void {
   for (const ev of events) {
+    if (ev.type === 'down') { if (sim && ev.pid === sim.pid) banner(tr('你倒低咗！隊友企喺你身邊就可以救返你', 'You fell! A teammate standing next to you can revive you')); else toast(tr('隊友倒低咗，行過去佢身邊救佢', 'Your teammate fell: stand next to them to revive'), '💀'); continue; }
+    if (ev.type === 'revive') { toast(sim && ev.pid === sim.pid ? tr('你被救返喇', 'You were revived') : tr('隊友救返喇', 'Teammate revived'), '💚'); continue; }
     // sounds
     if (ev.type === 'hit') play(ev.crit ? 'crit' : 'hit');
     else if (ev.type === 'kill') {
@@ -293,6 +305,7 @@ function showLevelUp(): void {
   cardEl = h(`
     <div class="screen dim">
       <h2 style="text-align:center">${tr('升級！揀一個強化', 'Level up! Pick an upgrade')}</h2>
+      ${s.coop ? `<p class="note" style="text-align:center;margin:-6px 0 8px">${tr('合作模式：遊戲冇暫停，10 秒內唔揀就自動揀', 'Co-op: the game keeps going; a card is picked for you after 10s')}</p>` : ''}
       <div class="cards">
         ${s.offeredCards.map((c, i) => `<button class="lvcard ${i === suggest ? 'suggest' : ''}" data-i="${i}"><span class="ic">${ico(c.icon)}</span><span><b>${c.name}</b><small>${c.desc}</small></span></button>`).join('')}
       </div>
@@ -557,12 +570,14 @@ function frame(now: number): void {
       lostChests = { ...sim.chests };
       sim.step(input.read());
       renderer.handleEvents(sim.events);
+      // co-op: what the teammates do shows too (hits, slashes, blasts), but not their personal alerts
+      for (const o of sim.heroes) if (o !== sim) renderer.handleEvents(o.events.filter((e) => PARTNER_FX.has(e.type)));
       handleEvents(sim.events);
       if (sim.phase === 'won' || sim.phase === 'dead') break;
     }
     if (acc > SIM_DT * 12) acc = 0;
 
-    const phase = sim.phase;
+    const phase = sim.picking ? 'levelup' : sim.phase; // co-op: card picks don't pause the dungeon
     if (phase !== lastPhase) {
       if (lastPhase === 'levelup') hideLevelUp();
       if (phase === 'levelup') showLevelUp();

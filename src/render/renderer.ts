@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { ARENA_HALF, isBigKind, SMALL_KINDS, type SmallKind } from '../sim/config';
 import type { Enemy, FxKind, Sim, SimEvent } from '../sim/sim';
+import { COOP_REVIVE } from '../sim/sim';
 
 /** Merge simple non-indexed geometries into one (for instanced shapes made of parts). */
 function mergeGeos(geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
@@ -130,6 +131,8 @@ export class Renderer {
   private warnMeshes: THREE.Mesh[] = [];
   // models (null until loaded)
   private actor: Actor | null = null;
+  /** Co-op teammates (everyone except you), by party slot. */
+  private partners = new Map<number, { g: THREE.Group; actor: Actor | null; body: THREE.Mesh; ring: THREE.Mesh; revive: THREE.Mesh; lastAtk: number; wasDown: boolean }>();
   private look: PlayerLook | null = null;
   private floater: THREE.Object3D | null = null; // third-class extra that floats beside the player
   private lastAtk = 0;
@@ -476,6 +479,7 @@ export class Renderer {
       this.floater.position.set(-0.85, 2.0 + Math.sin(t * 2.5) * 0.12, -0.3);
       this.floater.rotation.set(-0.5, Math.sin(t * 1.3) * 0.3, 0);
     }
+    this.renderPartners(sim, dt, t);
     const ringMat = this.autoRing.material as THREE.MeshBasicMaterial;
     ringMat.color.setHex(p.autopilot ? 0x5aa9ff : 0xffc23a);
     this.autoRing.rotation.z = t * (p.autopilot ? 1.5 : 0);
@@ -608,7 +612,7 @@ export class Renderer {
     // necromancer allies: skeletons + raised (undead) enemies
     let sk = 0;
     const uc = { grunt: 0, shooter: 0, swarm: 0 };
-    for (const m of sim.minions) {
+    for (const m of sim.heroes.length > 1 ? sim.heroes.flatMap((h) => h.minions) : sim.minions) {
       const sc = (m.big ? 1.45 : 1) * (sim.ut.tank ? 1.15 : 1);
       const bob = Math.abs(Math.sin(t * 9 + m.id)) * 0.08;
       const target = sim.nearestEnemy(m.x, m.z, 12);
@@ -933,12 +937,70 @@ export class Renderer {
     for (const d of this.bossDying) { this.scene.remove(d.g); d.actor.dispose(); }
     this.bossDying = [];
     this.corpses = [];
+    for (const v of this.partners.values()) { this.scene.remove(v.g); v.actor?.dispose(); }
+    this.partners.clear();
     this.enemyPrev.clear();
     this.lastWarnCount = 0;
     this.lastAtk = 0;
     this.sparkData = [];
     this.shake = 0;
     this.camTarget.set(sim.player.x, 0, sim.player.z);
+  }
+
+  /** Co-op: draw the other heroes (their model, attack poses, fallen state and revive progress). */
+  private renderPartners(sim: Sim, dt: number, t: number): void {
+    const others = sim.heroes.filter((h) => h !== sim);
+    for (const [pid, v] of this.partners) if (!others.some((h) => h.pid === pid)) { this.scene.remove(v.g); v.actor?.dispose(); this.partners.delete(pid); }
+    for (const h of others) {
+      let v = this.partners.get(h.pid);
+      if (!v) {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.7, 4, 10), new THREE.MeshLambertMaterial({ color: 0xffa040 }));
+        body.position.y = 0.75;
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.78, 32), new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.85 }));
+        ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03;
+        const revive = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.15, 40, 1, 0, Math.PI * 2), new THREE.MeshBasicMaterial({ color: 0x7ee07a, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+        revive.rotation.x = -Math.PI / 2; revive.position.y = 0.05; revive.visible = false;
+        g.add(body, ring, revive);
+        let actor: Actor | null = null;
+        if (this.flips) {
+          const w = h.weapons;
+          const def = weaponReq(h.cls.id, h.awk?.sub ?? null);
+          const mainW = w ? w.main ?? def.mainWeapon : def.mainWeapon;
+          const offW = w ? (mainW && WEAPONS[mainW].twoHanded ? null : w.blocked ? null : w.sub ?? (w.main ? null : def.subWeapon)) : def.subWeapon;
+          actor = new Actor({ char: PLAYER_CHARS[h.cls.id], right: mainW ? WEAPON_PROPS[mainW] ?? null : null, left: offW ? WEAPON_PROPS[offW] ?? null : null, height: PLAYER_HEIGHT }, h.cls.id === 'necro' ? { hue: 'necro' } : {});
+          g.add(actor.root);
+          body.visible = false;
+        }
+        this.scene.add(g);
+        v = { g, actor, body, ring, revive, lastAtk: 0, wasDown: false };
+        this.partners.set(h.pid, v);
+      }
+      const p = h.player;
+      v.g.position.set(p.x, 0, p.z);
+      v.g.rotation.y = p.facing;
+      const moving = !h.down && Math.hypot(p.moveX, p.moveZ) > 0.1 && sim.phase === 'playing';
+      if (v.actor) {
+        if (h.down && !v.wasDown) v.actor.die();
+        else if (!h.down && v.wasDown) v.actor.cheer();
+        else if (!h.down && p.attackTimer > v.lastAtk + 0.02 && p.attackTimer > 0.08) {
+          const k = h.attack.kind;
+          v.actor.attack(k === 'arc' || k === 'reap' || k === 'javelin' ? 'chop' : k === 'arrow' ? 'shoot' : 'cast', p.attackTimer);
+        }
+        v.lastAtk = p.attackTimer;
+        v.actor.flash(p.invuln > 0 && !h.down && Math.sin(t * 30) > 0 ? 0x333333 : 0);
+        v.actor.update(sim.phase === 'playing' || h.down ? dt : 0, moving, 1.25);
+      } else v.body.position.y = 0.75 + (moving ? Math.abs(Math.sin(t * 12)) * 0.08 : 0);
+      v.wasDown = h.down;
+      // a fallen hero shows a green ring that fills while a teammate stands next to them
+      v.revive.visible = h.down;
+      if (h.down) {
+        const f = Math.max(0.02, h.reviveT / COOP_REVIVE.time);
+        v.revive.geometry.dispose();
+        v.revive.geometry = new THREE.RingGeometry(0.95, 1.15, 40, 1, 0, Math.PI * 2 * f);
+      }
+      v.ring.visible = !h.down;
+    }
   }
 
   private buildClassLook(L: PlayerLook): void {

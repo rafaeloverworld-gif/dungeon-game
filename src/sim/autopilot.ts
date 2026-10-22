@@ -88,6 +88,17 @@ export function autopilotDirection(sim: Sim): { x: number; z: number } {
     }
   }
 
+  // co-op: go and revive a fallen teammate, and otherwise don't drift too far from the team
+  if (sim.coop) {
+    for (const h of sim.heroes) {
+      if (h === sim) continue;
+      const dx = h.player.x - p.x, dz = h.player.z - p.z, d = Math.hypot(dx, dz);
+      if (d < 0.001) continue;
+      if (h.down) { const w = d > 1.2 ? 2.2 : 0; fx += (dx / d) * w; fz += (dz / d) * w; }
+      else if (d > 12) { fx += (dx / d) * 0.5; fz += (dz / d) * 0.5; }
+    }
+  }
+
   // stay away from walls and pillars so we don't get cornered
   const edge = ARENA_HALF - 5;
   if (p.x > edge) fx -= (p.x - edge) / 5 * 1.5;
