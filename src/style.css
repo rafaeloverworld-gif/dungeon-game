@@ -396,6 +396,7 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .dmgnum.react { font-size: 15px; letter-spacing: 1px; color: #ffb36b; }
 .dmgnum.react.frost { color: #9fe0ff; }
 .dmgnum.react.arcane { color: #e9d66a; }
+.dmgnum.react.heal { color: #9be86a; }
 
 /* low HP warning: red edges that pulse faster the lower you are */
 .lowhp { position: absolute; inset: 0; pointer-events: none; z-index: 2; box-shadow: inset 0 0 70px 18px rgba(220, 30, 30, 0.55); animation: lowhp 0.9s ease-in-out infinite; }

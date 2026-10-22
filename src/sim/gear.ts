@@ -168,11 +168,11 @@ export const SPECIALS = {
   utWraith: { family: 'death', name: tr('怨靈', 'Wraith'), desc: tr('亡靈特性：亡靈行快 60%，打中會令敵人減速（可以同其他特性疊）', 'Undead trait: Undead move 60% faster and slow what they hit (stacks with other traits)') },
   // armour-friendly undead traits (don't change how the class plays)
   utFrenzy: { family: 'death', name: tr('狂骨', 'Frenzied Bones'), desc: tr('亡靈特性：亡靈攻速 +30%（可以同其他特性疊）', 'Undead trait: Undead attack 30% faster (stacks with other traits)') },
-  utLasting: { family: 'death', name: tr('不朽骨', 'Undying Bones'), desc: tr('亡靈特性：亡靈存在時間 +50%（可以同其他特性疊）', 'Undead trait: Undead last 50% longer (stacks with other traits)') },
+  utLasting: { family: 'death', name: tr('不朽骨', 'Undying Bones'), desc: tr('亡靈特性：亡靈存在時間 +50%、亡靈上限 +1（可以同其他特性疊）', 'Undead trait: Undead last 50% longer and +1 Undead at once (stacks with other traits)') },
   utEdge: { family: 'death', name: tr('骨刃', 'Bone Edge'), desc: tr('亡靈特性：亡靈暴擊傷害 ×1.5（可以同其他特性疊）', 'Undead trait: Undead critical hits deal ×1.5 damage (stacks with other traits)') },
   utLeech: { family: 'death', name: tr('噬魂', 'Soul Leech'), desc: tr('亡靈特性：亡靈打中敵人會幫你回 0.4% HP（每秒最多 5 次）', 'Undead trait: Undead hits heal you 0.4% HP (up to 5 times a second)') },
   utShield: { family: 'death', name: tr('骨盾', 'Bone Shield'), desc: tr('亡靈特性：亡靈幫你擋子彈（擋子彈範圍大好多，子彈傷害減半）', 'Undead trait: Undead block bullets for you (much wider block area, bullet damage halved)') },
-  utPoison: { family: 'death', name: tr('屍毒', 'Corpse Poison'), desc: tr('亡靈特性：亡靈攻擊會留低毒池（3 秒，每隻亡靈 3 秒一次）', 'Undead trait: Undead attacks leave a poison pool (3 s; each Undead every 3 s)') },
+  utPoison: { family: 'death', name: tr('屍毒', 'Corpse Poison'), desc: tr('亡靈特性：亡靈攻擊會留低毒池（3 秒，每隻亡靈 3 秒一次）。毒係元素：遇到火、冰、雷會起反應（組隊時隊友嘅元素都得）', 'Undead trait: Undead attacks leave a poison pool (3 s; each Undead every 3 s). Poison is an element: it reacts with fire, frost and lightning (a teammate\'s too)') },
   utCrown: { family: 'death', name: tr('骨王冠', 'Bone Crown'), desc: tr('亡靈特性：最大嗰隻亡靈戴上王冠：傷害 ×2，受到傷害減半', 'Undead trait: Your biggest Undead wears a crown: ×2 damage, takes half damage') },
   // rings and necromancer weapons: it changes how the class plays
   boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 150% × 亡靈強度（骨甲令佢更痛；自爆唔會觸發終極技）', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × 150% × Undead Power (Ironbone makes it hurt more; blasts don\'t trigger Ultimates)') },
@@ -183,12 +183,17 @@ export const UNDEAD_TRAITS = ['utTank', 'utRanged', 'utCaster', 'utWraith', 'utF
 export const ARMOUR_TRAITS = ['utTank', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech', 'utShield', 'utPoison', 'utCrown'] as const satisfies readonly SpecialId[];
 
 /** 骨 combos: wearing these traits together turns your undead into something new (with an extra effect). */
-export interface BoneCombo { id: 'archmage' | 'lichKing' | 'bulwark' | 'plague' | 'frenzyEdge' | 'endless' | 'soulKing' | 'boneVolley' | 'grandLich' | 'boneGiant' | 'chainBurst'; needs: SpecialId[]; name: string; desc: string; power?: number }
+export interface BoneCombo { id: 'archmage' | 'lichKing' | 'bulwark' | 'plague' | 'frenzyEdge' | 'endless' | 'soulKing' | 'boneVolley' | 'grandLich' | 'boneGiant' | 'chainBurst' | 'boneStorm' | 'boneReaper' | 'boneCourt' | 'plagueLord' | 'eternal'; needs: SpecialId[]; name: string; desc: string; power?: number }
 export const BONE_COMBOS: BoneCombo[] = [
   // the same trait three times: a pure form (like 三刀流 for three warriors)
   { id: 'boneVolley', power: 2.0, needs: ['utRanged', 'utRanged', 'utRanged'], name: tr('萬箭骨兵', 'Bone Volley'), desc: tr('每隻亡靈每次射 3 支骨箭（扇形）', 'Every Undead fires 3 bone arrows at once (a fan)') },
   { id: 'grandLich', power: 2.5, needs: ['utCaster', 'utCaster', 'utCaster'], name: tr('骸骨大法師', 'Grand Lich'), desc: tr('骨法爆炸再大 25%，傷害 +40%', 'Bone-mage blasts another 25% bigger and +40% damage') },
   { id: 'boneGiant', power: 3.0, needs: ['utTank', 'utTank', 'utTank'], name: tr('不死骨巨人', 'Bone Giants'), desc: tr('亡靈受傷 -40%，傷害 +30%', 'Undead take 40% less damage and deal +30%') },
+  { id: 'boneStorm', power: 2.5, needs: ['utFrenzy', 'utFrenzy', 'utFrenzy'], name: tr('骨嵐', 'Bone Storm'), desc: tr('亡靈攻速再 ×1.5', 'Undead attack speed ×1.5 more') },
+  { id: 'boneReaper', power: 2.5, needs: ['utEdge', 'utEdge', 'utEdge'], name: tr('骸骨死神', 'Bone Reaper'), desc: tr('亡靈暴擊率 +30%', 'Undead +30% crit chance') },
+  { id: 'boneCourt', power: 2.5, needs: ['utCrown', 'utCrown', 'utCrown'], name: tr('骸骨王庭', 'Bone Court'), desc: tr('三隻王冠亡靈傷害 ×3（本來 ×2）', 'The three crowned Undead deal ×3 (instead of ×2)') },
+  { id: 'plagueLord', power: 2.5, needs: ['utPoison', 'utPoison', 'utPoison'], name: tr('瘟疫之主', 'Plague Lord'), desc: tr('毒池大 50%', 'Poison pools 50% bigger') },
+  { id: 'eternal', power: 2, needs: ['utLasting', 'utLasting', 'utLasting'], name: tr('永生骨軍', 'Eternal Legion'), desc: tr('亡靈上限再 +3', '+3 more Undead at once') },
   { id: 'chainBurst', needs: ['boneBurst', 'boneBurst', 'boneBurst'], name: tr('骸骨連爆', 'Chain Burst'), desc: tr('自爆範圍大 50%', 'Undead blasts 50% wider') },
   { id: 'lichKing', power: 1.6, needs: ['utRanged', 'utCaster', 'utCrown'], name: tr('骸骨魔導王', 'Lich King'), desc: tr('戴王冠嗰隻每次射 5 粒爆炸彈（扇形）；所有骨法亡靈爆炸再大 20%', 'The crowned one fires 5 exploding bolts at once (a fan); all bone-mage blasts 20% bigger') },
   { id: 'archmage', power: 1.3, needs: ['utRanged', 'utCaster'], name: tr('骨魔導師', 'Bone Archmage'), desc: tr('爆炸範圍大 40%', 'Blasts 40% bigger') },
@@ -207,7 +212,7 @@ export const activeCombos = (sp: Iterable<SpecialId>): BoneCombo[] => {
 /** The same bone trait worn more than once is stronger: what each extra copy does. */
 export const STACK_TEXT: Partial<Record<SpecialId, string>> = {
   utTank: tr('每件 +100% HP', '+100% HP per copy'), utRanged: tr('2 件：骨箭穿透 1 隻', '2 copies: bone arrows pierce 1'), utCaster: tr('每多 1 件爆炸 +20%', '+20% blast size per extra copy'),
-  utWraith: tr('每件行快 60%、減速更強', '+60% speed and stronger slow per copy'), utFrenzy: tr('每件攻速 +30%', '+30% attack speed per copy'), utLasting: tr('每件存在時間 +50%', '+50% lifetime per copy'),
+  utWraith: tr('每件行快 60%、減速更強', '+60% speed and stronger slow per copy'), utFrenzy: tr('每件攻速 +30%', '+30% attack speed per copy'), utLasting: tr('每件存在時間 +50%、亡靈上限 +1', '+50% lifetime and +1 Undead at once per copy'),
   utEdge: tr('每件暴擊傷害 +50%', '+50% crit damage per copy'), utLeech: tr('每件回 0.4%', '0.4% heal per copy'), utShield: tr('每件擋得更闊、子彈傷害再減', 'Wider block and less bullet damage per copy'),
   utPoison: tr('每件毒池傷害 +100%', '+100% pool damage per copy'), utCrown: tr('每件多一隻亡靈戴王冠', 'One more crowned Undead per copy'), boneBurst: tr('每多 1 件自爆傷害 +50% 最大 HP', '+50% max HP blast damage per extra copy'),
 };

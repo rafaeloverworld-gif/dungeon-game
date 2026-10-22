@@ -45,7 +45,7 @@ export interface Enemy {
 }
 
 /** 元素: fire, frost and lightning stick to enemies; a second, different element sets off a reaction. */
-export type Elem = 'fire' | 'frost' | 'shock';
+export type Elem = 'fire' | 'frost' | 'shock' | 'poison';
 export const ELEM_TIME = 4;
 export const VULN = 0.4;
 
@@ -607,7 +607,7 @@ export class Sim {
   /** How many skeletons you can have at once (more can exist briefly from 骸骨大軍 / 亡者軍團). */
   get minionCap(): number {
     const base = this.cls.id === 'necro' || this.awk?.sub === 'necro' || this.awk?.sub2 === 'necro' || this.autoSkills.some((a) => a.id === 'raiseDead') ? 3 : 0;
-    return base + (this.attack.kind === 'summon' ? 2 : 0) + this.stats.minions + ((this.awk?.base ?? this.awk?.id) === 'necro_necro' ? 1 : 0) + (this.awk?.id === 'necro_necro_necro' ? 1 : 0);
+    return base + (this.attack.kind === 'summon' ? 2 : 0) + this.stats.minions + ((this.awk?.base ?? this.awk?.id) === 'necro_necro' ? 1 : 0) + (this.awk?.id === 'necro_necro_necro' ? 1 : 0) + this.n('utLasting') + (this.combo.has('eternal') ? 3 : 0); // 不朽骨: +1 Undead per copy (永生骨軍 +3 more)
   }
 
   /** How much of a hit an undead takes (骨堡壘 -30%, crowned -50%). */
@@ -633,7 +633,7 @@ export class Sim {
     const atk = value(this.stats.atk) * value(this.stats.summon);
     const armour = defMultiplier(value(this.stats.def));
     // undead share your stats: HP, attack, attack speed, move speed, armour, thorns, and every in-run bonus
-    const atkSpd = value(this.stats.atkSpeed) * (this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1) * (1 + 0.3 * this.n('utFrenzy')); // 狂骨: +30% per copy
+    const atkSpd = value(this.stats.atkSpeed) * (this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1) * (1 + 0.3 * this.n('utFrenzy')) * (this.combo.has('boneStorm') ? 1.5 : 1); // 狂骨: +30% per copy (骨嵐 ×1.5 more)
     const moveMul = value(this.stats.moveSpeed) / this.cls.base.moveSpeed;
     this.minionBuff = Math.max(0, this.minionBuff - dt);
     this.leechCd = Math.max(0, this.leechCd - dt);
@@ -680,9 +680,9 @@ export class Sim {
       }
       if (target && d <= reach + 0.15 && m.atkTimer <= 0) {
         m.atkTimer = def.every / atkSpd / (crowned && this.combo.has('soulKing') ? 1.5 : 1); // 魂王: the crowned one attacks 50% faster
-        const crit = this.rand() < value(this.stats.crit) + (this.combo.has('frenzyEdge') ? 0.15 : 0); // 骨刃狂潮
+        const crit = this.rand() < value(this.stats.crit) + (this.combo.has('frenzyEdge') ? 0.15 : 0) + (this.combo.has('boneReaper') ? 0.3 : 0); // 骨刃狂潮 / 骸骨死神
         const buff = this.minionBuff > 0 ? this.minionBuffMult : 1;
-        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (1 + 0.5 * this.n('utEdge')) : 1) * (crowned ? 2 : 1) * (this.combo.has('boneGiant') ? 1.3 : 1) * (this.combo.has('grandLich') ? 1.4 : 1) * this.comboPower; // 骨刃 / 骨王冠 / 不死骨巨人 / 骸骨大法師
+        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (1 + 0.5 * this.n('utEdge')) : 1) * (crowned ? (this.combo.has('boneCourt') ? 3 : 2) : 1) * (this.combo.has('boneGiant') ? 1.3 : 1) * (this.combo.has('grandLich') ? 1.4 : 1) * this.comboPower; // 骨刃 / 骨王冠 / 不死骨巨人 / 骸骨大法師
         if (this.ut.leech && this.leechCd <= 0) { this.leechCd = 0.2; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.004 * this.n('utLeech')); } // 噬魂: 0.4% per copy
         if (this.combo.has('soulKing')) { // 魂王: the crowned one heals 1% every hit; the rest 0.3% (up to 10 a second)
           if (crowned) p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.01);
@@ -691,7 +691,7 @@ export class Sim {
         if (this.ut.poison && (m.poisonCd ?? 0) <= 0) { // 屍毒 (瘟疫幽魂: bigger, slowing)
           m.poisonCd = 3;
           const plague = this.combo.has('plague');
-          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9 });
+          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1) * (this.combo.has('plagueLord') ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9 });
         }
         const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * (this.combo.has('lichKing') ? 1.2 : 1) * (1 + 0.2 * (this.n('utCaster') - 1)) * (this.combo.has('grandLich') ? 1.25 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師 / 骸骨魔導王: bigger blasts)
         const slow = this.ut.wraith ? Math.max(0.3, 0.8 - 0.15 * this.n('utWraith')) : undefined; // 怨靈: stronger slow per copy
@@ -810,6 +810,26 @@ export class Sim {
     const k = value(this.stats.atk) * (this.cls.id === 'mage' ? 1.5 : this.awk?.sub === 'mage' || this.awk?.sub2 === 'mage' ? 1.2 : 1);
     const area = Math.sqrt(value(this.stats.area));
     this.reactions++;
+    if (has('poison')) {
+      const other = a === 'poison' ? el : a;
+      const r = 2.8 * area;
+      if (other === 'fire') { // 毒爆: the poison catches fire
+        this.explode(e.x, e.z, r, k * 2.6, false, 'heal', { noProc: true });
+        this.zones.push({ x: e.x, z: e.z, r: r * 0.8, timer: 2, tick: 0, dmg: k * 0.3, kind: 'fire', slow: 1 });
+        this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('毒爆', 'Toxic Blaze'), fx: 'heal' });
+      } else if (other === 'frost') { // 冰蝕: freezes small enemies around
+        for (const o of this.enemies) if (o.hp > 0 && !isBigKind(o.kind) && Math.hypot(o.x - e.x, o.z - e.z) < r + o.radius) { o.slowTimer = Math.max(o.slowTimer, 1.5); o.slowMult = Math.min(o.slowMult, 0.05); }
+        this.explode(e.x, e.z, r, k * 1.6, false, 'frost', { noProc: true });
+        this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('冰蝕', 'Frostrot'), fx: 'frost' });
+      } else { // 麻痺毒: jumps to 5 enemies nearby and stuns them briefly
+        const near = this.enemies.filter((o) => o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 6).sort((p1, p2) => Math.hypot(p1.x - e.x, p1.z - e.z) - Math.hypot(p2.x - e.x, p2.z - e.z)).slice(0, 6);
+        const pts = [e.x, e.z];
+        for (const o of near) { pts.push(o.x, o.z); this.damageEnemy(o, k * 1.4, false, true); if (!isBigKind(o.kind)) { o.slowTimer = Math.max(o.slowTimer, 0.6); o.slowMult = 0.05; } }
+        this.events.push({ type: 'lightning', pts });
+        this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('麻痺毒', 'Neurotoxin'), fx: 'arcane' });
+      }
+      return;
+    }
     if (has('fire') && has('frost')) {
       this.explode(e.x, e.z, 2.6 * area, k * 3, false, 'fire', { noProc: true });
       this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('蒸發爆炸', 'Steam Blast'), fx: 'fire' });

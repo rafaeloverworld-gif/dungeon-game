@@ -112,7 +112,7 @@ const MAX_INST = 260;
 const FLIP_FPS = 1; // run-cycle speed multiplier for crowds
 
 /** Enemy tint for the element on it (元素). */
-const ELEM_COL: Record<string, number> = { fire: 0xff9a4a, frost: 0x7fd0ff, shock: 0xe6d24a };
+const ELEM_COL: Record<string, number> = { fire: 0xff9a4a, frost: 0x7fd0ff, shock: 0xe6d24a, poison: 0x7ddc5a };
 
 export class Renderer {
   private renderer: THREE.WebGLRenderer;

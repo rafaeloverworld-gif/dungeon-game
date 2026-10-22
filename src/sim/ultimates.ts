@@ -65,8 +65,18 @@ export const ULT_LIMIT: Record<UltId, string> = {
   shadowStrike: tr('極限：每下影襲都會暴擊', 'Limit: every shadow strike crits'),
   holySmite: tr('極限：對小 Boss / Boss 傷害 ×2', 'Limit: double damage to Mini-bosses and Bosses'),
 };
-/** Description at a level (shown in the 終極 tab). */
+/** 元素: the element an ultimate leaves on enemies (reacts with other elements). */
+export const ULT_ELEM: Partial<Record<UltId, 'fire' | 'frost' | 'shock' | 'poison'>> = {
+  chainLightning: 'shock', thunderTotem: 'shock', flameBurst: 'fire', meteorShower: 'fire', frostTouch: 'frost', blizzard: 'frost', poisonSwamp: 'poison',
+};
+const ELEM_NAME = { fire: ['🔥 火', '🔥 Fire'], frost: ['❄️ 冰', '❄️ Frost'], shock: ['⚡ 雷', '⚡ Lightning'], poison: ['🧪 毒', '🧪 Poison'] } as const;
+/** Description at a level (shown in the 終極 tab), with its element. */
 export function ultDesc(id: UltId, l: number): string {
+  const el = ULT_ELEM[id];
+  const d = ultDescRaw(id, l);
+  return el ? `${d}${tr(`。元素：${ELEM_NAME[el][0]}`, `. Element: ${ELEM_NAME[el][1]}`)}` : d;
+}
+function ultDescRaw(id: UltId, l: number): string {
   if (getLang() === 'en') {
     switch (id) {
       case 'deathWave': return `Every ${ULT.deathWave.cd(l).toFixed(1)}s ring the bell of judgement: a golden ring spreads from you and sweeps the whole screen (${pct(ULT.deathWave.dmg(l))})`;
@@ -351,7 +361,7 @@ export function updateUltimates(sim: Sim, dt: number): void {
     if (m.delay > 0) return true;
     const r = ULT.meteorShower.radius * areaMul(sim);
     const crit = sim.rand() < value(sim.stats.crit);
-    sim.explode(m.x, m.z, r, m.dmg * (crit ? value(sim.stats.critDmg) : 1), crit, 'fire', { noProc: true, knock: 1 });
+    sim.explode(m.x, m.z, r, m.dmg * (crit ? value(sim.stats.critDmg) : 1), crit, 'fire', { noProc: true, knock: 1, elem: 'fire' });
     if (limit(L.meteorShower)) sim.zones.push({ x: m.x, z: m.z, r, timer: 3, tick: 0, dmg: m.dmg * 0.12, kind: 'fire', slow: 1 });
     return false;
   });
@@ -366,6 +376,7 @@ export function updateUltimates(sim: Sim, dt: number): void {
       for (const e of sim.enemies) {
         if (Math.hypot(e.x - p.x, e.z - p.z) > r + e.radius) continue;
         ultHit(sim, e, atk(sim) * ULT.blizzard.dmg(l));
+        if (e.hp > 0) sim.applyElem(e, 'frost');
         const big = isBigKind(e.kind);
         if (big && !limit(l)) continue;
         e.slowTimer = Math.max(e.slowTimer, freeze);
@@ -444,7 +455,7 @@ export function updateUltimates(sim: Sim, dt: number): void {
       const l = L.thunderTotem ?? 1;
       const range = ULT.thunderTotem.range * areaMul(sim);
       const near = sim.enemies.filter((e) => e.hp > 0 && Math.hypot(e.x - tt.x, e.z - tt.z) < range).sort((a, b) => Math.hypot(a.x - tt.x, a.z - tt.z) - Math.hypot(b.x - tt.x, b.z - tt.z)).slice(0, ULT.thunderTotem.targets(l));
-      for (const e of near) { ultHit(sim, e, atk(sim) * ULT.thunderTotem.dmg(l)); sim.events.push({ type: 'lightning', pts: [tt.x, tt.z, e.x, e.z] }); }
+      for (const e of near) { ultHit(sim, e, atk(sim) * ULT.thunderTotem.dmg(l)); if (e.hp > 0) sim.applyElem(e, 'shock'); sim.events.push({ type: 'lightning', pts: [tt.x, tt.z, e.x, e.z] }); }
     }
     return tt.life > 0;
   });

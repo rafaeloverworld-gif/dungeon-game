@@ -141,6 +141,7 @@ export function updateAbilities(sim: Sim, dt: number): void {
           e.slowTimer = 0.7;
           e.slowMult = Math.min(e.slowMult, z.slow ?? 0.5);
           sim.damageEnemy(e, z.dmg, false, true);
+          if ((z.kind === 'poison' || z.kind === 'fire') && e.hp > 0) sim.applyElem(e, z.kind); // 元素: poison / fire on the ground
         }
       }
       sim.enemies = sim.enemies.filter((e) => e.hp > 0);
