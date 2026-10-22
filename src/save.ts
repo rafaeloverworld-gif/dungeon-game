@@ -630,7 +630,8 @@ export function useWbTicket(s: SaveData): boolean {
   s.wbFights++;
   return true;
 }
-export const wbMaxLevel = (s: SaveData) => Math.max(WB_MIN_LEVEL, s.highestCleared);
+/** World Boss max level: the highest tier cleared, in the dungeon or in 無盡模式 (floor N cleared = tier 49 + N). */
+export const wbMaxLevel = (s: SaveData) => Math.max(WB_MIN_LEVEL, s.highestCleared, s.endlessBest > 0 ? ENDLESS_START + s.endlessBest - 1 : 0);
 
 export interface WbResult { reward: WbReward; named: Item | null; twin: Item | null; chestItems: Item[]; autoSalvaged: number; kept: Item[] }
 

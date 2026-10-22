@@ -168,7 +168,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
 /** 無盡模式 card: unlocked after clearing tier 50. */
 function endlessCard(save: SaveData): string {
   const open = save.highestCleared >= ENDLESS_UNLOCK;
-  return `<button class="card boardcard" data-act="endless" ${open ? '' : 'disabled'}><div class="statline"><h3 style="margin:0">♾️ ${tr('無盡模式', 'Endless')}</h3><small>${open ? tr(`最佳：${save.endlessBest} 層`, `Best: ${save.endlessBest} floors`) : tr(`通關第 ${ENDLESS_UNLOCK} 級解鎖`, `Clear Tier ${ENDLESS_UNLOCK} to unlock`)}</small></div><small>${tr(`由第 ${ENDLESS_START} 級開始，每過一層（3 張地圖）升一級，打到倒為止。寶箱同金幣死咗都照拎。`, `Starts at Tier ${ENDLESS_START}; every floor (3 maps) is one tier higher, until you fall. Chests and coins are kept when you die.`)}</small></button>`;
+  return `<button class="card boardcard" data-act="endless" ${open ? '' : 'disabled'}><div class="statline"><h3 style="margin:0">♾️ ${tr('無盡模式', 'Endless')}</h3><small>${open ? tr(`最佳：${save.endlessBest} 層`, `Best: ${save.endlessBest} floors`) : tr(`通關第 ${ENDLESS_UNLOCK} 級解鎖`, `Clear Tier ${ENDLESS_UNLOCK} to unlock`)}</small></div><small>${tr(`由第 ${ENDLESS_START} 級開始，每過一層（3 張地圖）升一級，打到倒為止。寶箱同金幣死咗都照拎。過到嘅級數都計入世界 Boss 最高等級。`, `Starts at Tier ${ENDLESS_START}; every floor (3 maps) is one tier higher, until you fall. Chests and coins are kept when you die. Tiers cleared here count for the World Boss max level.`)}</small></button>`;
 }
 
 // ---------- 排行榜 ----------
