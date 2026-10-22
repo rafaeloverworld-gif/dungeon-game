@@ -852,15 +852,17 @@ export class Sim {
     const n = this.stats.multishot + (type === 'spread' ? 2 : 0);
     const spread = type === 'spread' ? 0.2 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
-    const dm = type === 'normal' ? 1.4 : type === 'blast' ? 0.8 : type === 'frost' ? 1 : type === 'spread' ? 0.8 : type === 'homing' ? 0.75 : 1;
-    const homing = type === 'homing';
+    const sharp = this.awk?.id === 'archer_archer' || this.awk?.base === 'archer_archer'; // 神射手
+    const seekSpread = sharp && type === 'spread'; // 神射手: scatter arrows home in too (60% each)
+    const dm = type === 'normal' ? 1.4 : type === 'blast' ? 0.8 : type === 'frost' ? 1 : seekSpread ? 0.6 : type === 'spread' ? 0.8 : type === 'homing' ? 0.75 : 1;
+    const homing = type === 'homing' || seekSpread;
     for (let i = 0; i < n; i++) {
       const a = base + (i - (n - 1) / 2) * spread;
       const { dmg: raw, crit } = this.rollDamage();
       this.projectiles.push({
         x: p.x, z: p.z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed,
         dmg: raw * mult * dm * 1.15, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.15,
-        pierce: type === 'blast' ? 0 : homing ? this.stats.pierce + (this.awk?.id === 'archer_archer' || this.awk?.base === 'archer_archer' ? 5 : 3) : this.stats.pierce + 1 + (type === 'pierce' ? 3 : type === 'frost' ? 2 : type === 'normal' ? 1 : 0), homing: homing || undefined,
+        pierce: type === 'blast' ? 0 : seekSpread ? this.stats.pierce + 3 : homing ? this.stats.pierce + (sharp ? 5 : 3) : this.stats.pierce + 1 + (type === 'pierce' ? 3 : type === 'frost' ? 2 : type === 'normal' ? 1 : 0), homing: homing || undefined,
         radius: 0.3, hit: [],
         blast: type === 'blast' ? 1.5 * Math.sqrt(value(this.stats.area)) : undefined, fx: type === 'blast' ? 'fire' : undefined,
         slow: type === 'frost' ? 0.5 : undefined, ap: type === 'pierce' || undefined, elem: type === 'frost' ? 'frost' : type === 'blast' ? 'fire' : undefined,

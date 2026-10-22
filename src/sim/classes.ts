@@ -106,7 +106,7 @@ export const ARROWS: Record<ArrowType, { name: string; icon: string; desc: strin
   pierce: { name: tr('穿甲箭', 'Piercing'), icon: '🗡️', desc: tr('多穿 3 隻敵人，無視盾兵同堅硬精英嘅減傷', 'Pierces 3 more enemies; ignores Shieldbearer and Armored elite damage reduction') },
   blast: { name: tr('爆裂箭', 'Explosive'), icon: '💥', desc: tr('打中會爆炸（範圍傷害 80%），唔會穿透', 'Explodes on hit (80% area damage); no piercing') },
   frost: { name: tr('冰霜箭', 'Frost'), icon: '❄️', desc: tr('減速 50% 兩秒、多穿 2 隻', 'Slows 50% for 2s, pierces 2 more') },
-  spread: { name: tr('散射箭', 'Scatter'), icon: '🌠', desc: tr('每次多射 2 支箭，每支 80% 傷害', '2 extra arrows per shot, 80% damage each') },
+  spread: { name: tr('散射箭', 'Scatter'), icon: '🌠', desc: tr('每次多射 2 支箭，每支 80% 傷害。神射手：散射箭會追蹤（同追蹤箭一樣穿透後轉頭再追，最多 4 隻），每下 60%', '2 extra arrows per shot, 80% damage each. Sharpshooter: scatter arrows home in (pierce and turn to the next, up to 4), 60% each') },
   homing: { name: tr('追蹤箭', 'Homing'), icon: '🧭', desc: tr('自動追蹤敵人；穿透之後轉頭追下一隻再穿，最多連穿 4 隻（神射手 6 隻），每下 75% 傷害（唔會射失）', 'Seeks enemies; after piercing one it turns to chase the next, up to 4 in a row (Sharpshooter: 6), 75% damage each (never misses)') },
 };
 export const ATTACK_NAMES: Record<AttackKind, string> = {
