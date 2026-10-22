@@ -14,7 +14,7 @@ import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ult
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
   activeBoard, activeBoards, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
-  previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
+  previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
 import { NAMED, namedChance, todaysBoss, WB_MIN_LEVEL, WB_TICKETS, WB_TIME, WORLD_BOSS_IDS, WORLD_BOSSES } from '../sim/worldboss';
@@ -40,6 +40,7 @@ export interface HomeCtx {
   startRun: () => void;
   startWorldBoss: (level: number) => void;
   openCoop: () => void;
+  teamCode: () => string | null;
   coopAvailable: () => boolean;
   autoPickToggle: () => string;
   wireToggles: (root: HTMLElement) => void;
@@ -141,7 +142,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
       </div>
       <button class="primary start" data-act="start">${tr('開始挑戰', 'Start')}</button>
       ${worldBossCard(save)}
-      ${onlineSupported() || ctx.coopAvailable() ? `<button class="card boardcard" data-act="coop"><div class="statline"><h3 style="margin:0">🤝 ${tr('合作模式（2 人）', 'Co-op (2 players)')}</h3><small>${ctx.coopAvailable() ? tr('開房 / 入房', 'Open / join a room') : tr('要網上帳號', 'Needs an online account')}</small></div><small>${tr('同朋友一齊打同一個地城，每人都攞足獎勵', 'Clear a dungeon together with a friend; everyone gets full rewards')}</small></button>` : ''}
+      ${onlineSupported() || ctx.coopAvailable() ? `<button class="card boardcard" data-act="coop"><div class="statline"><h3 style="margin:0">🤝 ${tr('合作模式（2 人）', 'Co-op (2 players)')}</h3><small>${ctx.teamCode() ? `${tr('隊伍', 'Team')} ${ctx.teamCode()}` : ctx.coopAvailable() ? tr('開房 / 入房', 'Open / join a room') : tr('要網上帳號', 'Needs an online account')}</small></div><small>${tr('同朋友一齊打同一個地城，每人都攞足獎勵', 'Clear a dungeon together with a friend; everyone gets full rewards')}</small></button>` : ''}
       ${onlineSupported() ? `<button class="card boardcard" data-act="board"><div class="statline"><h3 style="margin:0">🏆 ${tr('排行榜', 'Leaderboards')}</h3><small>${onlineState().playerId ? `👤 ${esc(onlineState().playerId!)}` : tr('開帳號先上榜', 'Make an account to join')}</small></div><small>${tr('最高通關、同職業排名、今日世界 Boss 傷害', 'Best tier, your class, today\'s World Boss damage')}</small></button>` : ''}
       <div class="note">${tr('唔掂螢幕 = 自動駕駛。掂住螢幕拖動（或 WASD）= 自己操控，放手 2 秒變返自動。<br>打低小 Boss 有機會得銀箱，最終 Boss 一定有金箱，<b>通關先入袋</b>。', 'Hands off = Autopilot. Drag (or WASD) to steer; let go for 2s to return to auto.<br>Mini-bosses may drop a Silver Chest; the final Boss always drops a Gold Chest. <b>Loot is kept only on a clear.</b>')}</div>
     </div>`));
@@ -561,7 +562,7 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
     <div class="col">
       <div class="card ulthead">
         <div><small>${tr('靈晶', 'Crystals')}</small><b style="color:var(--crystal)">💎 ${fmt(save.crystals)}</b></div>
-        <div class="ultslots">${slots.map((u) => `<span class="uslot ${u ? 'on' : ''}">${u ? ico(ULT[u].icon) : '＋'}</span>`).join('')}</div>
+        <div class="ultslots">${slots.map((u, i) => `<button class="uslot ${u ? 'on' : ''}" data-uslot="${i}" aria-label="${u ? ULT[u].name : tr('空格', 'Empty slot')}">${u ? ico(ULT[u].icon) : '＋'}</button>`).join('')}</div>
       </div>
       ${tipCard(save, 'ult')}
       <p class="note" style="margin:0;text-align:left">${EN ? `Screen-clearing skills for any class; equip up to ${ULT_SLOTS}. Ultimate hits can crit; Lv ${ULT_LIMIT_LEVEL} unlocks a Limit effect, max Lv ${ULT_MAX_LEVEL}. 💎 Crystals: Mini-bosses 1, Bosses 3 (double in gate dungeons), elites sometimes 1, first clear of a tier +3 (gate tiers +15), and World Bosses. Your Undead can trigger on-hit Ultimates too, at 35% of your chance.` : `全場清怪技能，任何職業都用得，最多同時裝 ${ULT_SLOTS} 個。終極技傷害會暴擊；Lv ${ULT_LIMIT_LEVEL} 解鎖「極限」效果，最高 Lv ${ULT_MAX_LEVEL}。💎 靈晶：小 Boss 1、Boss 3（守關地城雙倍）、精英怪有機會跌 1、首次通關每級 +3（守關級 +15），仲有世界 Boss。亡靈打中敵人都可以觸發攻擊型終極技，機率係你自己嘅 35%。`}</p>
@@ -591,7 +592,33 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
       if (ultBuy(save, id)) { writeSave(save); showHome(ctx); ctx.banner(`${ULT[id].name} ${first ? tr('解鎖咗', 'unlocked') : `${tr('升到', 'now')} Lv ${save.ults[id]}`}`, ULT[id].icon); }
     }
     if (b.dataset.ultEq && ultToggle(save, b.dataset.ultEq as UltId)) { writeSave(save); showHome(ctx); }
+    if (b.dataset.uslot) showUltSlot(ctx, Number(b.dataset.uslot));
   });
+}
+
+/** Tap a slot at the top of the Ultimates tab: pick what goes in it. */
+function showUltSlot(ctx: HomeCtx, i: number): void {
+  const save = ctx.getSave();
+  const cur = save.ultEquip[i] ?? null;
+  const owned = ULT_IDS.filter((id) => save.ults[id]);
+  const el = h(`<div class="screen dim modal"><div class="card coopmodal">
+    <h2 style="margin:0 0 4px">${tr(`第 ${i + 1} 格`, `Slot ${i + 1}`)}</h2>
+    <p class="sub" style="margin:0 0 10px">${owned.length ? tr('揀一個終極技放入呢格。已經裝咗喺第二格嘅會同呢格對調。', 'Pick an Ultimate for this slot. One already in another slot swaps places.') : tr('你仲未解鎖任何終極技：喺下面用 💎 靈晶解鎖。', 'No Ultimates unlocked yet: unlock one below with 💎 Crystals.')}</p>
+    <div class="blist">${owned.map((id) => {
+      const where = save.ultEquip.indexOf(id);
+      return `<button class="brow ${id === cur ? 'me' : ''}" data-pick="${id}"><b class="brank">${ico(ULT[id].icon)}</b><span class="bname"><b>${ULT[id].name}</b><small>Lv ${save.ults[id]}${where >= 0 && id !== cur ? ` · ${tr(`而家喺第 ${where + 1} 格`, `now in slot ${where + 1}`)}` : ''}</small></span>${id === cur ? '<b class="bval">✓</b>' : ''}</button>`;
+    }).join('')}</div>
+    ${cur ? `<button data-pick="" style="width:100%;margin-bottom:8px">${tr('清空呢格', 'Empty this slot')}</button>` : ''}
+    <button class="ghost" data-act="close" style="width:100%">${tr('關閉', 'Close')}</button></div></div>`);
+  el.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest('button');
+    if (!b) return;
+    if (b.dataset.act === 'close') { el.remove(); return; }
+    if (b.dataset.pick !== undefined) {
+      if (ultSetSlot(save, i, (b.dataset.pick || null) as UltId | null)) { writeSave(save); el.remove(); showHome(ctx); }
+    }
+  });
+  ctx.ui.appendChild(el);
 }
 
 // ---------- 裝備 ----------

@@ -41,7 +41,6 @@ export interface Session {
   lastSnapAt: number;
 }
 export let session: Session | null = null;
-export function endSession(): void { session?.link.close(); session = null; }
 
 /** Snapshots a second: direct link 12, relay 5 (the relay goes through Supabase and counts against its quota). */
 export const snapRate = (s: Session) => (s.link.transport === 'p2p' ? 12 : 5);
@@ -88,32 +87,112 @@ async function openLink(code: string, isHost: boolean, info: Omit<MemberInfo, 'u
 
 export const coopAvailable = () => localTest() || !!onlineState().playerId;
 
-// ---------- lobby ----------
+// ---------- team (stays together between runs) ----------
 export interface LobbyDeps {
   ui: HTMLElement;
   save: () => SaveData;
   start: (o: { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean; role: 'host' | 'guest' }) => void;
+  /** The team changed (teammate joined / left, setup arrived): redraw whatever shows it. */
+  changed: () => void;
+}
+interface Team { link: Link; peerSetup: Setup | null; peerAutoPick: boolean; fresh: boolean; tier: number }
+export let team: Team | null = null;
+let deps: LobbyDeps | null = null;
+
+const myInfo = (save: SaveData) => ({ playerId: onlineState().playerId ?? (getLang() === 'en' ? 'Player' : '玩家'), classId: save.classId, maxTier: save.highestCleared + 1 });
+
+/** Messages while not in a run (lobby, results screen, home). */
+function teamMessage(t: string, data: unknown): void {
+  const tm = team;
+  if (!tm || !deps) return;
+  const l = tm.link;
+  if (t === 'linkUp' && !l.isHost) sendHello();
+  else if (t === 'hello' && l.isHost) { const m = data as { setup: Setup; autoPick: boolean }; tm.peerSetup = m.setup; tm.peerAutoPick = m.autoPick; tm.fresh = true; }
+  else if (t === 'peerLeft') { tm.peerSetup = null; tm.fresh = false; }
+  else if (t === 'start' && !l.isHost) {
+    const m = data as { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean };
+    document.querySelector('.coopmodal')?.closest('.modal')?.remove();
+    beginSession('guest');
+    deps.start({ ...m, role: 'guest' });
+    return;
+  }
+  deps.changed();
 }
 
+/** Guest: tell the host your current gear / boards (sent on joining and after every run). */
+function sendHello(): void {
+  if (!team || !deps || team.link.isHost) return;
+  const save = deps.save();
+  team.link.send('hello', { setup: runSetup(save), autoPick: save.autoPickCards });
+  team.link.update(myInfo(save));
+}
+
+function beginSession(role: 'host' | 'guest'): void {
+  if (!team) return;
+  session = { link: team.link, role, remoteInput: { x: 0, z: 0, manual: false }, lastInputAt: 0, evBuf: [], snapN: 0, sendAt: 0, snaps: [], inputAt: 0, lastSnapAt: performance.now() };
+}
+
+/** Highest tier both players can play. */
+export function teamMaxTier(save: SaveData): number {
+  const peer = team?.link.peer;
+  return Math.min(save.highestCleared + 1, peer ? peer.maxTier : Infinity);
+}
+/** Host: is the teammate there with an up-to-date setup? */
+export const teamReady = () => !!team && team.link.isHost && !!team.link.peer && team.link.transport !== 'connecting' && !!team.peerSetup;
+
+/** Host: start a run for the whole team. Waits (up to 5 s) for the guest's post-run gear first. */
+export function teamStart(tier: number): boolean {
+  const tm = team;
+  if (!tm || !deps || !teamReady()) return false;
+  const go = () => {
+    if (!team || !deps || !tm.peerSetup) return;
+    const msg = { tier, seed: (Math.random() * 2 ** 31) | 0, host: runSetup(deps.save()), guest: tm.peerSetup, guestAutoPick: tm.peerAutoPick };
+    tm.fresh = false;
+    tm.tier = tier;
+    tm.link.send('start', msg);
+    document.querySelector('.coopmodal')?.closest('.modal')?.remove();
+    beginSession('host');
+    deps.start({ ...msg, role: 'host' });
+  };
+  if (tm.fresh) go();
+  else { const t0 = performance.now(); const wait = () => { if (!team) return; if (tm.fresh || performance.now() - t0 > 5000) go(); else setTimeout(wait, 150); }; wait(); }
+  return true;
+}
+
+/** A co-op run ended: keep the team, go back to listening for the next start. */
+export function afterRun(): void {
+  session = null;
+  if (!team) return;
+  team.link.onMessage = teamMessage;
+  if (team.link.isHost) team.link.update(myInfo(deps!.save()));
+  else setTimeout(sendHello, 300); // after this phone has added its rewards
+}
+
+export function leaveTeam(): void {
+  session = null;
+  team?.link.close();
+  team = null;
+  deps?.changed();
+}
+
+// ---------- lobby ----------
 export function showCoopLobby(d: LobbyDeps): void {
+  deps = d;
   const EN = getLang() === 'en';
-  const save = d.save();
-  const myMax = save.highestCleared + 1;
-  let link: Link | null = null;
   let busy = false;
   let error = '';
-  let peerSetup: Setup | null = null;
-  let peerAutoPick = true;
-  let tier = Math.min(save.selectedTier, myMax);
   const el = h(`<div class="screen dim modal"></div>`);
-  const info = () => ({ playerId: onlineState().playerId ?? (EN ? 'Player' : '玩家'), classId: save.classId, maxTier: myMax });
   const cls = (id: string) => CLASSES[id as ClassId] ? `${CLASSES[id as ClassId].icon} ${CLASSES[id as ClassId].name}` : '';
+  const changedBefore = d.changed;
+  d.changed = () => { if (el.isConnected) draw(); changedBefore(); };
 
   const draw = () => {
-    if (!link) {
+    const save = d.save();
+    const tm = team;
+    if (!tm) {
       el.innerHTML = `<div class="card coopmodal">
         <h2 style="margin:0 0 4px">🤝 ${tr('合作模式（2 人）', 'Co-op (2 players)')}</h2>
-        <p class="sub" style="margin:0 0 12px">${tr('一個開房，另一個用房間碼入房。敵人血量 ×1.7，每個人都攞足獎勵。', 'One player opens a room, the other joins with its code. Enemies have ×1.7 HP; everyone gets full rewards.')}</p>
+        <p class="sub" style="margin:0 0 12px">${tr('一個開房，另一個用房間碼入房。打完會留喺同一隊，可以一直一齊打。敵人血量 ×1.7，每個人都攞足獎勵。', 'One player opens a room, the other joins with its code. You stay a team between runs. Enemies have ×1.7 HP; everyone gets full rewards.')}</p>
         <button class="primary" data-act="host" style="width:100%;margin-bottom:12px" ${busy ? 'disabled' : ''}>${tr('開房', 'Open a room')}</button>
         <input id="coopcode" class="olin codein" maxlength="4" autocapitalize="characters" placeholder="${tr('房間碼（4 個字母）', 'Room code (4 letters)')}">
         <button data-act="join" style="width:100%" ${busy ? 'disabled' : ''}>${tr('入房', 'Join')}</button>
@@ -121,68 +200,46 @@ export function showCoopLobby(d: LobbyDeps): void {
         <button class="ghost" data-act="close" style="width:100%;margin-top:10px">${tr('關閉', 'Close')}</button></div>`;
       return;
     }
-    const peer = link.peer;
-    const maxTier = peer ? Math.min(myMax, peer.maxTier) : myMax;
-    tier = Math.min(Math.max(1, tier), maxTier);
-    const net = link.transport === 'p2p' ? tr('🟢 直連', '🟢 Direct link') : link.transport === 'relay' ? tr('🟡 經伺服器（慢少少）', '🟡 Via server (a bit slower)') : tr('⏳ 連接緊', '⏳ Connecting');
-    const ready = !!peer && link.transport !== 'connecting' && (!link.isHost || !!peerSetup);
+    const l = tm.link;
+    const peer = l.peer;
+    const maxTier = teamMaxTier(save);
+    tm.tier = Math.min(Math.max(1, tm.tier), maxTier);
+    const net = l.transport === 'p2p' ? tr('🟢 直連', '🟢 Direct link') : l.transport === 'relay' ? tr('🟡 經伺服器（慢少少）', '🟡 Via server (a bit slower)') : tr('⏳ 連接緊', '⏳ Connecting');
     el.innerHTML = `<div class="card coopmodal">
-      <h2 style="margin:0 0 4px">🤝 ${tr('房間', 'Room')} <span class="roomcode">${link.code}</span></h2>
-      <p class="sub" style="margin:0 0 10px">${link.isHost ? tr('將房間碼話畀隊友聽，等佢入房。', 'Tell your teammate the code and wait for them to join.') : tr('等主機揀地城同開始。', 'Waiting for the host to pick a dungeon and start.')}</p>
-      <div class="members">${link.members.map((m) => `<div class="brow ${m.host ? 'me' : ''}"><b class="brank">${m.host ? '👑' : '🤝'}</b><span class="bname"><b>${esc(m.playerId)}</b><small>${cls(m.classId)} · ${tr('最高可打', 'Up to')} ${EN ? `Tier ${m.maxTier}` : `第 ${m.maxTier} 級`}</small></span></div>`).join('')}
+      <h2 style="margin:0 0 4px">🤝 ${tr('房間', 'Room')} <span class="roomcode">${l.code}</span></h2>
+      <p class="sub" style="margin:0 0 10px">${l.isHost ? (peer ? tr('揀地城等級，撳開始。', 'Pick a tier and start.') : tr('將房間碼話畀隊友聽，等佢入房。', 'Tell your teammate the code and wait for them to join.')) : tr('等主機揀地城同開始。你可以閂咗呢個畫面，主機一開始你就會自動入地城。', 'Waiting for the host to start. You can close this; you will join automatically when the host starts.')}</p>
+      <div class="members">${l.members.map((m) => `<div class="brow ${m.host ? 'me' : ''}"><b class="brank">${m.host ? '👑' : '🤝'}</b><span class="bname"><b>${esc(m.playerId)}</b><small>${cls(m.classId)} · ${tr('最高可打', 'Up to')} ${EN ? `Tier ${m.maxTier}` : `第 ${m.maxTier} 級`}</small></span></div>`).join('')}
         ${peer ? '' : `<div class="brow"><span class="bname"><small>${tr('等緊隊友…', 'Waiting for a teammate…')}</small></span></div>`}</div>
       <p class="note" style="margin:8px 0">${peer ? net : ''}</p>
-      ${link.isHost ? `<div class="tier"><button data-tier="-1" ${tier <= 1 ? 'disabled' : ''}>◀</button>
-        <div style="text-align:center"><div class="val">${EN ? `Tier ${tier}` : `第 ${tier} 級`}</div><small>${biomeFor(tier).icon} ${biomeFor(tier).name} · ${tr('兩個人都打得到嘅最高：', 'Highest both can play: ')}${maxTier}</small></div>
-        <button data-tier="1" ${tier >= maxTier ? 'disabled' : ''}>▶</button></div>
-        <button class="primary" data-act="coopstart" style="width:100%;margin-top:10px" ${ready ? '' : 'disabled'}>${tr('開始', 'Start')}</button>` : ''}
-      <button class="ghost" data-act="leave" style="width:100%;margin-top:8px">${tr('離開房間', 'Leave room')}</button></div>`;
-  };
-
-  const wire = (l: Link) => {
-    link = l;
-    l.onChange = () => { if (el.isConnected) draw(); };
-    l.onMessage = (t, data) => {
-      if (t === 'linkUp' && !l.isHost) l.send('hello', { setup: runSetup(d.save()), autoPick: d.save().autoPickCards });
-      else if (t === 'hello' && l.isHost) { const m = data as { setup: Setup; autoPick: boolean }; peerSetup = m.setup; peerAutoPick = m.autoPick; draw(); }
-      else if (t === 'peerLeft') { peerSetup = null; draw(); }
-      else if (t === 'start' && !l.isHost) {
-        const m = data as { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean };
-        el.remove();
-        begin(l, 'guest');
-        d.start({ ...m, role: 'guest' });
-      }
-    };
-    draw();
-  };
-  const begin = (l: Link, role: 'host' | 'guest') => {
-    session = { link: l, role, remoteInput: { x: 0, z: 0, manual: false }, lastInputAt: 0, evBuf: [], snapN: 0, sendAt: 0, snaps: [], inputAt: 0, lastSnapAt: performance.now() };
+      ${l.isHost ? `<div class="tier"><button data-tier="-1" ${tm.tier <= 1 ? 'disabled' : ''}>◀</button>
+        <div style="text-align:center"><div class="val">${EN ? `Tier ${tm.tier}` : `第 ${tm.tier} 級`}</div><small>${biomeFor(tm.tier).icon} ${biomeFor(tm.tier).name} · ${tr('兩個人都打得到嘅最高：', 'Highest both can play: ')}${maxTier}</small></div>
+        <button data-tier="1" ${tm.tier >= maxTier ? 'disabled' : ''}>▶</button></div>
+        <button class="primary" data-act="coopstart" style="width:100%;margin-top:10px" ${teamReady() ? '' : 'disabled'}>${tr('開始', 'Start')}</button>` : ''}
+      <button data-act="hide" style="width:100%;margin-top:8px">${tr('閂咗呢個畫面（留喺隊伍）', 'Close (stay in the team)')}</button>
+      <button class="ghost" data-act="leave" style="width:100%;margin-top:8px">${tr('離開隊伍', 'Leave the team')}</button></div>`;
   };
 
   el.addEventListener('click', async (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b || busy) return;
-    if (b.dataset.act === 'close') { el.remove(); return; }
-    if (b.dataset.act === 'leave') { link?.close(); link = null; peerSetup = null; draw(); return; }
-    if (b.dataset.tier) { tier += Number(b.dataset.tier); draw(); return; }
+    if (b.dataset.act === 'close' || b.dataset.act === 'hide') { el.remove(); d.changed = changedBefore; changedBefore(); return; }
+    if (b.dataset.act === 'leave') { leaveTeam(); draw(); return; }
+    if (b.dataset.tier && team) { team.tier += Number(b.dataset.tier); draw(); return; }
     if (b.dataset.act === 'host' || b.dataset.act === 'join') {
       const code = b.dataset.act === 'host' ? newCode() : ((el.querySelector('#coopcode') as HTMLInputElement | null)?.value ?? '').trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) { error = tr('房間碼係 4 個英文字母', 'The room code is 4 letters'); draw(); return; }
       busy = true; error = ''; draw();
-      try { wire(await openLink(code, b.dataset.act === 'host', info())); }
-      catch { error = tr('連唔到伺服器，再試一次', "Can't reach the server, try again"); }
+      try {
+        const save = d.save();
+        const l = await openLink(code, b.dataset.act === 'host', myInfo(save));
+        team = { link: l, peerSetup: null, peerAutoPick: true, fresh: false, tier: Math.min(save.selectedTier, save.highestCleared + 1) };
+        l.onChange = () => d.changed();
+        l.onMessage = teamMessage;
+      } catch { error = tr('連唔到伺服器，再試一次', "Can't reach the server, try again"); }
       busy = false; draw();
       return;
     }
-    if (b.dataset.act === 'coopstart' && link?.isHost && peerSetup) {
-      const host = runSetup(d.save());
-      const seed = (Math.random() * 2 ** 31) | 0;
-      const msg = { tier, seed, host, guest: peerSetup, guestAutoPick: peerAutoPick };
-      link.send('start', msg);
-      el.remove();
-      begin(link, 'host');
-      d.start({ ...msg, role: 'host' });
-    }
+    if (b.dataset.act === 'coopstart' && team) { d.changed = changedBefore; teamStart(team.tier); }
   });
   d.ui.appendChild(el);
   draw();

@@ -17,7 +17,7 @@ import { showRunTip, welcomeModal } from './ui/onboarding';
 import { getLang, langChosen, setLang, tr } from './i18n';
 import { ico } from './ui/icons';
 import { coopBotOn } from './coopbot';
-import { coopAvailable, endSession, session, showCoopLobby, snapRate, type Setup } from './net/coop';
+import { afterRun, coopAvailable, leaveTeam, session, showCoopLobby, snapRate, team, teamMaxTier, teamStart, type Setup } from './net/coop';
 import { applySnap, buildSnap, resetGuest, smooth, SHARED, syncDebug, type Snap } from './net/sync';
 
 const EN = getLang() === 'en'; // language is fixed per page load
@@ -77,8 +77,9 @@ const homeCtx: HomeCtx = {
   setSave: (s) => { save = s; },
   startRun: () => startRun(),
   startWorldBoss: (level: number) => startRun(level),
-  openCoop: () => showCoopLobby({ ui, save: () => save, start: startCoop }),
+  openCoop: () => showCoopLobby({ ui, save: () => save, start: startCoop, changed: () => document.dispatchEvent(new Event('team-changed')) }),
   coopAvailable,
+  teamCode: () => team?.link.code ?? null,
   autoPickToggle,
   wireToggles,
   banner: (t, i) => banner(t, i),
@@ -141,6 +142,7 @@ let hud: {
 } | null = null;
 
 function startRun(worldBossLevel?: number): void {
+  if (team) { banner(team.link.isHost ? tr('你喺隊伍入面：用「🤝 合作模式」開始，或者先離開隊伍', 'You are in a team: start from Co-op, or leave the team first') : tr('你喺隊伍入面：等主機開始，或者先離開隊伍', 'You are in a team: wait for the host, or leave the team first')); return; }
   const wbId = worldBossLevel ? todaysBoss() : undefined;
   // a ticket is only used when you take the rewards (a failed fight can be retried for free)
   if (wbId && wbTicketsLeft(save) <= 0) { banner(tr('今日嘅挑戰次數用晒喇', 'No attempts left today')); return; }
@@ -368,6 +370,13 @@ function hideLevelUp(): void {
   cardEl = null;
 }
 
+/** Host: start the next run for the whole team (or say why not). */
+function teamRun(tier: number): void {
+  if (!team) { startRun(); return; }
+  if (!team.link.peer) { banner(tr('隊友唔喺度：等佢返嚟，或者離開隊伍自己打', 'Your teammate is gone: wait for them, or leave the team to play solo')); return; }
+  if (!teamStart(tier)) banner(tr('隊友仲未準備好，等一陣再試', 'Your teammate is not ready yet, try again in a moment'));
+}
+
 // ---------- co-op guest: draw the host's dungeon ----------
 function guestFrame(now: number, dt: number): void {
   const s = session!, me = sim!;
@@ -392,8 +401,8 @@ function guestFrame(now: number, dt: number): void {
   } else if (phase === 'levelup' && (cardEl === null || shownOffer !== me.offerId)) { hideLevelUp(); showLevelUp(); }
   updateHud();
   renderer.render(me, dt);
-  if (me.phase === 'won') { finishRun(true, ''); endSession(); }
-  else if (me.phase === 'dead') { finishRun(false, me.deathReason); endSession(); }
+  if (me.phase === 'won') { afterRun(); finishRun(true, ''); }
+  else if (me.phase === 'dead') { afterRun(); finishRun(false, me.deathReason); }
 }
 
 // ---------- pause & end ----------
@@ -417,7 +426,7 @@ function showPause(): void {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b || !sim) return;
     if (b.dataset.act === 'resume') { paused = false; pauseEl?.remove(); pauseEl = null; last = performance.now(); }
-    if (b.dataset.act === 'quit' && session) { pauseEl?.remove(); pauseEl = null; paused = false; endSession(); finishRun(false, '放棄'); return; }
+    if (b.dataset.act === 'quit' && session) { pauseEl?.remove(); pauseEl = null; paused = false; leaveTeam(); finishRun(false, '放棄'); return; }
     if (b.dataset.act === 'quit') { pauseEl?.remove(); pauseEl = null; paused = false; finishRun(false, '放棄'); }
   });
   ui.appendChild(pauseEl);
@@ -467,6 +476,7 @@ function finishRun(won: boolean, reason: string): void {
   save.lastSeen = Date.now();
   writeSave(save);
 
+  const inTeam = s.coop ? team : null; // co-op: the team stays together; the host starts the next run for both
   const chestText = (c: Record<ChestKind, number>) => [c.gold ? `${tr('金箱', 'Gold Chest')}×${c.gold}` : '', c.silver ? `${tr('銀箱', 'Silver Chest')}×${c.silver}` : ''].filter(Boolean).join(tr('、', ', '));
   // chests are emptied on death, so remember what was lost from the HUD count before it was cleared
   const lost = !won ? lostChests : null;
@@ -492,12 +502,16 @@ function finishRun(won: boolean, reason: string): void {
       ${save.level > lvBefore ? `<div class="card">${EN ? `Hero reached <b>Lv ${save.level}</b>! HP & ATK +${save.level - lvBefore}% (total +${save.level - 1}%)` : `角色升到 <b>Lv ${save.level}</b>！HP 同攻擊 +${save.level - lvBefore}%（合共 +${save.level - 1}%）`}</div>` : ''}
       ${unlocked ? `<div class="card">${EN ? `Unlocked Tier ${s.tier + 1} dungeon` : `解鎖咗第 ${s.tier + 1} 級地城`}</div>` : ''}
       ${unlocked && s.tier === AWAKEN_TIER ? `<div class="card" style="color:var(--gold)">✨ ${tr('可以覺醒喇！去「出發」頁揀第二職業', 'You can Awaken! Pick a second class on the Play tab')}</div>` : ''}
+      ${inTeam && !inTeam.link.isHost ? `<div class="card teamwait">🤝 ${tr('你仲喺隊伍入面。主機開始下一舖，你就會自動入地城。', 'You are still in the team. When the host starts the next run you will join automatically.')}</div>` : ''}
       <div class="col">
-        ${won ? `<button class="primary" data-act="next">${EN ? `Try Tier ${s.tier + 1}` : `挑戰第 ${s.tier + 1} 級`}</button>` : ''}
-        <button ${won ? '' : 'class="primary"'} data-act="again">${EN ? `Retry Tier ${s.tier}` : `再挑戰第 ${s.tier} 級`}</button>
+        ${inTeam && !inTeam.link.isHost ? '' : `
+        ${won && (!inTeam || s.tier + 1 <= teamMaxTier(save)) ? `<button class="primary" data-act="next">${EN ? `Try Tier ${s.tier + 1}` : `挑戰第 ${s.tier + 1} 級`}${inTeam ? tr('（全隊）', ' (team)') : ''}</button>` : ''}
+        <button ${won ? '' : 'class="primary"'} data-act="again">${EN ? `Retry Tier ${s.tier}` : `再挑戰第 ${s.tier} 級`}${inTeam ? tr('（全隊）', ' (team)') : ''}</button>
         ${won ? `<button data-act="auto-repeat" class="${save.autoRepeat ? 'on' : ''}">${save.autoRepeat ? (EN ? '🔁 Auto-repeat: ON' : '🔁 自動再挑戰：開') : (EN ? '🔁 Auto-repeat: OFF' : '🔁 自動再挑戰：關')}</button>` : ''}
+        ${inTeam ? `<button data-act="team-room">🤝 ${tr('返隊伍房間（揀第二級）', 'Team room (pick another tier)')}</button>` : ''}`}
         ${loot.items.length ? `<button data-act="gear">${tr('睇裝備', 'View gear')}</button>` : ''}
         <button data-act="home">${tr('返主頁', 'Home')}</button>
+        ${inTeam ? `<button class="ghost" data-act="team-leave">${tr('離開隊伍', 'Leave the team')}</button>` : ''}
       </div>
     </div>`);
   // 自動再挑戰: after a clear, start the same tier again after a short countdown (any tap cancels it)
@@ -511,11 +525,11 @@ function finishRun(won: boolean, reason: string): void {
     again.classList.add('primary');
     countdown = window.setInterval(() => {
       left--;
-      if (left <= 0) { stopCountdown(); if (el.isConnected) { save.selectedTier = s.tier; startRun(); } return; }
+      if (left <= 0) { stopCountdown(); if (el.isConnected) { save.selectedTier = s.tier; if (inTeam) teamRun(s.tier); else startRun(); } return; }
       label();
     }, 1000);
   };
-  if (won && save.autoRepeat) startCountdown();
+  if (won && save.autoRepeat && (!inTeam || inTeam.link.isHost)) startCountdown();
   if (won && save.highestCleared >= 2) showRunTip(ui, save, 'repeat');
   el.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
@@ -530,8 +544,10 @@ function finishRun(won: boolean, reason: string): void {
       if (save.autoRepeat) startCountdown();
       return;
     }
-    if (b.dataset.act === 'next') { save.selectedTier = s.tier + 1; writeSave(save); startRun(); }
-    if (b.dataset.act === 'again') { save.selectedTier = s.tier; startRun(); }
+    if (b.dataset.act === 'next') { save.selectedTier = s.tier + 1; writeSave(save); if (inTeam) teamRun(s.tier + 1); else startRun(); }
+    if (b.dataset.act === 'again') { save.selectedTier = s.tier; if (inTeam) teamRun(s.tier); else startRun(); }
+    if (b.dataset.act === 'team-room') { showHome(); homeCtx.openCoop(); }
+    if (b.dataset.act === 'team-leave') { leaveTeam(); showHome(); }
     if (b.dataset.act === 'gear') showHome('gear');
     if (b.dataset.act === 'home') showHome();
   });
@@ -679,8 +695,8 @@ function frame(now: number): void {
     if (!sim.wb && sim.kills >= 10 && !save.tips.includes('quota')) showRunTip(ui, save, 'quota');
     updateHud();
     renderer.render(sim, dt);
-    if (sim.phase === 'won') { finishRun(true, ''); if (session) setTimeout(endSession, 1500); }
-    else if (sim.phase === 'dead') { finishRun(false, sim.deathReason); if (session) setTimeout(endSession, 1500); }
+    if (sim.phase === 'won') { if (session) afterRun(); finishRun(true, ''); }
+    else if (sim.phase === 'dead') { if (session) afterRun(); finishRun(false, sim.deathReason); }
   } else if (sim) {
     renderer.render(sim, 0);
   }

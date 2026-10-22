@@ -629,6 +629,19 @@ export function ultBuy(s: SaveData, id: UltId): boolean {
   if (first && s.ultEquip.length < ULT_SLOTS) s.ultEquip.push(id); // equip right away if there's room
   return true;
 }
+/** Put an ultimate in slot i (null = empty it). An ultimate already in another slot swaps places. */
+export function ultSetSlot(s: SaveData, i: number, id: UltId | null): boolean {
+  const cur = [...s.ultEquip];
+  if (id === null) { if (i < cur.length) cur.splice(i, 1); s.ultEquip = cur; return true; }
+  if (!s.ults[id]) return false;
+  const j = cur.indexOf(id);
+  if (j >= 0) { if (i < cur.length && i !== j) [cur[i], cur[j]] = [cur[j], cur[i]]; }
+  else if (i < cur.length) cur[i] = id;
+  else cur.push(id);
+  s.ultEquip = cur.slice(0, ULT_SLOTS);
+  return true;
+}
+
 export function ultToggle(s: SaveData, id: UltId): boolean {
   if (!s.ults[id]) return false;
   if (s.ultEquip.includes(id)) { s.ultEquip = s.ultEquip.filter((u) => u !== id); return true; }
