@@ -22,7 +22,7 @@ import { esc, fmt, h } from './dom';
 import { cloudDownload, cloudReady } from '../cloud';
 import { modelsError, modelsReady } from '../render/models';
 import { claimQuest, markTip, questCard, tipCard, type TipId } from './onboarding';
-import { getLang, setLang, tr } from '../i18n';
+import { clearLang, getLang, setLang, tr } from '../i18n';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 
@@ -799,7 +799,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
   body.appendChild(h(`
     <div class="col">
       <div class="card"><h3>語言 / Language</h3>
-        <div class="saverow">${([['zh', '中文'], ['en', 'English']] as const).map(([k, n]) => `<button data-lang="${k}" class="${getLang() === k ? 'primary' : ''}">${n}</button>`).join('')}</div>
+        <div class="saverow">${([['zh', '廣東話（中文）'], ['en', 'English']] as const).map(([k, n]) => `<button data-lang="${k}" class="${getLang() === k ? 'primary' : ''}">${n}</button>`).join('')}</div>
       </div>
       <div class="card"><h3>${tr('聲音同畫面', 'Sound & display')}</h3>
         <div class="seg fxprefs">${([['sfx', tr('🔊 音效', '🔊 SFX')], ['music', tr('🎵 音樂', '🎵 Music')], ['numbers', tr('💥 傷害數字', '💥 Damage numbers')]] as const).map(([k, n]) => `<button data-fx="${k}" class="${fxPrefs[k] ? 'on' : ''}">${n}</button>`).join('')}</div>
@@ -816,7 +816,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       <div class="card">
         <h3>${tr('重置帳號', 'Reset account')}</h3>
         <button data-act="reset-all" class="danger" style="width:100%">${tr('🗑️ 重置所有進度', '🗑️ Reset all progress')}</button>
-        <p class="note" style="margin:8px 0 0;text-align:left">${tr('等級、金幣、裝備、技能板、終極技、覺醒、地城紀錄全部清零，由頭開始。語言同音效設定唔郁。', 'Level, coins, gear, skill boards, ultimates, Awakening and dungeon records all go back to zero. Language and sound settings stay.')}${cloudReady() ? tr('雲端存檔都會一齊重置（電腦同手機）。', ' The cloud save is reset too (PC and phone).') : ''}</p>
+        <p class="note" style="margin:8px 0 0;text-align:left">${tr('等級、金幣、裝備、技能板、終極技、覺醒、地城紀錄全部清零，由頭開始。音效設定唔郁，重置後會再問你揀語言。', 'Level, coins, gear, skill boards, ultimates, Awakening and dungeon records all go back to zero. Sound settings stay; you will be asked to pick a language again.')}${cloudReady() ? tr('雲端存檔都會一齊重置（電腦同手機）。', ' The cloud save is reset too (PC and phone).') : ''}</p>
         ${hasResetBackup() ? `<button data-act="undo-reset" style="width:100%;margin-top:10px">${tr('↩️ 復原上次重置前嘅存檔', '↩️ Restore the save from before the last reset')}</button>` : ''}
       </div>
       <div class="card">
@@ -863,8 +863,9 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       const fresh = freshSave();
       ctx.setSave(fresh);
       writeSave(fresh);
-      showHome(ctx, 'go');
-      ctx.banner(tr('帳號已重置，由頭開始！', 'Account reset. Fresh start!'));
+      // a fresh start asks for the language again (reloading shows the picker)
+      clearLang();
+      location.reload();
       return;
     }
     if (b?.dataset.act === 'undo-reset') {

@@ -12,7 +12,7 @@ import { cloudConnect, cloudPush, cloudReady } from './cloud';
 import { esc, fmt, h, mmss } from './ui/dom';
 import { showHome as renderHome, type HomeCtx, type Tab } from './ui/home';
 import { showRunTip, welcomeModal } from './ui/onboarding';
-import { getLang, tr } from './i18n';
+import { getLang, langChosen, setLang, tr } from './i18n';
 
 const EN = getLang() === 'en'; // language is fixed per page load
 /** Death reasons stay Chinese inside the sim (compared below); this is only the label shown. */
@@ -580,7 +580,23 @@ function frame(now: number): void {
 document.addEventListener('visibilitychange', () => { if (document.hidden && sim) showPause(); });
 
 showHome();
-if (!save.tips.includes('welcome') && save.runs === 0) ui.appendChild(welcomeModal(save, () => showHome()));
+if (!langChosen()) {
+  // first launch: pick English or Cantonese before anything else (picking reloads the page in that language)
+  const el = h(`<div class="screen dim modal langpick"><div class="card">
+    <h2 style="margin:0 0 6px;text-align:center">🏰</h2>
+    <p class="sub" style="text-align:center;margin:0 0 14px">Choose your language<br>揀語言</p>
+    <div class="col">
+      <button class="primary" data-lang="en">English</button>
+      <button class="primary" data-lang="zh">廣東話（中文）</button>
+    </div>
+    <p class="note" style="margin:12px 0 0;text-align:center">You can change it later in Settings · 之後可以喺設定改</p>
+  </div></div>`);
+  el.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest('button');
+    if (b?.dataset.lang) setLang(b.dataset.lang as 'zh' | 'en');
+  });
+  ui.appendChild(el);
+} else if (!save.tips.includes('welcome') && save.runs === 0) ui.appendChild(welcomeModal(save, () => showHome()));
 else checkOffline();
 startCloud();
 

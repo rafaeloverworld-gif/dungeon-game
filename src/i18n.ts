@@ -8,6 +8,11 @@ let lang: Lang = (() => {
 })();
 
 export const getLang = (): Lang => lang;
+/** Has this player picked a language yet? (First launch asks.) */
+export const langChosen = (): boolean => { try { return !!localStorage.getItem(KEY); } catch { return true; } };
+
+/** Forget the choice (account reset): the next load asks again. */
+export function clearLang(): void { try { localStorage.removeItem(KEY); } catch { /* blocked */ } }
 
 /** Save the choice and reload so everything is rebuilt in the new language. */
 export function setLang(l: Lang): void {
