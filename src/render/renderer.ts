@@ -56,6 +56,8 @@ const UNDEAD_LOOKS: Record<UndeadKind, Look> = {
   shooter: { char: 'Skeleton_Rogue', right: 'Skeleton_Crossbow', height: 1.95 },
   swarm: { char: 'Skeleton_Minion', height: 1.3 },
 };
+/** 骨法: every undead is drawn as a skeleton mage. */
+const BONE_MAGE: Look = { char: 'Skeleton_Mage', right: 'Skeleton_Staff', height: 1.9 };
 const WEAPON_PROPS: Partial<Record<WeaponType, PropName>> = {
   sword: '1H_Sword', dagger: 'Knife', bow: '1H_Crossbow', shortbow: '1H_Crossbow', longbow: '2H_Crossbow',
   staff: '2H_Staff', greatstaff: '2H_Staff', scythe: 'Skeleton_Axe', greatscythe: '2H_Axe', shield: 'Round_Shield', orb: 'Spellbook_open',
@@ -160,6 +162,7 @@ export class Renderer {
   private corpses: { kind: SmallKind; x: number; z: number; rot: number; t: number }[] = [];
   private bossDying: { g: THREE.Group; actor: Actor; t: number }[] = [];
   private undeadFlips: Record<UndeadKind, THREE.InstancedMesh[]> | null = null;
+  private mageFlips: THREE.InstancedMesh[] | null = null;
   private bossActors = new Map<number, { actor: Actor; x: number; z: number; atk: number }>();
   private lastWarnCount = 0;
   private primitiveLook: THREE.Object3D[] = [];
@@ -360,6 +363,7 @@ export class Renderer {
     this.flipsAtk = flipSet(ENEMY_LOOKS, false, (k) => ENEMY_ATTACK_CLIP[k]);
     this.flipsDie = flipSet(ENEMY_LOOKS, false, () => 'Death_A', true);
     this.undeadFlips = flipSet(UNDEAD_LOOKS, true);
+    this.mageFlips = flipSet({ mage: BONE_MAGE }, true)?.mage ?? null;
     if (this.flips) for (const m of Object.values(this.enemyMeshes)) m.visible = false;
     if (this.undeadFlips) {
       for (const m of Object.values(this.undead)) m.visible = false;
@@ -382,7 +386,7 @@ export class Renderer {
     m.setColorAt(i, this.tmpColor.setHex(color));
   }
   private flipFlush(): void {
-    const all = [this.flips, this.flipsAtk, this.flipsDie, this.undeadFlips].flatMap((s) => Object.values(s ?? {})) as THREE.InstancedMesh[][];
+    const all = [...[this.flips, this.flipsAtk, this.flipsDie, this.undeadFlips].flatMap((s) => Object.values(s ?? {})), ...(this.mageFlips ? [this.mageFlips] : [])] as THREE.InstancedMesh[][];
     for (const set of all) for (const m of set) {
       m.count = this.flipCounts.get(m) ?? 0;
       m.instanceMatrix.needsUpdate = true;
@@ -629,14 +633,16 @@ export class Renderer {
     // necromancer allies: skeletons + raised (undead) enemies
     let sk = 0;
     const uc = { grunt: 0, shooter: 0, swarm: 0 };
-    for (const m of sim.heroes.length > 1 ? sim.heroes.flatMap((h) => h.minions) : sim.minions) {
-      const sc = (m.big ? 1.45 : 1) * (sim.ut.tank ? 1.15 : 1);
+    // each hero's undead use that hero's traits (in co-op your teammate's 骨法 doesn't change yours)
+    for (const { m, h } of sim.heroes.flatMap((h) => h.minions.map((m) => ({ m, h })))) {
+      const sc = (m.big ? 1.45 : 1) * (h.ut.tank ? 1.15 : 1) * (h.ut.caster && m.kind === 'swarm' ? 0.75 : 1);
       const bob = Math.abs(Math.sin(t * 9 + m.id)) * 0.08;
       const target = sim.nearestEnemy(m.x, m.z, 12);
-      const face = target ? Math.atan2(target.x - m.x, target.z - m.z) : Math.atan2(p.x - m.x, p.z - m.z);
-      // undead traits from gear change the look: 怨靈 pale blue, 骨法 purple, 骨甲 steel (bigger)
-      const traitTint = sim.ut.wraith ? 0x9fe8ff : sim.ut.caster ? 0xb88aff : sim.ut.tank ? 0xaab4c8 : -1;
-      const tint = m.life < 3 ? 0x6f7a72 : sim.minionBuff > 0 ? 0xc9a8ff : traitTint;
+      const hp = h.player;
+      const face = target ? Math.atan2(target.x - m.x, target.z - m.z) : Math.atan2(hp.x - m.x, hp.z - m.z);
+      // undead traits from gear change the look: 怨靈 pale blue, 骨法 purple skeleton mages, 骨甲 steel (bigger)
+      const traitTint = h.ut.wraith ? 0x9fe8ff : h.ut.caster ? 0xb88aff : h.ut.tank ? 0xaab4c8 : -1;
+      const tint = m.life < 3 ? 0x6f7a72 : h.minionBuff > 0 ? 0xc9a8ff : traitTint;
       if (this.undeadFlips) {
         setShadow(m.x, m.z, (m.kind === 'swarm' ? 0.35 : 0.5) * sc);
         this.tmp.position.set(m.x, 0, m.z);
@@ -644,7 +650,7 @@ export class Renderer {
         this.tmp.scale.setScalar(sc);
         this.tmp.updateMatrix();
         const ghostTint = m.kind === 'skeleton' ? 0xf0ffe8 : 0x9dffd0;
-        this.flipPut(this.undeadFlips[m.kind], t * 1.4 + m.id * 0.41, tint >= 0 ? tint : ghostTint);
+        this.flipPut(h.ut.caster && this.mageFlips ? this.mageFlips : this.undeadFlips[m.kind], t * 1.4 + m.id * 0.41, tint >= 0 ? tint : ghostTint);
         continue;
       }
       if (m.kind === 'skeleton') {

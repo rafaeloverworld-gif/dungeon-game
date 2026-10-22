@@ -611,7 +611,7 @@ export class Sim {
       }
       const def = MINION_KINDS[m.kind];
       const burst = this.sp.boneBurst; // 骨爆戒指: rush in and explode
-      const ranged = (def.ranged || this.ut.ranged) && !burst;
+      const ranged = (def.ranged || this.ut.ranged || this.ut.caster) && !burst; // 骨法: undead become bone mages and cast from range
       const speed = def.speed * moveMul * (burst ? 1.6 : 1) * (this.ut.wraith ? 1.6 : 1) * (this.ut.tank ? 0.85 : 1);
       let tx = p.x + Math.sin(m.id * 2.4) * 1.6, tz = p.z + Math.cos(m.id * 2.4) * 1.6;
       if (target) { tx = target.x; tz = target.z; }
@@ -631,7 +631,7 @@ export class Sim {
         const crit = this.rand() < value(this.stats.crit);
         const buff = this.minionBuff > 0 ? this.minionBuffMult : 1;
         const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) : 1);
-        const blast = this.ut.caster ? 1.7 * Math.sqrt(value(this.stats.area)) : undefined; // 骨法
+        const blast = this.ut.caster ? 1.7 * (this.ut.ranged ? 1.4 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (with 骨弓: bigger blasts)
         const slow = this.ut.wraith ? 0.65 : undefined; // 怨靈
         if (ranged) {
           const a = Math.atan2(target.x - m.x, target.z - m.z), sp = 14;
