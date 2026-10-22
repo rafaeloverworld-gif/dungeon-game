@@ -209,6 +209,12 @@ export const activeCombos = (sp: Iterable<SpecialId>): BoneCombo[] => {
   for (const s of sp) have[s] = (have[s] ?? 0) + 1;
   return BONE_COMBOS.filter((c) => { const need: Partial<Record<SpecialId, number>> = {}; for (const n of c.needs) need[n] = (need[n] ?? 0) + 1; return Object.entries(need).every(([k, v]) => (have[k as SpecialId] ?? 0) >= v!); });
 };
+/** Copies of one bone trait that count (more than 4 do nothing). */
+export const MAX_STACK = 4;
+/** A pure form (三件一樣) worn ×4 becomes its 極 form: undead damage ×1.5 more. */
+export const isPure = (c: BoneCombo) => new Set(c.needs).size === 1;
+export const isMax = (c: BoneCombo, sp: Iterable<SpecialId>) => isPure(c) && [...sp].filter((s) => s === c.needs[0]).length >= MAX_STACK;
+export const MAX_POWER = 1.5;
 /** The same bone trait worn more than once is stronger: what each extra copy does. */
 export const STACK_TEXT: Partial<Record<SpecialId, string>> = {
   utTank: tr('每件 +100% HP', '+100% HP per copy'), utRanged: tr('2 件：骨箭穿透 1 隻', '2 copies: bone arrows pierce 1'), utCaster: tr('每多 1 件爆炸 +20%', '+20% blast size per extra copy'),
@@ -222,7 +228,7 @@ export type UndeadTrait = (typeof UNDEAD_TRAITS)[number];
 export function undeadName(t: { tank?: boolean; ranged?: boolean; caster?: boolean; wraith?: boolean; burst?: boolean }, specials?: Iterable<SpecialId>): string {
   // a combo names your undead (the biggest one wins)
   const combo = specials ? activeCombos(specials).sort((a, b) => b.needs.length - a.needs.length)[0] : undefined;
-  if (combo) return combo.name;
+  if (combo) return (specials && isMax(combo, specials) ? tr('極·', 'Max ') : '') + combo.name;
   const noun = t.caster && t.ranged ? tr('骨魔導師', 'Bone Archmage') : t.caster ? tr('骨法師', 'Bone Mage') : t.ranged ? tr('骨弓手', 'Bone Archer') : tr('骷髏', 'Skeleton');
   const pre = [t.burst ? tr('爆裂', 'Volatile ') : '', t.wraith ? tr('幽影', 'Phantom ') : '', t.tank ? tr('鐵甲', 'Ironclad ') : ''].join('');
   return pre + noun;

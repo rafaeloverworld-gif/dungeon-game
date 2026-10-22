@@ -12,7 +12,7 @@ import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { mergeBonus } from './stats';
 import { updateAbilities } from './abilities';
 import { ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, MINION_PROC, PROC_ULTS, type UltId, type UltRun } from './ultimates';
-import { activeCombos, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
+import { activeCombos, isMax, MAX_POWER, MAX_STACK, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
 import { WB_TIME, WORLD_BOSSES, type WorldBossDef, type WorldBossId } from './worldboss';
 
 export interface Vec2 { x: number; z: number }
@@ -356,8 +356,8 @@ export class Sim {
       else if (sp === 'utPoison') this.ut.poison = true;
       else if (sp === 'utCrown') this.ut.crown = true;
     }
-    for (const sp of setup.specials ?? []) this.utn[sp] = (this.utn[sp] ?? 0) + 1;
-    for (const c of activeCombos(setup.specials ?? [])) { this.combo.add(c.id); this.comboPower *= c.power ?? 1; }
+    for (const sp of setup.specials ?? []) this.utn[sp] = Math.min(MAX_STACK, (this.utn[sp] ?? 0) + 1); // at most 4 copies count
+    for (const c of activeCombos(setup.specials ?? [])) { this.combo.add(c.id); this.comboPower *= (c.power ?? 1) * (isMax(c, setup.specials ?? []) ? MAX_POWER : 1); } // ×4 = 極 form
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
     this.stats.multishot += (fx?.multishot ?? 0) + (this.awk?.extraMultishot ?? 0) + extraMulti;
