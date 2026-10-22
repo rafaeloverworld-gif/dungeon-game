@@ -453,3 +453,13 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .uslot { cursor: pointer; font: inherit; padding: 0; }
 .uslot:active { transform: scale(0.95); }
 .blist button.brow { width: 100%; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+
+/* DPS meter (bottom left) */
+.dpsbar { position: absolute; left: 10px; bottom: 62px; width: 140px; padding: 6px 8px; border-radius: 10px; background: rgba(8, 10, 16, 0.55); pointer-events: none; font-size: 11px; color: var(--text); }
+.dpsbar > small { display: block; color: var(--muted); font-size: 10px; letter-spacing: 1px; margin-bottom: 2px; }
+.dpsrow { display: flex; align-items: center; gap: 5px; margin-top: 3px; }
+.dpsrow span { min-width: 22px; white-space: nowrap; }
+.dpsrow i { flex: 1; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.dpsrow i b { display: block; height: 100%; background: #ff9a4a; transition: width 0.25s; }
+.dpsrow.me i b { background: #ffc23a; }
+.dpsrow em { font-style: normal; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }

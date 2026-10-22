@@ -238,6 +238,24 @@ function buildHud(): void {
   ui.appendChild(root);
 }
 
+// ---------- DPS meter (bottom left): damage per second over the last 5 s, per hero ----------
+let dpsSamples: { t: number; totals: number[] }[] = [];
+let dpsDrawnAt = 0;
+function updateDps(s: Sim): void {
+  const now = s.time;
+  if (!dpsSamples.length || now < dpsSamples[dpsSamples.length - 1].t) dpsSamples = []; // new run
+  if (!dpsSamples.length || now - dpsSamples[dpsSamples.length - 1].t >= 0.25) dpsSamples.push({ t: now, totals: s.heroes.map((h) => h.dmgDealt) });
+  while (dpsSamples.length > 2 && now - dpsSamples[0].t > 5) dpsSamples.shift();
+  if (performance.now() - dpsDrawnAt < 250 || !hud) return;
+  dpsDrawnAt = performance.now();
+  const first = dpsSamples[0], span = Math.max(0.5, now - first.t);
+  const rows = s.heroes.map((h, i) => ({ h, dps: Math.max(0, (h.dmgDealt - (first.totals[i] ?? 0)) / span) }));
+  const top = Math.max(1, ...rows.map((r) => r.dps));
+  let el = hud.root.querySelector('.dpsbar') as HTMLElement | null;
+  if (!el) { el = document.createElement('div'); el.className = 'dpsbar'; hud.root.appendChild(el); }
+  el.innerHTML = `<small>DPS</small>${rows.map((r) => `<div class="dpsrow ${r.h === s ? 'me' : ''}"><span>${r.h.cls.icon}${s.coop ? (r.h === s ? tr('你', 'You') : tr('隊友', 'Ally')) : ''}</span><i><b style="width:${(r.dps / top) * 100}%"></b></i><em>${fmt(Math.round(r.dps))}</em></div>`).join('')}`;
+}
+
 function updateHud(): void {
   if (!sim || !hud) return;
   const p = sim.player;
@@ -260,6 +278,7 @@ function updateHud(): void {
   }
   hud.coins.textContent = `🪙 ${fmt(sim.runCoins)} · 👻 ${fmt(sim.runSouls)}${sim.runRunes ? ` · 🔷 ${sim.runRunes}` : ''}${sim.runCrystals ? ` · 💎 ${sim.runCrystals}` : ''}`;
   hud.timer.textContent = `⏱ ${mmss(Math.max(0, sim.timeLimit - sim.time))}`;
+  updateDps(sim);
   if (sim.coop) {
     let el = hud.root.querySelector('.partnerhp') as HTMLElement | null;
     if (!el) { el = document.createElement('div'); el.className = 'partnerhp'; hud.root.appendChild(el); }

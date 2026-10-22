@@ -193,6 +193,7 @@ export class Sim {
   readonly spellType: SpellType;
   readonly wb: WorldBossDef | null;
   wbDamage = 0; // damage dealt to the world boss
+  dmgDealt = 0; // all damage this hero (and their undead / ultimates) dealt this run, for the DPS meter
   get timeLimit(): number { return this.wb ? WB_TIME : DUNGEON.timeLimit; }
   /** 守關 dungeon (every 5th tier): its bosses are much tougher. */
   get isGate(): boolean { return !this.wb && DUNGEON.gateBossHp > 1 && this.tier % DUNGEON.gateEvery === 0; }
@@ -1294,6 +1295,7 @@ export class Sim {
       this.proc.lifestealCd = 0.2; // at most 5 heals a second
       this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * 0.01);
     }
+    this.dmgDealt += Math.min(dmg, Math.max(0, e.hp));
     if (e.kind === 'worldboss') { const d = Math.min(dmg, e.hp); for (const h of this.heroes) h.wbDamage += d; } // co-op: the party's damage counts for everyone
     e.hp -= dmg;
     e.hitFlash = 0.08;
