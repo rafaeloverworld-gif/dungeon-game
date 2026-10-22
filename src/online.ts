@@ -69,13 +69,14 @@ function timeout<T>(p: Promise<T>, ms = 12000): Promise<T> {
 }
 
 export type AccountError = 'badId' | 'taken' | 'badPassword' | 'network' | 'wrongLogin' | 'noAccount' | 'unknown';
-const fail = (e: AccountError) => ({ ok: false as const, error: e });
+/** detail: the server's own message, shown so problems can be diagnosed. */
+const fail = (e: AccountError, detail?: string) => ({ ok: false as const, error: e, detail });
 
 /** New account: ID + password. Starts an anonymous session, claims the ID, then sets the login. */
-export function createAccount(id: string, password: string): Promise<{ ok: true } | { ok: false; error: AccountError }> {
+export function createAccount(id: string, password: string): Promise<{ ok: true } | { ok: false; error: AccountError; detail?: string }> {
   return timeout(createAccountNow(id, password)).catch(() => fail('network'));
 }
-async function createAccountNow(id: string, password: string): Promise<{ ok: true } | { ok: false; error: AccountError }> {
+async function createAccountNow(id: string, password: string): Promise<{ ok: true } | { ok: false; error: AccountError; detail?: string }> {
   if (!ID_RULE.test(id)) return fail('badId');
   if (password.length < PASSWORD_MIN) return fail('badPassword');
   try {
@@ -85,27 +86,27 @@ async function createAccountNow(id: string, password: string): Promise<{ ok: tru
     if (clash && clash.id !== session?.user.id) return fail('taken');
     if (!session) {
       const { data, error } = await c.auth.signInAnonymously();
-      if (error || !data.session) return fail('network');
+      if (error || !data.session) return fail('network', `anon: ${error?.status ?? ''} ${error?.message ?? 'no session'}`);
       session = data.session;
     }
     const { error: pe } = await c.from('profiles').upsert({ id: session.user.id, player_id: id });
-    if (pe) return fail(pe.code === '23505' ? 'taken' : 'unknown');
+    if (pe) return pe.code === '23505' ? fail('taken') : fail('unknown', `profile: ${pe.code ?? ''} ${pe.message}`);
     playerId = id;
     const { data: up, error: ue } = await c.auth.updateUser({ email: `${session.user.id}@${MAIL_DOMAIN}`, password });
-    if (ue) return fail('unknown');
+    if (ue) return fail('unknown', `login: ${ue.status ?? ''} ${ue.message}`);
     if (up.user) session = { ...session, user: up.user };
     status = 'idle';
     return { ok: true };
-  } catch {
-    return fail('network');
+  } catch (e) {
+    return fail('network', (e as Error)?.message);
   }
 }
 
 /** Log in on another device with ID + password. Returns the cloud save (if any). */
-export function login(id: string, password: string): Promise<{ ok: true; remote: RemoteSave | null } | { ok: false; error: AccountError }> {
+export function login(id: string, password: string): Promise<{ ok: true; remote: RemoteSave | null } | { ok: false; error: AccountError; detail?: string }> {
   return timeout(loginNow(id, password)).catch(() => fail('network'));
 }
-async function loginNow(id: string, password: string): Promise<{ ok: true; remote: RemoteSave | null } | { ok: false; error: AccountError }> {
+async function loginNow(id: string, password: string): Promise<{ ok: true; remote: RemoteSave | null } | { ok: false; error: AccountError; detail?: string }> {
   try {
     const c = client();
     const { data: prof } = await c.from('profiles').select('id, player_id').ilike('player_id', id.replace(/[%_\\]/g, '\\$&')).maybeSingle();
@@ -116,8 +117,8 @@ async function loginNow(id: string, password: string): Promise<{ ok: true; remot
     playerId = prof.player_id as string;
     status = 'idle';
     return { ok: true, remote: await fetchSave() };
-  } catch {
-    return fail('network');
+  } catch (e) {
+    return fail('network', (e as Error)?.message);
   }
 }
 

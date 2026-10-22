@@ -427,3 +427,4 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 
 /* online account form */
 .olin { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--text); font-size: 16px; }
+.olerr { margin: 8px 0 0; color: #ff8a8a; font-size: 13px; text-align: left; word-break: break-word; }

@@ -916,6 +916,17 @@ function onlineCard(): string {
     <div class="saverow"><button class="primary" data-act="ol-create">${tr('開新帳號', 'Create account')}</button><button data-act="ol-login">${tr('登入舊帳號', 'Log in')}</button></div></div>`;
 }
 
+/** Errors stay on the card (with the server's message) so they can be read and reported. */
+function showAccountError(body: HTMLElement, msg: string, detail?: string): void {
+  const card = body.querySelector('#ol-id')?.closest('.card');
+  if (!card) return;
+  card.querySelector('.olerr')?.remove();
+  const p = document.createElement('p');
+  p.className = 'olerr';
+  p.textContent = detail ? `⚠️ ${msg}（${detail}）` : `⚠️ ${msg}`;
+  card.appendChild(p);
+}
+
 async function onlineAction(ctx: HomeCtx, body: HTMLElement, act: string): Promise<void> {
   const save = ctx.getSave();
   if (act === 'ol-sync') { onlinePush(save, true); ctx.banner(tr('☁️ 同步緊', '☁️ Syncing')); setTimeout(() => showHome(ctx), 1500); return; }
@@ -927,13 +938,13 @@ async function onlineAction(ctx: HomeCtx, body: HTMLElement, act: string): Promi
   for (const b of body.querySelectorAll<HTMLButtonElement>('[data-act^="ol-"]')) b.disabled = true;
   if (act === 'ol-create') {
     const r = await createAccount(id, pw);
-    if (!r.ok) { ctx.banner(ACCOUNT_ERRORS[r.error]); unlock(); return; }
+    if (!r.ok) { showAccountError(body, ACCOUNT_ERRORS[r.error], r.detail); unlock(); return; }
     onlinePush(save, true);
     ctx.banner(tr(`👤 帳號開好喇：${id}`, `👤 Account created: ${id}`));
     showHome(ctx);
   } else {
     const r = await login(id, pw);
-    if (!r.ok) { ctx.banner(ACCOUNT_ERRORS[r.error]); unlock(); return; }
+    if (!r.ok) { showAccountError(body, ACCOUNT_ERRORS[r.error], r.detail); unlock(); return; }
     ctx.banner(tr(`👤 已登入：${id}`, `👤 Logged in: ${id}`));
     showHome(ctx);
     window.dispatchEvent(new CustomEvent('online-login', { detail: r.remote }));
