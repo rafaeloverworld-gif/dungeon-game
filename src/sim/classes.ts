@@ -24,6 +24,7 @@ export interface ClassDef {
   preferredDistance: number; // autopilot tries to keep this distance from enemies
   healOnKill?: number; // fraction of max HP healed per kill (warrior passive)
   raiseChance?: number; // necromancer: chance a kill raises a skeleton
+  bossGuard?: number; // ranged classes: take this much less damage while a boss is in the fight
 }
 
 export const CLASSES: Record<ClassId, ClassDef> = {
@@ -34,16 +35,16 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     arcDegrees: 150, preferredDistance: 1.6, healOnKill: 0.008,
   },
   archer: {
-    id: 'archer', name: tr('弓手', 'Archer'), icon: '🏹', desc: tr('遠程射擊最近嘅敵人，暴擊率高、速度快。', 'Shoots the nearest enemy from range. High crit, fast attacks.'),
+    id: 'archer', name: tr('弓手', 'Archer'), icon: '🏹', desc: tr('遠程射擊最近嘅敵人，暴擊率高、速度快。保持距離：有 Boss 喺場時受傷 -30%。', 'Shoots the nearest enemy from range. High crit, fast attacks. Keeps their distance: 30% less damage while a boss is in the fight.'),
     attack: 'arrow', mainWeapon: tr('弓', 'Bow'), subWeapon: tr('箭筒', 'Quiver'),
-    base: { hp: 150, atk: 17, def: 10, attackInterval: 0.5, range: 10, moveSpeed: 6, crit: 0.12, critDmg: 1.6 },
-    projectileSpeed: 20, preferredDistance: 7,
+    base: { hp: 175, atk: 19.5, def: 10, attackInterval: 0.5, range: 10, moveSpeed: 6, crit: 0.12, critDmg: 1.6 },
+    projectileSpeed: 20, preferredDistance: 7, bossGuard: 0.3,
   },
   mage: {
-    id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。', 'Fireballs explode on hit. Best area damage, but lowest HP.'),
+    id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。有 Boss 喺場時受傷 -35%。元素同調：每 2 次施法加多一種元素，兩種元素喺敵人身上會起反應（火+冰=蒸發爆炸、火+雷=超載、冰+雷=超導），法師嘅反應傷害 +50%。', 'Fireballs explode on hit. Best area damage, but lowest HP. 35% less damage while a boss is in the fight. Elemental Sync: every 2nd cast adds a second element; two elements on an enemy react (fire+frost = Steam Blast, fire+lightning = Overload, frost+lightning = Superconduct). Mage reactions hit 50% harder.'),
     attack: 'fireball', mainWeapon: tr('法杖', 'Staff'), subWeapon: tr('法球', 'Orb'),
     base: { hp: 130, atk: 20, def: 8, attackInterval: 0.8, range: 8.5, moveSpeed: 5.8, crit: 0.06, critDmg: 1.7 },
-    blastRadius: 2.3, projectileSpeed: 15, preferredDistance: 6,
+    blastRadius: 2.3, projectileSpeed: 15, preferredDistance: 6, bossGuard: 0.35,
   },
   necro: {
     id: 'necro', name: tr('死靈法師', 'Necromancer'), icon: '💀', desc: tr('射暗影彈；殺死嘅敵人有機會變成亡靈幫你打（同時最多 3 隻，近戰怪變近戰、遠程怪會射）。自己偏脆，靠亡靈擋怪。', 'Fires shadow bolts; kills may rise as Undead that fight for you (max 3; melee foes stay melee, ranged ones shoot). Fragile, so let the Undead tank.'),

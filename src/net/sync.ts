@@ -36,7 +36,8 @@ interface GuestPrivate {
 }
 
 const enemyFlags = (e: Enemy) => (e.elite ? 1 + ELITE_TRAITS.indexOf(e.elite) : 0) | (e.hitFlash > 0 ? 8 : 0) | (e.slowTimer > 0 ? 16 : 0) | (e.markTimer > 0 ? 32 : 0)
-  | (e.dashWind !== undefined ? 64 : 0) | (e.dashT !== undefined && e.dashT > 0 ? 128 : 0);
+  | (e.dashWind !== undefined ? 64 : 0) | (e.dashT !== undefined && e.dashT > 0 ? 128 : 0)
+  | (e.elem === 'fire' ? 256 : e.elem === 'frost' ? 512 : e.elem === 'shock' ? 1024 : 0) | (e.vulnT ? 2048 : 0); // 元素 (tint only)
 const projFlags = (p: Projectile) => (p.fromPlayer ? 1 : 0) | (p.crit ? 2 : 0) | (p.blast ? 4 : 0) | (p.shadow ? 8 : 0) | (p.meteor ? 16 : 0) | (p.shard ? 32 : 0)
   | (p.javelin ? 64 : 0) | (p.slow ? 128 : 0) | (p.ap ? 256 : 0) | (p.minion ? 512 : 0);
 
@@ -121,6 +122,7 @@ export function applySnap(me: Sim, s: Snap, now: number): SimEvent[] | null {
     e.hp = hp; e.maxHp = maxHp;
     e.elite = (f & 7) ? ELITE_TRAITS[(f & 7) - 1] as EliteTrait : undefined;
     e.hitFlash = f & 8 ? 0.08 : 0; e.slowTimer = f & 16 ? 1 : 0; e.markTimer = f & 32 ? 1 : 0;
+    e.elem = f & 256 ? 'fire' : f & 512 ? 'frost' : f & 1024 ? 'shock' : undefined; e.elemT = e.elem ? 1 : 0; e.vulnT = f & 2048 ? 1 : 0;
     e.dashWind = f & 64 ? 0.5 : undefined; e.dashT = f & 128 ? 0.3 : undefined;
     e.fuse = fuse >= 0 ? fuse / 100 : undefined;
     const t = tracks.get(id);

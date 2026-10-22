@@ -501,6 +501,7 @@ export function chainLightning(sim: Sim, from: Enemy, again = false, scale = 1):
     hit.add(next.id);
     pts.push(next.x, next.z);
     ultHit(sim, next, dmg);
+    if (next.hp > 0) sim.applyElem(next, 'shock');
     cur = next;
   }
   if (pts.length > 2) sim.events.push({ type: 'lightning', pts });
@@ -518,7 +519,7 @@ export function ultOnHit(sim: Sim, e: Enemy, scale = 1): void {
   const critMul = () => { const c = sim.rand() < value(sim.stats.crit); return { c, m: c ? value(sim.stats.critDmg) : 1 }; };
   if (L.flameBurst && roll(ULT.flameBurst.chance(L.flameBurst))) {
     const l = L.flameBurst, r = ULT.flameBurst.radius(l) * areaMul(sim), { c, m } = critMul();
-    sim.explode(e.x, e.z, r, atk(sim) * ULT.flameBurst.dmg(l) * m, c, 'fire', { noProc: true });
+    sim.explode(e.x, e.z, r, atk(sim) * ULT.flameBurst.dmg(l) * m, c, 'fire', { noProc: true, elem: 'fire' });
     if (limit(l)) sim.zones.push({ x: e.x, z: e.z, r, timer: 2, tick: 0, dmg: atk(sim) * 0.3, kind: 'fire', slow: 1 });
   }
   if (L.frostTouch && roll(ULT.frostTouch.chance(L.frostTouch))) {
@@ -529,7 +530,7 @@ export function ultOnHit(sim: Sim, e: Enemy, scale = 1): void {
       o.slowTimer = Math.max(o.slowTimer, freeze); o.slowMult = Math.min(o.slowMult, 0.05);
       if (limit(l)) o.chrono = Math.max(o.chrono ?? 0, freeze); // frozen = takes more damage
     }
-    sim.explode(e.x, e.z, r, atk(sim) * ULT.frostTouch.dmg(l) * m, c, 'frost', { noProc: true });
+    sim.explode(e.x, e.z, r, atk(sim) * ULT.frostTouch.dmg(l) * m, c, 'frost', { noProc: true, elem: 'frost' });
   }
   if (L.shadowStrike && roll(ULT.shadowStrike.chance(L.shadowStrike))) {
     const l = L.shadowStrike;

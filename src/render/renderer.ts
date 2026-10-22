@@ -111,6 +111,9 @@ const THEMES = [
 const MAX_INST = 260;
 const FLIP_FPS = 1; // run-cycle speed multiplier for crowds
 
+/** Enemy tint for the element on it (元素). */
+const ELEM_COL: Record<string, number> = { fire: 0xff9a4a, frost: 0x7fd0ff, shock: 0xe6d24a };
+
 export class Renderer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -450,6 +453,7 @@ export class Renderer {
 
   handleEvents(events: SimEvent[]): void {
     for (const ev of events) {
+      if (ev.type === 'react') { this.addLabel(ev.x, ev.z, ev.name, ev.fx); continue; }
       if (ev.type === 'hit') { this.burst(ev.x, ev.z, ev.crit ? 0xfff27a : 0xffffff, ev.crit ? 5 : 2); this.addNumber(ev.x, ev.z, ev.dmg, ev.crit); }
       else if (ev.type === 'kill' && this.flipsDie && !isBigKind(ev.kind) && this.corpses.length < 60) { this.corpses.push({ kind: ev.kind as SmallKind, x: ev.x, z: ev.z, rot: Math.random() * Math.PI * 2, t: 0 }); this.burst(ev.x, ev.z, 0xd0d0d0, 4); }
       else if (ev.type === 'kill') this.burst(ev.x, ev.z, isBigKind(ev.kind) ? 0xffc23a : 0xd0d0d0, ev.kind === 'boss' || ev.kind === 'worldboss' ? 40 : ev.kind === 'miniboss' ? 24 : 6);
@@ -530,7 +534,7 @@ export class Renderer {
         this.tmp.scale.setScalar(sc);
         this.tmp.updateMatrix();
         const base = e.elite ? ELITE_COLORS[e.elite] : ENEMY_TINTS[kind];
-        const col = e.hitFlash > 0 ? 0xff6a6a : e.markTimer > 0 ? 0xffd23a : e.slowTimer > 0 ? 0x8fd8ff : kind === 'bomber' && e.fuse !== undefined && Math.sin(t * 30) > 0 ? 0xffffff : base;
+        const col = e.hitFlash > 0 ? 0xff6a6a : e.markTimer > 0 ? 0xffd23a : e.vulnT ? 0xc27bff : e.elem ? ELEM_COL[e.elem] : e.slowTimer > 0 ? 0x8fd8ff : kind === 'bomber' && e.fuse !== undefined && Math.sin(t * 30) > 0 ? 0xffffff : base;
         const spd = kind === 'swarm' ? 1.6 : kind === 'shield' ? 0.8 : 1.1;
         // moving or attacking? (melee: close to you; shooters / healers: standing still)
         const prev = this.enemyPrev.get(e.id);
@@ -556,7 +560,7 @@ export class Renderer {
       this.tmp.updateMatrix();
       mesh.setMatrixAt(i, this.tmp.matrix);
       const base = e.elite ? ELITE_COLORS[e.elite] : ENEMY_COLORS[kind];
-      mesh.setColorAt(i, this.tmpColor.setHex(e.hitFlash > 0 ? 0xffffff : e.markTimer > 0 ? 0xffd23a : e.slowTimer > 0 ? 0x8fd8ff : base));
+      mesh.setColorAt(i, this.tmpColor.setHex(e.hitFlash > 0 ? 0xffffff : e.markTimer > 0 ? 0xffd23a : e.vulnT ? 0xc27bff : e.elem ? ELEM_COL[e.elem] : e.slowTimer > 0 ? 0x8fd8ff : base));
     }
     for (const k of SMALL_KINDS) {
       const m = this.enemyMeshes[k];
@@ -1184,6 +1188,17 @@ export class Renderer {
   }
 
   /** A floating damage number (crits always; normal hits only some of the time so it stays readable). */
+  /** 元素反應: the reaction's name pops up over the enemy. */
+  private addLabel(x: number, z: number, text: string, fx: string): void {
+    if (!fxPrefs.numbers || this.dmgNums.length > 34) return;
+    if (this.dmgNums.filter((n) => n.el.classList.contains('react')).length > 3) return;
+    const el = this.dmgPool.pop() ?? document.createElement('div');
+    el.className = `dmgnum react ${fx}`;
+    el.textContent = text;
+    this.dmgLayer.appendChild(el);
+    this.dmgNums.push({ el, x, z, life: 0.9, max: 0.9, drift: 0 });
+  }
+
   private addNumber(x: number, z: number, dmg: number, crit: boolean): void {
     if (!fxPrefs.numbers || dmg < 1) return;
     if (!crit && (this.dmgNums.length > 18 || Math.random() > 0.35)) return;

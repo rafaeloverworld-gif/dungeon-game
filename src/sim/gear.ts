@@ -183,20 +183,20 @@ export const UNDEAD_TRAITS = ['utTank', 'utRanged', 'utCaster', 'utWraith', 'utF
 export const ARMOUR_TRAITS = ['utTank', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech', 'utShield', 'utPoison', 'utCrown'] as const satisfies readonly SpecialId[];
 
 /** 骨 combos: wearing these traits together turns your undead into something new (with an extra effect). */
-export interface BoneCombo { id: 'archmage' | 'lichKing' | 'bulwark' | 'plague' | 'frenzyEdge' | 'endless' | 'soulKing' | 'boneVolley' | 'grandLich' | 'boneGiant' | 'chainBurst'; needs: SpecialId[]; name: string; desc: string }
+export interface BoneCombo { id: 'archmage' | 'lichKing' | 'bulwark' | 'plague' | 'frenzyEdge' | 'endless' | 'soulKing' | 'boneVolley' | 'grandLich' | 'boneGiant' | 'chainBurst'; needs: SpecialId[]; name: string; desc: string; power?: number }
 export const BONE_COMBOS: BoneCombo[] = [
   // the same trait three times: a pure form (like 三刀流 for three warriors)
-  { id: 'boneVolley', needs: ['utRanged', 'utRanged', 'utRanged'], name: tr('萬箭骨兵', 'Bone Volley'), desc: tr('每隻亡靈每次射 3 支骨箭（扇形）', 'Every Undead fires 3 bone arrows at once (a fan)') },
-  { id: 'grandLich', needs: ['utCaster', 'utCaster', 'utCaster'], name: tr('骸骨大法師', 'Grand Lich'), desc: tr('骨法爆炸再大 25%，傷害 +40%', 'Bone-mage blasts another 25% bigger and +40% damage') },
-  { id: 'boneGiant', needs: ['utTank', 'utTank', 'utTank'], name: tr('不死骨巨人', 'Bone Giants'), desc: tr('亡靈受傷 -40%，傷害 +30%', 'Undead take 40% less damage and deal +30%') },
+  { id: 'boneVolley', power: 2.0, needs: ['utRanged', 'utRanged', 'utRanged'], name: tr('萬箭骨兵', 'Bone Volley'), desc: tr('每隻亡靈每次射 3 支骨箭（扇形）', 'Every Undead fires 3 bone arrows at once (a fan)') },
+  { id: 'grandLich', power: 2.5, needs: ['utCaster', 'utCaster', 'utCaster'], name: tr('骸骨大法師', 'Grand Lich'), desc: tr('骨法爆炸再大 25%，傷害 +40%', 'Bone-mage blasts another 25% bigger and +40% damage') },
+  { id: 'boneGiant', power: 3.0, needs: ['utTank', 'utTank', 'utTank'], name: tr('不死骨巨人', 'Bone Giants'), desc: tr('亡靈受傷 -40%，傷害 +30%', 'Undead take 40% less damage and deal +30%') },
   { id: 'chainBurst', needs: ['boneBurst', 'boneBurst', 'boneBurst'], name: tr('骸骨連爆', 'Chain Burst'), desc: tr('自爆範圍大 50%', 'Undead blasts 50% wider') },
-  { id: 'lichKing', needs: ['utRanged', 'utCaster', 'utCrown'], name: tr('骸骨魔導王', 'Lich King'), desc: tr('戴王冠嗰隻每次射 5 粒爆炸彈（扇形）；所有骨法亡靈爆炸再大 20%', 'The crowned one fires 5 exploding bolts at once (a fan); all bone-mage blasts 20% bigger') },
-  { id: 'archmage', needs: ['utRanged', 'utCaster'], name: tr('骨魔導師', 'Bone Archmage'), desc: tr('爆炸範圍大 40%', 'Blasts 40% bigger') },
-  { id: 'bulwark', needs: ['utTank', 'utShield'], name: tr('骨堡壘', 'Bone Bulwark'), desc: tr('亡靈受到嘅傷害 -30%', 'Undead take 30% less damage') },
-  { id: 'plague', needs: ['utWraith', 'utPoison'], name: tr('瘟疫幽魂', 'Plague Wraiths'), desc: tr('毒池大 50%、傷害 ×2，入面敵人減速 40%', 'Poison pools 50% bigger, ×2 damage, and slow enemies 40%') },
-  { id: 'frenzyEdge', needs: ['utFrenzy', 'utEdge'], name: tr('骨刃狂潮', 'Bone Frenzy'), desc: tr('亡靈暴擊率 +15%', 'Undead crit chance +15%') },
+  { id: 'lichKing', power: 1.6, needs: ['utRanged', 'utCaster', 'utCrown'], name: tr('骸骨魔導王', 'Lich King'), desc: tr('戴王冠嗰隻每次射 5 粒爆炸彈（扇形）；所有骨法亡靈爆炸再大 20%', 'The crowned one fires 5 exploding bolts at once (a fan); all bone-mage blasts 20% bigger') },
+  { id: 'archmage', power: 1.3, needs: ['utRanged', 'utCaster'], name: tr('骨魔導師', 'Bone Archmage'), desc: tr('爆炸範圍大 40%', 'Blasts 40% bigger') },
+  { id: 'bulwark', power: 3.5, needs: ['utTank', 'utShield'], name: tr('骨堡壘', 'Bone Bulwark'), desc: tr('亡靈受到嘅傷害 -30%', 'Undead take 30% less damage') },
+  { id: 'plague', power: 3, needs: ['utWraith', 'utPoison'], name: tr('瘟疫幽魂', 'Plague Wraiths'), desc: tr('毒池大 50%、傷害 ×2，入面敵人減速 40%', 'Poison pools 50% bigger, ×2 damage, and slow enemies 40%') },
+  { id: 'frenzyEdge', power: 3, needs: ['utFrenzy', 'utEdge'], name: tr('骨刃狂潮', 'Bone Frenzy'), desc: tr('亡靈暴擊率 +15%', 'Undead crit chance +15%') },
   { id: 'endless', needs: ['boneBurst', 'utLasting'], name: tr('不滅骨爆', 'Endless Burst'), desc: tr('亡靈自爆之後 30% 機會原地再起一隻骷髏', 'After an Undead explodes, 30% chance a Skeleton rises in its place') },
-  { id: 'soulKing', needs: ['utLeech', 'utCrown'], name: tr('魂王', 'Soul King'), desc: tr('戴王冠嗰隻攻速 +50%，每下打中幫你回 1% HP；其他亡靈打中都幫你回 0.3%（每秒最多 10 次）', 'The crowned one attacks 50% faster and every hit heals you 1% HP; other Undead hits heal 0.3% (up to 10 a second)') },
+  { id: 'soulKing', power: 3.5, needs: ['utLeech', 'utCrown'], name: tr('魂王', 'Soul King'), desc: tr('戴王冠嗰隻攻速 +50%，每下打中幫你回 1% HP；其他亡靈打中都幫你回 0.3%（每秒最多 10 次）', 'The crowned one attacks 50% faster and every hit heals you 1% HP; other Undead hits heal 0.3% (up to 10 a second)') },
 ];
 /** Combos active for a set of worn specials (a bigger combo still lets its smaller ones work too). */
 export const activeCombos = (sp: Iterable<SpecialId>): BoneCombo[] => {

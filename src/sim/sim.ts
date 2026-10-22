@@ -39,7 +39,15 @@ export interface Enemy {
   patternTimer?: number; // bosses: time to the next telegraphed attack
   chrono?: number; // inside 時之結界 (takes more damage)
   dashT?: number; dashWind?: number; dashVx?: number; dashVz?: number; // mini boss charge (wind-up, then dash)
+  elem?: Elem; elemT?: number; // 元素: the element on it (a different one makes a reaction)
+  reactCd?: number; // short wait between reactions on the same enemy
+  vulnT?: number; // 超導: takes +40% damage while > 0
 }
+
+/** 元素: fire, frost and lightning stick to enemies; a second, different element sets off a reaction. */
+export type Elem = 'fire' | 'frost' | 'shock';
+export const ELEM_TIME = 4;
+export const VULN = 0.4;
 
 /** A telegraphed attack: a red warning on the floor that hits when the timer runs out. */
 export interface Warning { x: number; z: number; r: number; timer: number; max: number; dmg: number; line?: { x2: number; z2: number; w: number } }
@@ -61,6 +69,7 @@ export interface Projectile {
   meteor?: boolean; // drawn as a big meteor (explodes like a fireball)
   shard?: boolean; // ice shard
   owner?: Sim; // co-op: the hero who fired it (damage, procs and kills are theirs)
+  elem?: Elem; // leaves this element on what it hits
 }
 
 /** Necromancer allies: skeletons from skills, or slain enemies raised as undead (they keep their kind:
@@ -107,6 +116,7 @@ export type SimEvent =
   | { type: 'lastStand' }
   | { type: 'wave'; x: number; z: number; r: number }
   | { type: 'lightning'; pts: number[] }
+  | { type: 'react'; x: number; z: number; name: string; fx: FxKind }
   | { type: 'chest'; kind: 'silver' | 'gold' }
   | { type: 'levelup' }
   | { type: 'autoCard'; name: string; icon: string }
@@ -194,6 +204,8 @@ export class Sim {
   readonly spellType: SpellType;
   readonly wb: WorldBossDef | null;
   wbDamage = 0; // damage dealt to the world boss
+  reactions = 0; // 元素反應 this run
+  private spellCasts = 0; // 元素同調: every 2nd staff cast adds a second element
   dmgDealt = 0; // all damage this hero (and their undead / ultimates) dealt this run, for the DPS meter
   get timeLimit(): number { return this.wb ? WB_TIME : DUNGEON.timeLimit; }
   /** 守關 dungeon (every 5th tier): its bosses are much tougher. */
@@ -273,6 +285,8 @@ export class Sim {
   /** 骨王冠: id of the main crowned undead (0 = none); with more crowns, the next biggest get one too. */
   crownId = 0;
   crownIds = new Set<number>();
+  /** Bone combos: extra damage for your undead (all active combos multiply). */
+  comboPower = 1;
   /** How many copies of each bone trait you wear (the same trait twice or three times is stronger, like the class system). */
   utn: Partial<Record<SpecialId, number>> = {};
   private leechCd = 0; // 噬魂: at most 5 heals a second
@@ -343,7 +357,7 @@ export class Sim {
       else if (sp === 'utCrown') this.ut.crown = true;
     }
     for (const sp of setup.specials ?? []) this.utn[sp] = (this.utn[sp] ?? 0) + 1;
-    for (const c of activeCombos(setup.specials ?? [])) this.combo.add(c.id);
+    for (const c of activeCombos(setup.specials ?? [])) { this.combo.add(c.id); this.comboPower *= c.power ?? 1; }
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
     this.stats.multishot += (fx?.multishot ?? 0) + (this.awk?.extraMultishot ?? 0) + extraMulti;
@@ -668,7 +682,7 @@ export class Sim {
         m.atkTimer = def.every / atkSpd / (crowned && this.combo.has('soulKing') ? 1.5 : 1); // 魂王: the crowned one attacks 50% faster
         const crit = this.rand() < value(this.stats.crit) + (this.combo.has('frenzyEdge') ? 0.15 : 0); // 骨刃狂潮
         const buff = this.minionBuff > 0 ? this.minionBuffMult : 1;
-        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (1 + 0.5 * this.n('utEdge')) : 1) * (crowned ? 2 : 1) * (this.combo.has('boneGiant') ? 1.3 : 1) * (this.combo.has('grandLich') ? 1.4 : 1); // 骨刃 / 骨王冠 / 不死骨巨人 / 骸骨大法師
+        const dmg = atk * 0.45 * def.dmg * def.every / 0.9 * m.power * buff * (m.big ? 1.5 : 1) * (crit ? value(this.stats.critDmg) * (1 + 0.5 * this.n('utEdge')) : 1) * (crowned ? 2 : 1) * (this.combo.has('boneGiant') ? 1.3 : 1) * (this.combo.has('grandLich') ? 1.4 : 1) * this.comboPower; // 骨刃 / 骨王冠 / 不死骨巨人 / 骸骨大法師
         if (this.ut.leech && this.leechCd <= 0) { this.leechCd = 0.2; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.004 * this.n('utLeech')); } // 噬魂: 0.4% per copy
         if (this.combo.has('soulKing')) { // 魂王: the crowned one heals 1% every hit; the rest 0.3% (up to 10 a second)
           if (crowned) p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.01);
@@ -677,7 +691,7 @@ export class Sim {
         if (this.ut.poison && (m.poisonCd ?? 0) <= 0) { // 屍毒 (瘟疫幽魂: bigger, slowing)
           m.poisonCd = 3;
           const plague = this.combo.has('plague');
-          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1), kind: 'poison', slow: plague ? 0.6 : 0.9 });
+          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9 });
         }
         const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * (this.combo.has('lichKing') ? 1.2 : 1) * (1 + 0.2 * (this.n('utCaster') - 1)) * (this.combo.has('grandLich') ? 1.25 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師 / 骸骨魔導王: bigger blasts)
         const slow = this.ut.wraith ? Math.max(0.3, 0.8 - 0.15 * this.n('utWraith')) : undefined; // 怨靈: stronger slow per copy
@@ -752,7 +766,7 @@ export class Sim {
     if (this.attack.kind === 'javelin') { this.throwJavelins(base, mult); return; }
     const arrow = this.attack.kind === 'arrow' ? this.arrowType : null;
     if (arrow) { this.shootArrows(base, mult, arrow); return; }
-    if (isFire && this.spellType !== 'fire') { this.castSpells(base, mult, this.spellType); return; }
+    if (isFire && this.spellType !== 'fire') { this.castSpells(base, mult, this.spellType); this.echoCast(base, mult); return; }
     const spread = isFire ? 0.3 : isShadow ? 0.22 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
     for (let i = 0; i < n; i++) {
@@ -763,8 +777,50 @@ export class Sim {
         x: p.x, z: p.z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed,
         dmg, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.15,
         pierce: isFire ? 0 : this.stats.pierce + (isShadow ? 1 : 0), radius: isFire ? 0.4 : isShadow ? 0.35 : 0.3, hit: [], shadow: isShadow || undefined,
-        blast: isFire ? (this.attack.blastRadius ?? 2) * Math.sqrt(value(this.stats.area)) : undefined,
+        blast: isFire ? (this.attack.blastRadius ?? 2) * Math.sqrt(value(this.stats.area)) : undefined, elem: isFire ? 'fire' : undefined,
       });
+    }
+    if (isFire) this.echoCast(base, mult);
+  }
+
+  /** 元素同調 (staffs): every 2nd cast also throws the next element at half power, so the two react on the enemies. */
+  private echoCast(base: number, mult: number): void {
+    if (++this.spellCasts % 2) return;
+    const next: Record<SpellType, SpellType> = { fire: 'frost', frost: 'lightning', lightning: 'fire', meteor: 'frost' };
+    const t = next[this.spellType];
+    if (t !== 'fire') { this.castSpells(base, mult * 0.5, t); return; }
+    const p = this.player, n = this.stats.multishot, speed = this.attack.projectileSpeed ?? 15;
+    for (let i = 0; i < n; i++) {
+      const a = base + (i - (n - 1) / 2) * 0.3;
+      const { dmg, crit } = this.rollDamage();
+      this.projectiles.push({ x: p.x, z: p.z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed, dmg: dmg * mult * 0.55, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.15, pierce: 0, radius: 0.35, hit: [], blast: (this.attack.blastRadius ?? 2) * 0.8 * Math.sqrt(value(this.stats.area)), elem: 'fire' });
+    }
+  }
+
+  /** Leave an element on an enemy. A different element already on it reacts:
+   *  fire + frost = 蒸發爆炸 (big blast), fire + lightning = 超載 (blast that knocks back),
+   *  frost + lightning = 超導 (enemies nearby take +40% damage for 5 s). Mages' reactions hit 50% harder. */
+  applyElem(e: Enemy, el: Elem): void {
+    if (e.hp <= 0) return;
+    if (!e.elem || e.elem === el || !e.elemT) { e.elem = el; e.elemT = ELEM_TIME; return; }
+    if (e.reactCd) return;
+    const a = e.elem;
+    e.elem = undefined; e.elemT = 0; e.reactCd = 0.4;
+    const has = (x: Elem) => a === x || el === x;
+    const k = value(this.stats.atk) * (this.cls.id === 'mage' ? 1.5 : this.awk?.sub === 'mage' || this.awk?.sub2 === 'mage' ? 1.2 : 1);
+    const area = Math.sqrt(value(this.stats.area));
+    this.reactions++;
+    if (has('fire') && has('frost')) {
+      this.explode(e.x, e.z, 2.6 * area, k * 3, false, 'fire', { noProc: true });
+      this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('蒸發爆炸', 'Steam Blast'), fx: 'fire' });
+    } else if (has('fire') && has('shock')) {
+      this.explode(e.x, e.z, 3 * area, k * 2.2, false, 'arcane', { noProc: true, knock: 1.4 });
+      this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('超載', 'Overload'), fx: 'arcane' });
+    } else {
+      const r = 2.8 * area;
+      for (const o of this.enemies) if (o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < r + o.radius) o.vulnT = 5;
+      this.explode(e.x, e.z, r, k * 1.2, false, 'frost', { noProc: true, slow: 0.5, slowTime: 2 });
+      this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('超導', 'Superconduct'), fx: 'frost' });
     }
   }
 
@@ -784,7 +840,7 @@ export class Sim {
         pierce: type === 'blast' ? 0 : this.stats.pierce + 1 + (type === 'pierce' ? 3 : type === 'frost' ? 2 : type === 'normal' ? 1 : 0),
         radius: 0.3, hit: [],
         blast: type === 'blast' ? 1.5 * Math.sqrt(value(this.stats.area)) : undefined, fx: type === 'blast' ? 'fire' : undefined,
-        slow: type === 'frost' ? 0.5 : undefined, ap: type === 'pierce' || undefined,
+        slow: type === 'frost' ? 0.5 : undefined, ap: type === 'pierce' || undefined, elem: type === 'frost' ? 'frost' : type === 'blast' ? 'fire' : undefined,
       });
     }
   }
@@ -834,6 +890,7 @@ export class Sim {
           pts.push(cur.x, cur.z);
           const { dmg, crit } = this.rollDamage();
           this.damageEnemy(cur, dmg * mult * (j === 0 ? 1.5 : 1), crit);
+          if (cur.hp > 0) this.applyElem(cur, 'shock');
           let next: Enemy | null = null, nd = 4.5 * area;
           for (const e of this.enemies) {
             if (e.hp <= 0 || used.has(e.id)) continue;
@@ -858,7 +915,7 @@ export class Sim {
         pierce: type === 'frost' ? 3 + this.stats.pierce : 0, radius: type === 'meteor' ? 0.55 : 0.32, hit: [],
         blast: type === 'meteor' ? (this.attack.blastRadius ?? 2) * 1.5 * area : undefined,
         fx: type === 'frost' ? 'frost' : undefined, slow: type === 'frost' ? 0.5 : undefined,
-        meteor: type === 'meteor' || undefined, shard: type === 'frost' || undefined,
+        meteor: type === 'meteor' || undefined, shard: type === 'frost' || undefined, elem: type === 'frost' ? 'frost' : 'fire',
       });
     }
   }
@@ -879,7 +936,7 @@ export class Sim {
     }
   }
 
-  explode(x: number, z: number, r: number, dmg: number, crit: boolean, fx: FxKind = 'fire', opts: { slow?: number; slowTime?: number; knock?: number; noProc?: boolean } = {}): void {
+  explode(x: number, z: number, r: number, dmg: number, crit: boolean, fx: FxKind = 'fire', opts: { slow?: number; slowTime?: number; knock?: number; noProc?: boolean; elem?: Elem } = {}): void {
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       const d = Math.hypot(e.x - x, e.z - z);
@@ -895,6 +952,7 @@ export class Sim {
         e.z += ((e.z - z) / d) * opts.knock;
       }
       if (dmg > 0) this.damageEnemy(e, dmg, crit, opts.noProc);
+      if (opts.elem && e.hp > 0) this.applyElem(e, opts.elem);
     }
     this.events.push({ type: 'explode', x, z, r, fx });
   }
@@ -931,6 +989,7 @@ export class Sim {
     if (this.dodge && this.rand() < this.dodge) { p.invuln = 0.15; return false; } // 閃避
     dmg *= defMultiplier(value(this.stats.def));
     if (this.uq.bossGuard && this.boss) dmg *= 0.75; // 騎士之盾
+    if (this.cls.bossGuard && this.boss) dmg *= 1 - this.cls.bossGuard; // 弓手 / 法師: keep their distance from bosses
     dmg = ultOnHurt(this, dmg); // 聖光壁壘 / 復仇之魂
     if (dmg <= 0) { p.invuln = PLAYER.hurtInvuln * 0.5; return false; }
     this.dmgLog[src] = (this.dmgLog[src] ?? 0) + dmg;
@@ -1040,6 +1099,9 @@ export class Sim {
       e.hitFlash = Math.max(0, e.hitFlash - dt);
       e.markTimer = Math.max(0, e.markTimer - dt);
       if (e.slowTimer > 0) { e.slowTimer -= dt; if (e.slowTimer <= 0) e.slowMult = 1; }
+      if (e.elemT) { e.elemT -= dt; if (e.elemT <= 0) { e.elemT = 0; e.elem = undefined; } }
+      if (e.reactCd) e.reactCd = Math.max(0, e.reactCd - dt);
+      if (e.vulnT) e.vulnT = Math.max(0, e.vulnT - dt);
       if (e.chrono) e.chrono = Math.max(0, e.chrono - dt);
       const spd = e.speed * e.slowMult;
       const dPlayer = Math.hypot(p.x - e.x, p.z - e.z);
@@ -1224,13 +1286,14 @@ export class Sim {
           if (Math.hypot(e.x - pr.x, e.z - pr.z) < e.radius + pr.radius) {
             if (pr.blast) {
               if (pr.minion && o.ultProcs) ultOnHit(o, e, MINION_PROC);
-              o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, slow: pr.slow, slowTime: pr.slow ? 1.5 : undefined });
+              o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, slow: pr.slow, slowTime: pr.slow ? 1.5 : undefined, elem: pr.elem });
               exploded = true;
               alive = false;
               break;
             }
             pr.hit.push(e.id);
             o.damageEnemy(e, pr.dmg, pr.crit, pr.minion, pr.ap);
+            if (pr.elem && e.hp > 0) o.applyElem(e, pr.elem);
             if (pr.minion && o.ultProcs && e.hp > 0) ultOnHit(o, e, MINION_PROC); // an undead archer's bolt
             if (pr.knock && !isBigKind(e.kind)) {
               const v = Math.hypot(pr.vx, pr.vz) || 1;
@@ -1242,7 +1305,7 @@ export class Sim {
           }
         }
         // a fireball that reaches the end of its flight still explodes
-        if (!alive && pr.blast && !exploded) o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion });
+        if (!alive && pr.blast && !exploded) o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, elem: pr.elem });
       } else if (alive && !pr.fromPlayer) {
         const hit = H.find((h) => !h.down && Math.hypot(h.player.x - pr.x, h.player.z - pr.z) < PLAYER.radius + pr.radius);
         if (hit) {
@@ -1334,6 +1397,7 @@ export class Sim {
     if (e.kind === 'shield' && !armourPierce) dmg *= 0.75; // 盾兵
     if (e.elite === 'armored' && !armourPierce) dmg *= 0.6;
     if (e.markTimer > 0) dmg *= 1.5;
+    if ((e.vulnT ?? 0) > 0) dmg *= 1 + VULN; // 超導
     if (e.chrono) dmg *= 1 + Math.max(this.ult.levels.chronoField ? ULT.chronoField.dmgTaken(this.ult.levels.chronoField) : 0, this.ult.levels.frostTouch ? 0.25 : 0); // 時之結界 / 寒冰之觸 極限
     if (!noProc) ultOnHit(this, e); // on-hit ultimates (雷神之怒, 烈焰爆裂, 寒冰之觸, 影襲, 聖光審判)
     const bossDmg = (this.awk?.bossDmg ?? 0) + this.sp.bossDmg;
