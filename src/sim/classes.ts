@@ -42,8 +42,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   mage: {
     id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。', 'Fireballs explode on hit. Best area damage, but lowest HP.'),
     attack: 'fireball', mainWeapon: tr('法杖', 'Staff'), subWeapon: tr('法球', 'Orb'),
-    base: { hp: 110, atk: 20, def: 5, attackInterval: 0.9, range: 8.5, moveSpeed: 5.8, crit: 0.06, critDmg: 1.7 },
-    blastRadius: 2.1, projectileSpeed: 13, preferredDistance: 6,
+    base: { hp: 130, atk: 20, def: 8, attackInterval: 0.8, range: 8.5, moveSpeed: 5.8, crit: 0.06, critDmg: 1.7 },
+    blastRadius: 2.3, projectileSpeed: 15, preferredDistance: 6,
   },
   necro: {
     id: 'necro', name: tr('死靈法師', 'Necromancer'), icon: '💀', desc: tr('射暗影彈；殺死嘅敵人有機會變成亡靈幫你打（同時最多 3 隻，近戰怪變近戰、遠程怪會射）。自己偏脆，靠亡靈擋怪。', 'Fires shadow bolts; kills may rise as Undead that fight for you (max 3; melee foes stay melee, ranged ones shoot). Fragile, so let the Undead tank.'),

@@ -226,7 +226,7 @@ function awakeningBlock(save: SaveData): string {
     return `<div class="awk"><b>${awk.icon} ${awk.name}</b> <small>${EN ? '' : `${awk.en} · `}${CLASSES[save.classId].name} + ${CLASSES[sub!].name}${sub2 ? ` + ${CLASSES[sub2].name}` : ''}</small>
       <div class="sig">${ico(awk.signature.icon)} <b>${awk.signature.name}</b>${tr('：', ': ')}${awk.signature.desc}${EN ? ` (${awk.signature.cooldown}s cooldown)` : `（冷卻 ${awk.signature.cooldown} 秒）`}</div>
       ${awk.echo ? `<div class="sig">${ico(awk.echo.icon)} <b>${awk.echo.name}</b>${tr('：', ': ')}${awk.echo.desc}</div>` : ''}
-      <small>${awk.bonusText}</small>${lock}</div>`;
+      <small>${awk.bonusText}</small>${lock}</div>${!sub2 ? tipCard(save, 'ascend') : ''}`;
   }
   if (canAwaken(save)) return `<button class="primary awaken" data-act="awaken">✨ ${tr('可以覺醒！揀第二職業', 'Awaken! Pick a second class')}</button>`;
   return `<p class="note" style="text-align:left;margin:0 0 10px">🔒 ${EN ? `Clear a Tier ${AWAKEN_TIER} dungeon to pick a second class (Awaken). Best clear: ` : `通關第 ${AWAKEN_TIER} 級地城就可以揀第二職業（覺醒）。而家最高通關：`}${save.highestCleared || tr('未有', 'none')}</p>`;
@@ -507,6 +507,7 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
         <div><small>${tr('靈晶', 'Crystals')}</small><b style="color:var(--crystal)">💎 ${fmt(save.crystals)}</b></div>
         <div class="ultslots">${slots.map((u) => `<span class="uslot ${u ? 'on' : ''}">${u ? ico(ULT[u].icon) : '＋'}</span>`).join('')}</div>
       </div>
+      ${tipCard(save, 'ult')}
       <p class="note" style="margin:0;text-align:left">${EN ? `Screen-clearing skills for any class; equip up to ${ULT_SLOTS}. Ultimate hits can crit; Lv ${ULT_LIMIT_LEVEL} unlocks a Limit effect, max Lv ${ULT_MAX_LEVEL}. 💎 Crystals: Mini-bosses 1, Bosses 3 (double in gate dungeons), elites sometimes 1, first clear of a tier +3 (gate tiers +15), and World Bosses.` : `全場清怪技能，任何職業都用得，最多同時裝 ${ULT_SLOTS} 個。終極技傷害會暴擊；Lv ${ULT_LIMIT_LEVEL} 解鎖「極限」效果，最高 Lv ${ULT_MAX_LEVEL}。💎 靈晶：小 Boss 1、Boss 3（守關地城雙倍）、精英怪有機會跌 1、首次通關每級 +3（守關級 +15），仲有世界 Boss。`}</p>
       ${ULT_IDS.map((id) => {
         const lv = save.ults[id] ?? 0;
@@ -575,6 +576,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
   body.appendChild(h(`
     <div class="col">
       ${tipCard(save, 'gear')}
+      ${atkKind === 'arrow' || atkKind === 'shadow' || atkKind === 'fireball' ? tipCard(save, 'attack') : ''}
       <div class="card">
         <h3>${awk ? `${awk.icon} ${awk.name}` : `${CLASSES[save.classId].icon} ${CLASSES[save.classId].name}`} · ${tr('裝備', 'Gear')}</h3>
         ${statSummary(save)}

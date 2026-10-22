@@ -10,7 +10,11 @@ export const TIPS = {
   quota: { icon: '🎯', text: tr('殺夠數量（左上角「擊殺」）就會出 Boss，打低佢先去到下一張地圖。第 3 張地圖係最終 Boss。', 'Reach the Kills target (top left) to summon the Boss. Beat it to reach the next Map. Map 3 has the final Boss.') },
   levelup: { icon: '⬆️', text: tr('升級強化卡只維持今舖地城。右上角 🎴 可以揀自動揀卡定自己揀。', 'Level-up upgrade cards last for this Dungeon only. Tap 🎴 (top right) to auto-pick or choose yourself.') },
   chest: { icon: '🎁', text: tr('寶箱暫時放喺身上，要通關先真係入袋。中途死咗或者放棄就會冇晒。', 'Chests are only yours once the Dungeon is Cleared. Die or give up and you lose them.') },
-  skills: { icon: '🌳', text: tr('呢度係你職業嘅技能板；覺醒之後會多第二職業板同覺醒板，一共三塊。由中間 ★ 開始，解鎖相連嘅格：數值格用 👻 靈魂，技能格用 🔷 符文。冇技能點，淨係用材料；每解 1 格，之後嘅格會貴少少。', 'This is your class Skill Board; after you Awaken you get a second-class board and an Awaken board (3 total). Start from the ★ and unlock linked panels: stat panels cost 👻 Souls, skill panels cost 🔷 Runes. Each panel makes the next a bit pricier.') },
+  skills: { icon: '🌳', text: tr('呢度係你職業嘅技能板。覺醒之後會多第二職業板同混合板；昇華之後再多第三職業板，混合板變成三職業板。由中間 ★ 開始，解鎖相連嘅格：數值格用 👻 靈魂，技能格用 🔷 符文。每解 1 格，之後嘅格會貴少少。撳遠啲嘅格，夠材料就可以一次過解鎖成條路。', 'This is your class Skill Board. Awakening adds a second-class board and a mixed board; Ascending adds a third-class board and turns the mixed board into a three-class one. Start from the ★ and unlock linked panels: stat panels cost 👻 Souls, skill panels cost 🔷 Runes. Each panel makes the next a bit pricier. Tap a far panel to unlock the whole path at once if you can afford it.') },
+  ult: { icon: '⚡', text: tr('終極技任何職業都用得，最多裝 3 個。有啲定時自動放，有啲係你攻擊嗰陣有機會觸發。用 💎 靈晶解鎖同升級，升到 Lv 10 會解鎖「極限」效果。靈晶主要嚟自 Boss、守關地城同第一次通關新等級。', 'Any class can use Ultimates; equip up to 3. Some fire on a timer, others may trigger when you attack. Unlock and level them with 💎 Crystals; Lv 10 unlocks a Limit effect. Crystals come mostly from Bosses, gate dungeons and first clears of new tiers.') },
+  attack: { icon: '🏹', text: tr('攻擊方式由主手武器決定。弓可以揀箭種、法杖可以揀法術、死靈可以揀暗影彈定召喚，隨時免費轉，唔同地城可以試吓唔同揀法。', 'Your main-hand weapon sets how you attack. Bows pick an arrow type, staffs pick a spell, and Necromancers pick shadow bolts or summoning. Switching is free any time, so try different picks for different dungeons.') },
+  ascend: { icon: '🌟', text: tr('帳號 Lv 40 兼通關第 25 級地城，就可以「昇華」揀第三職業：多一個數值加成，每次招牌技之後仲會追擊。舊混合板用咗嘅材料全數退返，換一塊三職業板。揀咗唔可以改。', 'At account Lv 40 with Tier 25 cleared you can Ascend and pick a third class: an extra bonus plus an Echo after every Signature. Everything spent on the old mixed board comes back and you get a three-class board. The choice is final.') },
+  repeat: { icon: '🔁', text: tr('通關之後可以開「自動再挑戰」：倒數 4 秒自動再打同一級，適合掛機刷裝備同材料。', 'After a clear you can turn on Auto-repeat: after a 4s countdown the same tier starts again, handy for farming gear and materials.') },
   gear: { icon: '🎒', text: tr('撳裝備睇詳情、裝備同強化。唔要嘅可以分解換金幣，或者用「🔁 交換」5 件換 1 件指定嘅。重要嘅記得 🔒 鎖定。', 'Tap gear to view, equip and upgrade it. Salvage spares for Coins, or use 🔁 Trade: 5 for 1 of your choice. 🔒 Lock what matters.') },
   worldboss: { icon: '🌍', text: tr('世界 Boss 每日領 3 次獎勵。打死自動領；打唔死可以免費再挑戰，或者用 1 張券按傷害領獎勵。打死仲有機會跌有名傳說。', 'World Boss: 3 rewards per day. Kill it to claim automatically; otherwise retry free, or use 1 ticket to claim by damage. Kills may drop a named Legendary.') },
 } as const;
@@ -77,7 +81,11 @@ export const QUESTS: Quest[] = [
   { id: 'clear5', name: tr('覺醒之路', 'Road to Awaken'), desc: tr('通關第 5 級地城（解鎖覺醒同世界 Boss）', 'Clear Tier 5 (unlocks Awaken and World Boss)'), reward: 800, done: (s) => s.highestCleared >= 5 },
   { id: 'awaken', name: tr('覺醒', 'Awaken'), desc: tr('喺「出發」頁揀第二職業', 'Pick a second class on the Play tab'), reward: 500, done: (s) => Object.keys(s.subClass).length > 0 },
   { id: 'worldboss', name: tr('挑戰世界 Boss', 'World Boss'), desc: tr('打一次世界 Boss', 'Fight the World Boss once'), reward: 800, done: (s) => s.wbFights > 0 },
+  { id: 'ult', name: tr('終極力量', 'Ultimate Power'), desc: tr('喺「⚡ 終極」頁解鎖一個終極技', 'Unlock an Ultimate on the ⚡ Ultimate tab'), reward: 1000, done: (s) => Object.values(s.ults ?? {}).some((v) => (v as number) > 0) },
   { id: 'clear10', name: tr('地城老手', 'Dungeon Veteran'), desc: tr('通關第 10 級地城', 'Clear the Tier 10 dungeon'), reward: 2000, done: (s) => s.highestCleared >= 10 },
+  { id: 'clear15', name: tr('突破守關', 'Gatebreaker'), desc: tr('通關第 15 級守關地城', 'Clear the Tier 15 gate dungeon'), reward: 4000, done: (s) => s.highestCleared >= 15 },
+  { id: 'clear20', name: tr('深淵挑戰者', 'Abyss Challenger'), desc: tr('通關第 20 級守關地城', 'Clear the Tier 20 gate dungeon'), reward: 8000, done: (s) => s.highestCleared >= 20 },
+  { id: 'ascend', name: tr('昇華', 'Ascend'), desc: tr('帳號 Lv 40 + 通關第 25 級之後，喺「出發」頁揀第三職業', 'At account Lv 40 with Tier 25 cleared, pick a third class on the Play tab'), reward: 15000, done: (s) => Object.keys(s.subClass2 ?? {}).length > 0 },
 ];
 
 export const currentQuest = (s: SaveData) => QUESTS.find((q) => !s.quests.includes(q.id)) ?? null;

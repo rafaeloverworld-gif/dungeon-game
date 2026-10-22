@@ -431,6 +431,7 @@ function finishRun(won: boolean, reason: string): void {
     }, 1000);
   };
   if (won && save.autoRepeat) startCountdown();
+  if (won && save.highestCleared >= 2) showRunTip(ui, save, 'repeat');
   el.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b) return;
