@@ -8,15 +8,15 @@ export type SignatureKind =
   | 'bladeStorm' | 'charge' | 'holyLight'
   | 'markPrey' | 'snipe' | 'arrowStorm'
   | 'spellSlash' | 'field' | 'arcaneBurst'
-  | 'soulReap' | 'ghostVolley' | 'deathNova' | 'boneArmy' | 'boneSpear' | 'soulStorm' | 'raiseLegion' | 'meteorCall';
+  | 'soulReap' | 'ghostVolley' | 'deathNova' | 'boneArmy' | 'boneSpear' | 'soulStorm' | 'raiseLegion' | 'meteorCall' | 'quake' | 'skyfall' | 'boneGrave';
 
 export type SignatureDef = { kind: SignatureKind; name: string; desc: string; cooldown: number; icon: string };
 /** 專精: a single-class character gets its own Signature at class Lv 10. */
 export const PURE_SIGNATURE: Record<ClassId, SignatureDef> = {
-  warrior: { kind: 'bladeStorm', name: tr('旋風斬', 'Whirlwind'), desc: tr('3 秒內不停旋轉，斬晒身邊所有敵人', 'Spin for 3s, slashing everything around you'), cooldown: 12, icon: '🌪️' },
-  archer: { kind: 'arrowStorm', name: tr('箭雨', 'Arrow Rain'), desc: tr('向四周射 16 支箭（每支 150%）', 'Fire 16 arrows all around (150% each)'), cooldown: 10, icon: '🏹' },
+  warrior: { kind: 'quake', name: tr('震地', 'Earthshatter'), desc: tr('連續三圈震波向外擴散（每圈 200%，擊退、減速）', 'Three shockwaves ripple outwards (200% each, knock back and slow)'), cooldown: 12, icon: '💥' },
+  archer: { kind: 'skyfall', name: tr('天墜箭', 'Skyfall'), desc: tr('14 支箭從天而降，射落目標周圍（每支 160% 範圍傷害）', '14 arrows rain down around your target (160% area damage each)'), cooldown: 10, icon: '🏹' },
   mage: { kind: 'meteorCall', name: tr('隕石', 'Meteor'), desc: tr('喺最強嘅 5 隻敵人身上落隕石（每粒 350%，帶火元素）', 'Meteors on the 5 toughest enemies (350% each, fire element)'), cooldown: 12, icon: '☄️' },
-  necro: { kind: 'raiseLegion', name: tr('亡者大軍', 'Legion of the Dead'), desc: tr('召喚 5 隻大骷髏，所有亡靈回滿血', 'Raise 5 big Skeletons and heal every Undead'), cooldown: 14, icon: '💀' },
+  necro: { kind: 'boneGrave', name: tr('萬骨冢', 'Boneyard'), desc: tr('喺附近最多 8 隻敵人腳下爬出骷髏，全部亡靈傷害 ×1.6 維持 8 秒', 'Skeletons claw out under up to 8 nearby enemies; all Undead deal ×1.6 for 8s'), cooldown: 14, icon: '🪦' },
 };
 
 export interface AwakenedDef {
@@ -155,6 +155,9 @@ export const SIG_UP_DESC: Record<SignatureKind, string> = {
   snipe: tr('傷害 800% → 1200%', 'Dmg 800% → 1200%'),
   arrowStorm: tr('16 支 → 24 支魔法箭', '16 → 24 magic arrows'),
   meteorCall: tr('5 粒 → 7 粒隕石', '5 → 7 meteors'),
+  quake: tr('震波 200% → 280%', 'Shockwaves 200% → 280%'),
+  skyfall: tr('14 支 → 20 支箭', '14 → 20 arrows'),
+  boneGrave: tr('最多 8 隻 → 12 隻', 'Up to 8 → 12'),
   spellSlash: tr('斬一整圈，傷害 350% → 500%', 'Full-circle slash, dmg 350% → 500%'),
   field: tr('魔法陣維持 9 秒，傷害更高', 'Circle lasts 9s, more dmg'),
   arcaneBurst: tr('同時爆 8 隻敵人', 'Blast 8 enemies at once'),

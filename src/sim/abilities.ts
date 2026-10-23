@@ -362,6 +362,27 @@ function castSignature(sim: Sim): boolean {
       for (const mn of sim.minions) mn.hp = mn.maxHp;
       return true;
     }
+    case 'quake': { // 專精 戰士: three shockwaves
+      for (const r of [3, 5, 7]) sim.explode(p.x, p.z, r * area(sim), baseDmg * (up ? 2.8 : 2) * m, crit, 'physical', { knock: 1.2, slow: 0.6, slowTime: 1.5 });
+      return true;
+    }
+    case 'skyfall': { // 專精 弓手: arrows rain around the target
+      const t = bestTarget(sim, 16) ?? target;
+      if (!t) return false;
+      const n = up ? 20 : 14;
+      for (let i = 0; i < n; i++) {
+        const a = sim.rand() * Math.PI * 2, d = Math.sqrt(sim.rand()) * 4.5;
+        sim.explode(t.x + Math.sin(a) * d, t.z + Math.cos(a) * d, 1.6 * area(sim), baseDmg * 1.6 * m, crit, 'physical');
+      }
+      return true;
+    }
+    case 'boneGrave': { // 專精 死靈: skeletons rise under the enemies
+      const near = sim.enemies.filter((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 9).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z)).slice(0, up ? 12 : 8);
+      if (!near.length) return false;
+      for (const e of near) sim.summon(e.x, e.z, { force: true, life: 12, power: m });
+      sim.minionBuff = 8; sim.minionBuffMult = 1.6;
+      return true;
+    }
     case 'meteorCall': { // 專精 法師
       const near = sim.enemies.filter((e) => Math.hypot(e.x - p.x, e.z - p.z) < 14).sort((a, b) => b.maxHp - a.maxHp).slice(0, up ? 7 : 5);
       if (!near.length) return false;
