@@ -9,7 +9,7 @@ import {
 } from '../sim/gear';
 import { buildStats } from '../sim/sim';
 import { value } from '../sim/stats';
-import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO } from '../sim/awakening';
+import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO, PURE_SIGNATURE } from '../sim/awakening';
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
@@ -283,6 +283,8 @@ function showWorldBoss(ctx: HomeCtx): void {
 }
 
 // ---------- 覺醒 ----------
+/** 專精 title (class Lv 25+). */
+const PURE_TITLE: Record<ClassId, string> = { warrior: tr('戰聖', 'War Saint'), archer: tr('鷹王', 'Hawk King'), mage: tr('元素主宰', 'Element Lord'), necro: tr('冥王', 'Lord of the Underworld') };
 /** 專精: what staying a single class unlocks at class Lv 10 / 25 / 50. */
 const MASTERY_INFO: Record<ClassId, [string, string][]> = {
   warrior: [[tr('不屈', 'Unyielding'), tr('防禦 +30%、普通怪傷害 -20%、有 Boss 喺場受傷 -35%；斬中敵人回 1% HP（每秒最多 3 次）；每張地圖一次致命一擊唔死，剩 1 血', 'DEF +30%, small enemies hit 20% softer, 35% less damage while a boss is in the fight; a swing that connects heals 1% HP (up to 3 times a second); once per map a killing blow leaves you at 1 HP')], [tr('戰神', 'War God'), tr('HP 低過一半：傷害同攻速 ×1.5', 'Below half HP: damage and attack speed ×1.5')], [tr('劍氣', 'Sword Wave'), tr('每次斬擊再射一道穿透劍氣（100%）', 'Every swing also sends a piercing sword wave (100%)')]],
@@ -296,8 +298,10 @@ function masteryBlock(save: SaveData): string {
   const levels = `<small class="line">${CLASS_IDS.map((k) => `${CLASSES[k].icon} Lv ${classLevel(save, k)}`).join(' · ')}</small>`;
   const head = `<div class="statline"><b>📈 ${CLASSES[c].name} ${tr('職業', 'class')} Lv ${L}</b><small>${pct}%</small></div><div class="bar xp" style="height:6px;margin:4px 0"><i style="width:${pct}%"></i></div>${levels}<small class="line">${tr(`用嗰個職業打關先升級（第二、第三職業各得一半）。揀做第二職業要嗰個職業 Lv ${SUB_LEVEL}，第三職業要 Lv ${SUB2_LEVEL}。`, `Classes level up when you play them (second / third class get half). A second class needs that class at Lv ${SUB_LEVEL}, a third at Lv ${SUB2_LEVEL}.`)}</small>`;
   if (!isPure(save)) return `<div class="awk mastery">${head}</div>`;
+  const title = L >= 25 ? `<div class="sig">👑 ${tr('稱號：', 'Title: ')}<b>${PURE_TITLE[c]}</b>${tr('（腳下有金色光環）', ' (gold aura under your feet)')}</div>` : '';
+  const sigLine = `<small class="line">${L >= 10 ? '✅' : '🔒'} Lv 10 ${tr('專屬招牌技', 'Own Signature')} ${ico(PURE_SIGNATURE[c].icon)} <b>${PURE_SIGNATURE[c].name}</b>${tr('：', ': ')}${PURE_SIGNATURE[c].desc}${EN ? ` (${PURE_SIGNATURE[c].cooldown}s)` : `（冷卻 ${PURE_SIGNATURE[c].cooldown} 秒）`}</small>`;
   const rows = MASTERY_INFO[c].map(([n, d], i) => `<small class="line">${L >= MASTERY_LEVELS[i] ? '✅' : '🔒'} Lv ${MASTERY_LEVELS[i]} <b>${n}</b>${tr('：', ': ')}${d}</small>`).join('');
-  return `<div class="awk mastery">${head}<div class="sig">🎖️ <b>${tr('專精', 'Mastery')}</b>${tr(`：唔揀第二職業（唔覺醒）就有：技能盤所有數值 ×${pureBoardScale(save)}（通關第 ${ASCEND_TIER} 級 + Lv ${ASCEND_LEVEL} 之後再 +0.5），同埋下面能力。每級職業 HP 同攻擊 +1.5%（而家 +${Math.round(Math.min(50, L) * 1.5)}%）`, `: with no second class (not Awakened) your skill board numbers are ×${pureBoardScale(save)} (+0.5 more after Tier ${ASCEND_TIER} + Lv ${ASCEND_LEVEL}), plus these abilities. +1.5% HP and ATK per class level (now +${Math.round(Math.min(50, L) * 1.5)}%)`)}</div>${rows}</div>`;
+  return `<div class="awk mastery">${head}${title}<div class="sig">🎖️ <b>${tr('專精', 'Mastery')}</b>${tr(`：唔揀第二職業（唔覺醒）就有：技能盤所有數值 ×${pureBoardScale(save)}（通關第 ${ASCEND_TIER} 級 + Lv ${ASCEND_LEVEL} 之後再 +0.5），同埋下面能力。每級職業 HP 同攻擊 +1.5%（而家 +${Math.round(Math.min(50, L) * 1.5)}%）`, `: with no second class (not Awakened) your skill board numbers are ×${pureBoardScale(save)} (+0.5 more after Tier ${ASCEND_TIER} + Lv ${ASCEND_LEVEL}), plus these abilities. +1.5% HP and ATK per class level (now +${Math.round(Math.min(50, L) * 1.5)}%)`)}</div>${sigLine}${rows}</div>`;
 }
 
 function awakeningBlock(save: SaveData): string {

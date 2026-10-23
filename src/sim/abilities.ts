@@ -164,7 +164,7 @@ export function updateAbilities(sim: Sim, dt: number): void {
 
   // ---------- signature skill ----------
   const sig = sim.signature;
-  if (!sig || !sim.awk) return;
+  if (!sig || !sim.sigDef) return;
   sig.timer = Math.max(0, sig.timer - dt);
   const ready = sig.timer <= 0;
   let cast = ready && sim.sigRequested;
@@ -175,8 +175,8 @@ export function updateAbilities(sim: Sim, dt: number): void {
     sig.timer = sig.cooldown;
     if (sim.uq.sigGuard) { p.invuln = Math.max(p.invuln, 1.5); p.hp = Math.min(sim.maxHp, p.hp + sim.maxHp * 0.08); } // 刃之守護
     if (sim.uq.sigField) sim.zones.push({ x: p.x, z: p.z, r: 4 * area(sim), timer: 4, tick: 0, dmg: value(sim.stats.atk) * 0.3 }); // 聖域
-    sim.events.push({ type: 'skill', name: sim.awk.signature.name, icon: sim.awk.signature.icon, signature: true });
-    if (sim.awk.echo && sig.echo > 0) castEcho(sim);
+    sim.events.push({ type: 'skill', name: sim.sigDef.name, icon: sim.sigDef.icon, signature: true });
+    if (sim.awk?.echo && sig.echo > 0) castEcho(sim);
     sim.enemies = sim.enemies.filter((e) => e.hp > 0);
   }
 }
@@ -226,7 +226,7 @@ function castEcho(sim: Sim): void {
 }
 
 function shouldAutoCast(sim: Sim): boolean {
-  const kind = sim.awk!.signature.kind;
+  const kind = sim.sigDef!.kind;
   if (kind === 'holyLight') return sim.player.hp / sim.maxHp < 0.55 || enemiesNear(sim, 3.5) >= 5;
   if (kind === 'soulReap') return sim.player.hp / sim.maxHp < 0.6 && enemiesNear(sim, 4) >= 3 || enemiesNear(sim, 4) >= 5;
   if (sim.boss && Math.hypot(sim.boss.x - sim.player.x, sim.boss.z - sim.player.z) < 12) return true;
@@ -238,7 +238,7 @@ function shootArrow(sim: Sim, angle: number, dmg: number, crit: boolean, o: { pi
   sim.projectiles.push({
     x: p.x, z: p.z, vx: Math.sin(angle) * o.speed, vz: Math.cos(angle) * o.speed,
     dmg, crit, fromPlayer: true, life: o.range / o.speed, pierce: o.pierce, radius: o.radius ?? 0.3, hit: [],
-    shadow: o.shadow, slow: o.slow,
+    shadow: o.shadow, slow: o.slow, src: 'skill', // counted as 技能 on the DPS meter
   });
 }
 
@@ -262,7 +262,7 @@ function castSignature(sim: Sim): boolean {
   const { dmg: baseDmg, crit } = sim.rollDamage();
   const target = nearestWithin(sim, 14);
   const aim = target ? Math.atan2(target.x - p.x, target.z - p.z) : p.facing;
-  switch (sim.awk!.signature.kind) {
+  switch (sim.sigDef!.kind) {
     case 'bladeStorm':
       sim.spinTimer = up ? 4.5 : 3;
       sim.spinTick = 0;
@@ -360,6 +360,12 @@ function castSignature(sim: Sim): boolean {
         sim.summon(p.x + Math.sin(a) * 1.8, p.z + Math.cos(a) * 1.8, { force: true, big: true, life: up ? 16 : 12, power: m });
       }
       for (const mn of sim.minions) mn.hp = mn.maxHp;
+      return true;
+    }
+    case 'meteorCall': { // 專精 法師
+      const near = sim.enemies.filter((e) => Math.hypot(e.x - p.x, e.z - p.z) < 14).sort((a, b) => b.maxHp - a.maxHp).slice(0, up ? 7 : 5);
+      if (!near.length) return false;
+      for (const e of near) sim.explode(e.x, e.z, 2.8 * area(sim), baseDmg * 3.5 * m, crit, 'fire', { elem: 'fire' });
       return true;
     }
     case 'arcaneBurst': {

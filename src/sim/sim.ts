@@ -7,7 +7,7 @@ import { applyBonus, defMultiplier, stat, value, type PlayerStats, type StatBonu
 import { ATTACK_STYLES, CLASSES, type ArrowType, type AttackStyle, type NecroMode, type SpellType, type ClassDef, type ClassId } from './classes';
 import { tr } from '../i18n';
 import { autopilotDirection } from './autopilot';
-import { mixFor, type AwakenedDef } from './awakening';
+import { mixFor, PURE_SIGNATURE, type AwakenedDef, type SignatureDef } from './awakening';
 import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { mergeBonus } from './stats';
 import { updateAbilities } from './abilities';
@@ -310,6 +310,8 @@ export class Sim {
   // skills
   autoSkills: { id: AutoSkillId; level: 1 | 2; timer: number }[] = [];
   signature: { cooldown: number; timer: number; dmgMult: number; level: 1 | 2; echo: number } | null = null;
+  /** The Signature this character has: the awakened mix's, or the 專精 one (class Lv 10, single class). */
+  sigDef: SignatureDef | null = null;
   /** Awakened-board passives. */
   uq: Partial<Record<UniqueId, boolean>> = {};
   private blastDepth = 0;
@@ -437,10 +439,11 @@ export class Sim {
       else if (sk.id === 'resonance') this.resonance += sk.level === 2 ? 0.35 : 0.2;
       else this.autoSkills.push({ id: sk.id, level: sk.level, timer: AUTO_SKILLS[sk.id].cooldown[sk.level - 1] * 0.5 * this.sp.cdMult });
     }
-    if (this.awk) {
-      const summonSig = this.awk.signature.kind === 'boneArmy' || this.awk.signature.kind === 'raiseLegion';
-      const cd = this.awk.signature.cooldown * Math.max(0.5, 1 - (fx?.sigCd ?? 0)) * this.sp.cdMult * (summonSig ? this.summonCdMult : 1);
-      this.signature = { cooldown: cd, timer: cd * 0.4, dmgMult: 1 + (fx?.sigDmg ?? 0), level: fx?.sigUp ? 2 : 1, echo: (this.awk.echo?.power ?? 0) * (fx?.echoUp ? 1.5 : 1) };
+    this.sigDef = this.awk?.signature ?? (this.mastery >= 10 ? PURE_SIGNATURE[this.cls.id] : null); // 專精 Lv 10: a single-class Signature
+    if (this.sigDef) {
+      const summonSig = this.sigDef.kind === 'boneArmy' || this.sigDef.kind === 'raiseLegion';
+      const cd = this.sigDef.cooldown * Math.max(0.5, 1 - (fx?.sigCd ?? 0)) * this.sp.cdMult * (summonSig ? this.summonCdMult : 1);
+      this.signature = { cooldown: cd, timer: cd * 0.4, dmgMult: 1 + (fx?.sigDmg ?? 0), level: fx?.sigUp ? 2 : 1, echo: (this.awk?.echo?.power ?? 0) * (fx?.echoUp ? 1.5 : 1) };
     }
     this.player.hp = value(this.stats.maxHp);
     if (this.pid === 0) {

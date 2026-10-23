@@ -8,7 +8,16 @@ export type SignatureKind =
   | 'bladeStorm' | 'charge' | 'holyLight'
   | 'markPrey' | 'snipe' | 'arrowStorm'
   | 'spellSlash' | 'field' | 'arcaneBurst'
-  | 'soulReap' | 'ghostVolley' | 'deathNova' | 'boneArmy' | 'boneSpear' | 'soulStorm' | 'raiseLegion';
+  | 'soulReap' | 'ghostVolley' | 'deathNova' | 'boneArmy' | 'boneSpear' | 'soulStorm' | 'raiseLegion' | 'meteorCall';
+
+export type SignatureDef = { kind: SignatureKind; name: string; desc: string; cooldown: number; icon: string };
+/** 專精: a single-class character gets its own Signature at class Lv 10. */
+export const PURE_SIGNATURE: Record<ClassId, SignatureDef> = {
+  warrior: { kind: 'bladeStorm', name: tr('旋風斬', 'Whirlwind'), desc: tr('3 秒內不停旋轉，斬晒身邊所有敵人', 'Spin for 3s, slashing everything around you'), cooldown: 12, icon: '🌪️' },
+  archer: { kind: 'arrowStorm', name: tr('箭雨', 'Arrow Rain'), desc: tr('向四周射 16 支箭（每支 150%）', 'Fire 16 arrows all around (150% each)'), cooldown: 10, icon: '🏹' },
+  mage: { kind: 'meteorCall', name: tr('隕石', 'Meteor'), desc: tr('喺最強嘅 5 隻敵人身上落隕石（每粒 350%，帶火元素）', 'Meteors on the 5 toughest enemies (350% each, fire element)'), cooldown: 12, icon: '☄️' },
+  necro: { kind: 'raiseLegion', name: tr('亡者大軍', 'Legion of the Dead'), desc: tr('召喚 5 隻大骷髏，所有亡靈回滿血', 'Raise 5 big Skeletons and heal every Undead'), cooldown: 14, icon: '💀' },
+};
 
 export interface AwakenedDef {
   id: string; // `${main}_${sub}`
@@ -21,7 +30,7 @@ export interface AwakenedDef {
   bonusText: string;
   extraMultishot?: number;
   bossDmg?: number; // extra damage vs mini bosses / bosses
-  signature: { kind: SignatureKind; name: string; desc: string; cooldown: number; icon: string };
+  signature: SignatureDef;
   focusStat: { key: 'atkSpeed' | 'atk' | 'def' | 'crit' | 'critDmg' | 'range' | 'maxHp' | 'area' | 'summon'; flat?: number; pct?: number; label: string };
   // three-class (ascended) only
   sub2?: ClassId;
@@ -145,6 +154,7 @@ export const SIG_UP_DESC: Record<SignatureKind, string> = {
   markPrey: tr('標記 8 秒，連射 8 箭', 'Mark for 8s, fire 8 arrows'),
   snipe: tr('傷害 800% → 1200%', 'Dmg 800% → 1200%'),
   arrowStorm: tr('16 支 → 24 支魔法箭', '16 → 24 magic arrows'),
+  meteorCall: tr('5 粒 → 7 粒隕石', '5 → 7 meteors'),
   spellSlash: tr('斬一整圈，傷害 350% → 500%', 'Full-circle slash, dmg 350% → 500%'),
   field: tr('魔法陣維持 9 秒，傷害更高', 'Circle lasts 9s, more dmg'),
   arcaneBurst: tr('同時爆 8 隻敵人', 'Blast 8 enemies at once'),

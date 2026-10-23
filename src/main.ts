@@ -216,7 +216,7 @@ function buildHud(): void {
       </div>
       <div class="bossbar" style="display:none"><div class="name"></div><div class="bar boss" style="height:14px"><i></i></div></div>
       <div class="mode auto"></div>
-      ${sim?.awk ? `<button class="sigbtn" data-act="sig"><span class="sigicon">${ico(sim.awk.signature.icon)}</span><i class="sigfill"></i><b class="sigtime"></b><small>${sim.awk.signature.name}</small></button>` : ''}
+      ${sim?.sigDef ? `<button class="sigbtn" data-act="sig"><span class="sigicon">${ico(sim.sigDef.icon)}</span><i class="sigfill"></i><b class="sigtime"></b><small>${sim.sigDef.name}</small></button>` : ''}
     </div>`);
   const q = (s: string) => root.querySelector(s) as HTMLElement;
   hud = {

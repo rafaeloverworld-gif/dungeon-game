@@ -123,6 +123,8 @@ export class Renderer {
   private themeIndex = -1;
 
   private player: THREE.Group;
+  /** 專精 aura: a gold ring under a single-class hero (class Lv 25+). */
+  private aura: THREE.Mesh | null = null;
   private playerBody: THREE.Mesh;
   private weaponGroup = new THREE.Group();
   private fx: { mesh: THREE.Mesh; life: number; max: number; grow: number }[] = [];
@@ -486,6 +488,16 @@ export class Renderer {
     // player
     this.player.position.set(p.x, 0, p.z);
     this.player.rotation.y = p.facing;
+    if (sim.mastery >= 25) {
+      if (!this.aura) {
+        const g = new THREE.RingGeometry(0.75, 0.95, 40); g.rotateX(-Math.PI / 2);
+        this.aura = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffc23a, transparent: true, opacity: 0.55, depthWrite: false }));
+        this.scene.add(this.aura);
+      }
+      this.aura.visible = true;
+      this.aura.position.set(p.x, 0.06, p.z);
+      this.aura.scale.setScalar(1 + Math.sin(t * 3) * 0.08 + (sim.mastery >= 50 ? 0.25 : 0));
+    } else if (this.aura) this.aura.visible = false;
     const moving = Math.hypot(p.moveX, p.moveZ) > 0.1 && sim.phase === 'playing';
     this.playerBody.position.y = 0.75 + (moving ? Math.abs(Math.sin(t * 12)) * 0.08 : 0);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt);
