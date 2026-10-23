@@ -211,8 +211,8 @@ function buildHud(): void {
         <div class="btns"><button data-act="autopick"></button><button data-act="speed">×1</button><button data-act="pause">⏸</button></div>
       </div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap">
-        <span class="chip" data-k="map"></span><span class="chip" data-k="kills"></span>
-        <span class="chip gold" data-k="coins"></span><span class="chip" data-k="timer"></span><span class="chip chest" data-k="chests" style="display:none"></span>
+        <span class="chip" data-k="map"></span><span class="chip" data-k="kills"></span><span class="chip" data-k="timer"></span>
+        <span class="chip gold" data-k="coins"></span><span class="chip chest" data-k="chests" style="display:none"></span>
       </div>
       <div class="bossbar" style="display:none"><div class="name"></div><div class="bar boss" style="height:14px"><i></i></div></div>
       <div class="mode auto"></div>
