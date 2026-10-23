@@ -6,6 +6,7 @@ import { h, esc } from '../ui/dom';
 import { tr, getLang } from '../i18n';
 import { CLASSES, type ClassId } from '../sim/classes';
 import { biomeFor } from '../sim/config';
+import { todaysBoss, WB_MIN_LEVEL, WORLD_BOSSES, type WorldBossId } from '../sim/worldboss';
 import { onlineState } from '../online';
 import { newCode, Room, type MemberInfo, type Transport } from './room';
 import type { Snap } from './sync';
@@ -91,11 +92,11 @@ export const coopAvailable = () => localTest() || !!onlineState().playerId;
 export interface LobbyDeps {
   ui: HTMLElement;
   save: () => SaveData;
-  start: (o: { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean; role: 'host' | 'guest' }) => void;
+  start: (o: { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean; role: 'host' | 'guest'; wb?: WorldBossId }) => void;
   /** The team changed (teammate joined / left, setup arrived): redraw whatever shows it. */
   changed: () => void;
 }
-interface Team { link: Link; peerSetup: Setup | null; peerAutoPick: boolean; fresh: boolean; tier: number }
+interface Team { link: Link; peerSetup: Setup | null; peerAutoPick: boolean; fresh: boolean; tier: number; mode: 'dungeon' | 'wb'; wbLevel: number }
 export let team: Team | null = null;
 let deps: LobbyDeps | null = null;
 
@@ -110,7 +111,7 @@ function teamMessage(t: string, data: unknown): void {
   else if (t === 'hello' && l.isHost) { const m = data as { setup: Setup; autoPick: boolean }; tm.peerSetup = m.setup; tm.peerAutoPick = m.autoPick; tm.fresh = true; }
   else if (t === 'peerLeft') { tm.peerSetup = null; tm.fresh = false; }
   else if (t === 'start' && !l.isHost) {
-    const m = data as { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean };
+    const m = data as { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean; wb?: WorldBossId };
     document.querySelector('.coopmodal')?.closest('.modal')?.remove();
     beginSession('guest');
     deps.start({ ...m, role: 'guest' });
@@ -141,14 +142,14 @@ export function teamMaxTier(save: SaveData): number {
 export const teamReady = () => !!team && team.link.isHost && !!team.link.peer && team.link.transport !== 'connecting' && !!team.peerSetup;
 
 /** Host: start a run for the whole team. Waits (up to 5 s) for the guest's post-run gear first. */
-export function teamStart(tier: number): boolean {
+export function teamStart(tier: number, wb?: WorldBossId): boolean {
   const tm = team;
   if (!tm || !deps || !teamReady()) return false;
   const go = () => {
     if (!team || !deps || !tm.peerSetup) return;
-    const msg = { tier, seed: (Math.random() * 2 ** 31) | 0, host: runSetup(deps.save()), guest: tm.peerSetup, guestAutoPick: tm.peerAutoPick };
+    const msg = { tier, seed: (Math.random() * 2 ** 31) | 0, host: runSetup(deps.save()), guest: tm.peerSetup, guestAutoPick: tm.peerAutoPick, wb };
     tm.fresh = false;
-    tm.tier = tier;
+    if (wb) tm.wbLevel = tier; else tm.tier = tier;
     tm.link.send('start', msg);
     document.querySelector('.coopmodal')?.closest('.modal')?.remove();
     beginSession('host');
@@ -211,9 +212,12 @@ export function showCoopLobby(d: LobbyDeps): void {
       <div class="members">${l.members.map((m) => `<div class="brow ${m.host ? 'me' : ''}"><b class="brank">${m.host ? '👑' : '🤝'}</b><span class="bname"><b>${esc(m.playerId)}</b><small>${cls(m.classId)} · ${tr('最高可打', 'Up to')} ${EN ? `Tier ${m.maxTier}` : `第 ${m.maxTier} 級`}</small></span></div>`).join('')}
         ${peer ? '' : `<div class="brow"><span class="bname"><small>${tr('等緊隊友…', 'Waiting for a teammate…')}</small></span></div>`}</div>
       <p class="note" style="margin:8px 0">${peer ? net : ''}</p>
-      ${l.isHost ? `<div class="tier"><button data-tier="-1" ${tm.tier <= 1 ? 'disabled' : ''}>◀</button>
+      ${l.isHost ? `<div class="seg" style="margin-bottom:8px"><button data-mode="dungeon" class="${tm.mode === 'dungeon' ? 'on' : ''}" style="flex:1">🏰 ${tr('地城', 'Dungeon')}</button><button data-mode="wb" class="${tm.mode === 'wb' ? 'on' : ''}" style="flex:1">🌍 ${tr('世界 Boss', 'World Boss')}</button></div>
+        ${tm.mode === 'wb' ? (() => { const wb = WORLD_BOSSES[todaysBoss()]; const wbMax = Math.max(WB_MIN_LEVEL, maxTier - 1); tm.wbLevel = Math.min(Math.max(WB_MIN_LEVEL, tm.wbLevel), wbMax); return `<div class="tier"><button data-tier="-1" ${tm.wbLevel <= WB_MIN_LEVEL ? 'disabled' : ''}>◀</button>
+        <div style="text-align:center"><div class="val">${wb.icon} Lv ${tm.wbLevel}</div><small>${wb.name} · ${tr('兩個人都打得到嘅最高：', 'Highest both can play: ')}Lv ${wbMax}<br>${tr('每人各自用自己嘅挑戰券領獎；傷害計全隊', 'Each player claims with their own ticket; damage counts for the team')}</small></div>
+        <button data-tier="1" ${tm.wbLevel >= wbMax ? 'disabled' : ''}>▶</button></div>`; })() : `<div class="tier"><button data-tier="-1" ${tm.tier <= 1 ? 'disabled' : ''}>◀</button>
         <div style="text-align:center"><div class="val">${EN ? `Tier ${tm.tier}` : `第 ${tm.tier} 級`}</div><small>${biomeFor(tm.tier).icon} ${biomeFor(tm.tier).name} · ${tr('兩個人都打得到嘅最高：', 'Highest both can play: ')}${maxTier}</small></div>
-        <button data-tier="1" ${tm.tier >= maxTier ? 'disabled' : ''}>▶</button></div>
+        <button data-tier="1" ${tm.tier >= maxTier ? 'disabled' : ''}>▶</button></div>`}
         <button class="primary" data-act="coopstart" style="width:100%;margin-top:10px" ${teamReady() ? '' : 'disabled'}>${tr('開始', 'Start')}</button>` : ''}
       <button data-act="hide" style="width:100%;margin-top:8px">${tr('閂咗呢個畫面（留喺隊伍）', 'Close (stay in the team)')}</button>
       <button class="ghost" data-act="leave" style="width:100%;margin-top:8px">${tr('離開隊伍', 'Leave the team')}</button></div>`;
@@ -224,7 +228,8 @@ export function showCoopLobby(d: LobbyDeps): void {
     if (!b || busy) return;
     if (b.dataset.act === 'close' || b.dataset.act === 'hide') { el.remove(); d.changed = changedBefore; changedBefore(); return; }
     if (b.dataset.act === 'leave') { leaveTeam(); draw(); return; }
-    if (b.dataset.tier && team) { team.tier += Number(b.dataset.tier); draw(); return; }
+    if (b.dataset.tier && team) { if (team.mode === 'wb') team.wbLevel += Number(b.dataset.tier); else team.tier += Number(b.dataset.tier); draw(); return; }
+    if (b.dataset.mode && team) { team.mode = b.dataset.mode as 'dungeon' | 'wb'; draw(); return; }
     if (b.dataset.act === 'host' || b.dataset.act === 'join') {
       const code = b.dataset.act === 'host' ? newCode() : ((el.querySelector('#coopcode') as HTMLInputElement | null)?.value ?? '').trim().toUpperCase();
       if (!/^[A-Z]{4}$/.test(code)) { error = tr('房間碼係 4 個英文字母', 'The room code is 4 letters'); draw(); return; }
@@ -232,14 +237,14 @@ export function showCoopLobby(d: LobbyDeps): void {
       try {
         const save = d.save();
         const l = await openLink(code, b.dataset.act === 'host', myInfo(save));
-        team = { link: l, peerSetup: null, peerAutoPick: true, fresh: false, tier: Math.min(save.selectedTier, save.highestCleared + 1) };
+        team = { link: l, peerSetup: null, peerAutoPick: true, fresh: false, tier: Math.min(save.selectedTier, save.highestCleared + 1), mode: 'dungeon', wbLevel: Math.max(WB_MIN_LEVEL, save.wbLevel) };
         l.onChange = () => d.changed();
         l.onMessage = teamMessage;
       } catch { error = tr('連唔到伺服器，再試一次', "Can't reach the server, try again"); }
       busy = false; draw();
       return;
     }
-    if (b.dataset.act === 'coopstart' && team) { d.changed = changedBefore; teamStart(team.tier); }
+    if (b.dataset.act === 'coopstart' && team) { d.changed = changedBefore; if (team.mode === 'wb') teamStart(team.wbLevel, todaysBoss()); else teamStart(team.tier); }
   });
   d.ui.appendChild(el);
   draw();

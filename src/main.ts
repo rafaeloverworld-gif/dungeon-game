@@ -7,7 +7,7 @@ import { Renderer } from './render/renderer';
 import { AWAKEN_TIER } from './sim/awakening';
 import { CLASSES } from './sim/classes';
 import { endlessStart, parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, addRunXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
-import { namedChance, todaysBoss } from './sim/worldboss';
+import { namedChance, todaysBoss, type WorldBossId } from './sim/worldboss';
 import { createInput } from './input';
 import { cloudConnect, cloudPush, cloudReady } from './cloud';
 import { onlineConnect, onlinePush, onlineState, reportWorldBoss, type RemoteSave } from './online';
@@ -158,9 +158,10 @@ function startRun(worldBossLevel?: number, endless = false): void {
 }
 
 /** Co-op: both phones build the same two heroes; the host runs the dungeon, the guest shows the host's snapshots. */
-function startCoop(o: { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean; role: 'host' | 'guest' }): void {
-  const hostSim = new Sim({ tier: o.tier, seed: o.seed, autoPickCards: o.role === 'host' ? save.autoPickCards : true, ...o.host });
-  const guestSim = new Sim({ tier: o.tier, seed: o.seed + 1, autoPickCards: o.role === 'host' ? o.guestAutoPick : save.autoPickCards, world: hostSim.w, ...o.guest });
+function startCoop(o: { tier: number; seed: number; host: Setup; guest: Setup; guestAutoPick: boolean; role: 'host' | 'guest'; wb?: WorldBossId }): void {
+  // co-op World Boss: both heroes fight today's boss (each claims with their own ticket afterwards)
+  const hostSim = new Sim({ tier: o.tier, seed: o.seed, autoPickCards: o.role === 'host' ? save.autoPickCards : true, ...o.host, worldBoss: o.wb });
+  const guestSim = new Sim({ tier: o.tier, seed: o.seed + 1, autoPickCards: o.role === 'host' ? o.guestAutoPick : save.autoPickCards, world: hostSim.w, ...o.guest, worldBoss: o.wb });
   sim = o.role === 'host' ? hostSim : guestSim;
   if (o.role === 'guest') resetGuest();
   if (session) session.link.onMessage = onCoopMessage;
@@ -603,12 +604,12 @@ function finishWorldBoss(killed: boolean, reason: string): void {
   input.enabled = false;
   { // today's World Boss board: boss level + how much of its HP you took (a kill counts as 99.9%)
     const maxHp = s.wb!.hp * Math.pow(1.15, s.tier - 1) * s.coopHp;
-    void reportWorldBoss(s.tier + (killed ? 0.999 : Math.min(0.99, (s.wbDamage / maxHp) * 0.99)));
+    if (!s.coop) void reportWorldBoss(s.tier + (killed ? 0.999 : Math.min(0.99, (s.wbDamage / maxHp) * 0.99)));
   }
   if (killed) { claimWbRun(s, true, reason); return; }
   // failed: retry for free (no rewards), or spend a ticket to take the rewards for the damage done
   const wb = s.wb!;
-  const frac = Math.min(1, s.wbDamage / (wb.hp * Math.pow(1.15, s.tier - 1)));
+  const frac = Math.min(1, s.wbDamage / (wb.hp * Math.pow(1.15, s.tier - 1) * s.coopHp));
   const tier = frac >= 0.66 ? tr('兩個銀箱', '2 Silver Chests') : frac >= 0.33 ? tr('一個銀箱', '1 Silver Chest') : tr('冇寶箱', 'no Chest');
   ui.innerHTML = '';
   const el = h(`
@@ -620,8 +621,9 @@ function finishWorldBoss(killed: boolean, reason: string): void {
         <small class="note" style="text-align:left;display:block">${tr('• <b>再挑戰</b>：唔扣券，但今次嘅獎勵唔要<br>• <b>領取獎勵</b>：用 1 張券，按今次傷害攞獎勵', '• <b>Retry</b>: free, but skip this reward<br>• <b>Claim</b>: use 1 ticket, reward by damage dealt')}</small>
       </div>
       <div class="col">
-        <button class="primary" data-act="retry">🔁 ${tr('再挑戰（唔扣券）', 'Retry (free)')}</button>
+        ${s.coop ? '' : `<button class="primary" data-act="retry">🔁 ${tr('再挑戰（唔扣券）', 'Retry (free)')}</button>`}
         <button data-act="claim">🎁 ${EN ? `Claim (1 ticket · ${wbTicketsLeft(save)} left today)` : `領取獎勵（用 1 張券 · 今日仲有 ${wbTicketsLeft(save)} 張）`}</button>
+        ${team ? `<button data-act="team-room">🤝 ${tr('返隊伍房間（唔扣券，冇獎勵）', 'Team room (free, no reward)')}</button>` : ''}
         <button class="ghost" data-act="home">${tr('返主頁（唔扣券，冇獎勵）', 'Home (free, no reward)')}</button>
       </div>
     </div>`);
@@ -629,6 +631,7 @@ function finishWorldBoss(killed: boolean, reason: string): void {
     const b = (ev.target as HTMLElement).closest('button');
     if (b?.dataset.act === 'retry') { el.remove(); startRun(s.tier); }
     if (b?.dataset.act === 'claim') claimWbRun(s, false, reason);
+    if (b?.dataset.act === 'team-room') { showHome(); homeCtx.openCoop(); }
     if (b?.dataset.act === 'home') showHome();
   });
   ui.appendChild(el);
@@ -637,7 +640,7 @@ function finishWorldBoss(killed: boolean, reason: string): void {
 function claimWbRun(s: Sim, killed: boolean, reason: string): void {
   if (!useWbTicket(save)) { banner(tr('今日嘅挑戰次數用晒喇', 'No attempts left today')); showHome(); return; }
   const wb = s.wb!;
-  const maxHp = wb.hp * Math.pow(1.15, s.tier - 1);
+  const maxHp = wb.hp * Math.pow(1.15, s.tier - 1) * s.coopHp;
   const frac = killed ? 1 : Math.min(1, s.wbDamage / maxHp);
   save.coins += Math.floor(s.runCoins);
   save.souls += Math.floor(s.runSouls);
@@ -673,10 +676,12 @@ function claimWbRun(s: Sim, killed: boolean, reason: string): void {
       <div class="col">
         <button class="primary" data-act="home">${EN ? `Home (${wbTicketsLeft(save)} left today)` : `返主頁（今日仲有 ${wbTicketsLeft(save)} 次）`}</button>
         ${items.length ? `<button data-act="gear">${tr('睇裝備', 'View gear')}</button>` : ''}
+        ${team ? `<button data-act="team-room">🤝 ${tr('返隊伍房間', 'Team room')}</button>` : ''}
       </div>
     </div>`);
   el.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
+    if (b?.dataset.act === 'team-room') { showHome(); homeCtx.openCoop(); }
     if (b?.dataset.act === 'home') showHome();
     if (b?.dataset.act === 'gear') showHome('gear');
   });
