@@ -368,8 +368,7 @@ export class Sim {
     this.arrowType = setup.arrowType ?? 'normal';
     this.arrowTypes = setup.arrowTypes?.length ? setup.arrowTypes : [this.arrowType];
     this.arrowMax = !!setup.arrowMax;
-    const pure = (!setup.subClassId || setup.subClassId === setup.classId) && (!setup.subClass2Id || setup.subClass2Id === setup.classId);
-    this.mastery = pure ? setup.mastery ?? 0 : 0; // 專精: a single class, or the same class picked again (雙刃戰士, 三刀流劍聖…)
+    this.mastery = !setup.subClassId ? setup.mastery ?? 0 : 0; // 專精: only while you have no second class
     this.spellType = setup.spellType ?? 'fire';
     this.spellTypes = setup.spellTypes?.length ? setup.spellTypes : [this.spellType];
     this.spellMax = !!setup.spellMax;
@@ -678,12 +677,22 @@ export class Sim {
 
   /** How much of a hit an undead takes (骨堡壘 -30%, crowned -50%). */
   minionTaken(m: Minion): number { return (this.combo.has('bulwark') ? 0.7 : 1) * (this.crownIds.has(m.id) ? 0.5 : 1) * (this.combo.has('boneGiant') ? 0.6 : 1); }
+  /** 屍毒 pools: a new pool on top of an old one just refreshes it, and each hero keeps at most 8
+   *  (dozens of overlapping see-through circles made phones lag in long 無盡模式 runs). */
+  private addPoisonZone(z: Zone): void {
+    const old = this.zones.find((o) => o.kind === 'poison' && o.src === 'poison' && Math.hypot(o.x - z.x, o.z - z.z) < Math.max(o.r, z.r) * 0.7);
+    if (old) { old.timer = Math.max(old.timer, z.timer); old.dmg = Math.max(old.dmg, z.dmg); old.r = Math.max(old.r, z.r); return; }
+    const mine = this.zones.filter((o) => o.src === 'poison');
+    if (mine.length >= 8) { const oldest = mine.reduce((a, b) => (a.timer < b.timer ? a : b)); this.zones.splice(this.zones.indexOf(oldest), 1); }
+    this.zones.push(z);
+  }
   /** Copies of a bone trait worn (0 if none). */
   private n(t: SpecialId): number { return this.utn[t] ?? 0; }
 
   /** Raise a skeleton at (x, z). Returns false when at the cap (unless force). */
   summon(x: number, z: number, o: { force?: boolean; power?: number; life?: number; big?: boolean; kind?: MinionKind } = {}): boolean {
     if (!o.force && this.minions.length >= this.minionCap) return false;
+    if (this.minions.length >= this.minionCap + 8) return false; // even skills that go past the cap stop here (keeps phones smooth)
     const kind = o.kind ?? 'skeleton';
     const sm = value(this.stats.summon);
     const hpMult = 0.45 * sm * (o.big ? 1.5 : 1) * MINION_KINDS[kind].hp * (1 + this.n('utTank')); // 骨甲: ×2 HP per copy
@@ -757,7 +766,7 @@ export class Sim {
         if (this.ut.poison && (m.poisonCd ?? 0) <= 0) { // 屍毒 (瘟疫幽魂: bigger, slowing)
           m.poisonCd = 3;
           const plague = this.combo.has('plague');
-          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1) * (this.combo.has('plagueLord') ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9, src: 'poison' });
+          this.addPoisonZone({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1) * (this.combo.has('plagueLord') ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9, src: 'poison' });
         }
         const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * (this.combo.has('lichKing') ? 1.2 : 1) * (1 + 0.2 * (this.n('utCaster') - 1)) * (this.combo.has('grandLich') ? 1.25 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師 / 骸骨魔導王: bigger blasts)
         const slow = this.ut.wraith ? Math.max(0.3, 0.8 - 0.15 * this.n('utWraith')) : undefined; // 怨靈: stronger slow per copy
@@ -806,14 +815,14 @@ export class Sim {
     const arc = Math.min(Math.PI * 2, ((this.attack.arcDegrees ?? 140) * Math.PI) / 180 * Math.min(1.6, Math.sqrt(value(this.stats.area))));
     const comboMult = 1 + 0.6 * (this.stats.multishot - 1);
     this.arcHit(angle, reach, arc, comboMult * mult, this.attack.kind === 'reap' ? 'shadow' : undefined);
-    if (this.cls.id === 'warrior' && this.mastery >= 25) { // 戰士 劍氣: every swing also sends a piercing sword wave
+    if (this.cls.id === 'warrior' && this.mastery >= 50) { // 戰士 劍氣 (專精 Lv 50): every swing also sends a piercing sword wave
       const p = this.player, sp = 16, { dmg, crit } = this.rollDamage();
       this.projectiles.push({ x: p.x, z: p.z, vx: Math.sin(angle) * sp, vz: Math.cos(angle) * sp, dmg: dmg * mult * 1.0, crit, fromPlayer: true, life: 0.55, pierce: 99, radius: 0.7, hit: [], javelin: true, src: 'skill' });
     }
   }
 
-  /** 戰士 戰神 (專精 Lv 50): below half HP, attacks and attack speed ×1.5. */
-  get warGod(): boolean { return this.cls.id === 'warrior' && this.mastery >= 50 && this.player.hp < this.maxHp * 0.5; }
+  /** 戰士 戰神 (專精 Lv 25): below half HP, attacks and attack speed ×1.5. */
+  get warGod(): boolean { return this.cls.id === 'warrior' && this.mastery >= 25 && this.player.hp < this.maxHp * 0.5; } // 專精 Lv 25
 
   /** 專精 Lv 50 abilities on a timer: 弓手 千箭 (every 8 s, 24 arrows all around), 法師 天災 (every 10 s, 6 meteors). */
   private masteryTick(dt: number): void {
@@ -1231,7 +1240,7 @@ export class Sim {
     this.spawnAcc += rate * dt;
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1;
-      if (minions >= (this.endless ? 220 : DUNGEON.maxAlive)) continue;
+      if (minions >= (this.endless ? 170 : DUNGEON.maxAlive)) continue;
       let r = this.rand();
       const pick = (w: number) => { if (r < w) return true; r -= w; return false; };
       const shooterW = this.map === 0 ? 0.12 : 0.2;

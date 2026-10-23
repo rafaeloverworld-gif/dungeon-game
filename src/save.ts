@@ -287,7 +287,9 @@ export function addClassXp(s: SaveData, xp: number): void {
   for (const o of new Set([sub, sub2])) if (o && o !== c) s.classXp[o] = (s.classXp[o] ?? 0) + xp * 0.5;
 }
 /** 專精 counts while you stay one class: no second class, or the same class picked again. */
-export const isPure = (s: SaveData) => { const a = subOf(s), b = sub2Of(s); return (!a || a === s.classId) && (!b || b === s.classId); };
+export const isPure = (s: SaveData) => !subOf(s);
+/** 專精: board numbers ×2 while you have no second class, ×2.5 once you could have ascended (Tier 25 + Lv 40). */
+export const pureBoardScale = (s: SaveData) => (!isPure(s) ? 1 : (s.highestCleared >= ASCEND_TIER && s.level >= ASCEND_LEVEL ? 2.5 : 2) + (s.classId === 'warrior' ? 0.5 : 0)); // 戰士 +0.5 (its own board is the weakest)
 /** Run XP goes to the character and to the classes in use. */
 export function addRunXp(s: SaveData, xp: number): number { addClassXp(s, xp); return addAccountXp(s, xp); }
 /** Can this class be picked as the second (or third) class? */
@@ -741,7 +743,7 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   const worn = equippedItems(s);
   const specials = worn.flatMap((i) => [i.special, i.special2]).filter((x): x is SpecialId => !!x);
   const procs = worn.map((i) => i.proc).filter((p): p is NonNullable<Item['proc']> => !!p);
-  const skills = boardEffects(activeBoard(s));
+  const skills = boardEffects(activeBoard(s), pureBoardScale(s));
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };

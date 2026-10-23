@@ -452,7 +452,9 @@ export class Renderer {
   }
 
   handleEvents(events: SimEvent[]): void {
+    let hits = 0; // lots of hits in one frame: only the first 30 make sparks and numbers
     for (const ev of events) {
+      if (ev.type === 'hit' && ++hits > 30) continue;
       if (ev.type === 'react') { this.addLabel(ev.x, ev.z, ev.name, ev.fx); continue; }
       if (ev.type === 'hit') { this.burst(ev.x, ev.z, ev.crit ? 0xfff27a : 0xffffff, ev.crit ? 5 : 2); this.addNumber(ev.x, ev.z, ev.dmg, ev.crit); }
       else if (ev.type === 'kill' && this.flipsDie && !isBigKind(ev.kind) && this.corpses.length < 60) { this.corpses.push({ kind: ev.kind as SmallKind, x: ev.x, z: ev.z, rot: Math.random() * Math.PI * 2, t: 0 }); this.burst(ev.x, ev.z, 0xd0d0d0, 4); }

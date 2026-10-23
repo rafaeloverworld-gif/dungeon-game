@@ -449,7 +449,8 @@ export interface SkillEffects {
   echoUp: boolean;
 }
 
-export function boardEffects(unlocked: Iterable<string>): SkillEffects {
+/** scale: 專精 (no second class) makes every number on the board stronger (on / off nodes stay the same). */
+export function boardEffects(unlocked: Iterable<string>, scale = 1): SkillEffects {
   const fx: SkillEffects = { bonus: {}, autoSkills: [], multishot: 0, pierce: 0, healOnKill: 0, sigDmg: 0, sigCd: 0, cdr: 0, dodge: 0, thorns: false, frostArmor: false, minions: 0, procs: [], specials: [], uniques: [], sigUp: false, echoUp: false };
   const skills = new Map<AutoSkillId, 1 | 2>();
   const upgrades = new Set<AutoSkillId>();
@@ -458,23 +459,23 @@ export function boardEffects(unlocked: Iterable<string>): SkillEffects {
     const n = nodeById(id);
     if (!n) continue;
     const e = n.fx;
-    if ('stat' in e) addBonus(fx.bonus, e.stat, { flat: e.flat, pct: e.pct });
+    if ('stat' in e) addBonus(fx.bonus, e.stat, { flat: e.flat === undefined ? undefined : e.flat * scale, pct: e.pct === undefined ? undefined : e.pct * scale });
     else if ('skill' in e) { skills.set(e.skill, 1); skillCount.set(e.skill, (skillCount.get(e.skill) ?? 0) + 1); }
     else if ('upgrade' in e) upgrades.add(e.upgrade);
-    else if ('proc' in e) fx.procs.push({ id: e.proc, value: e.value });
+    else if ('proc' in e) fx.procs.push({ id: e.proc, value: e.value * scale });
     else if ('gear' in e) fx.specials.push(e.gear);
     else if ('unique' in e) { if (!fx.uniques.includes(e.unique)) fx.uniques.push(e.unique); }
     else if ('sigUp' in e) fx.sigUp = true;
     else if ('echoUp' in e) fx.echoUp = true;
     else {
       switch (e.special) {
-        case 'healOnKill': fx.healOnKill += e.value; break;
+        case 'healOnKill': fx.healOnKill += e.value * scale; break;
         case 'multishot': fx.multishot += e.value; break;
         case 'pierce': fx.pierce += e.value; break;
-        case 'sigDmg': fx.sigDmg += e.value; break;
-        case 'sigCd': fx.sigCd += e.value; break;
-        case 'cdr': fx.cdr += e.value; break;
-        case 'dodge': fx.dodge += e.value; break;
+        case 'sigDmg': fx.sigDmg += e.value * scale; break;
+        case 'sigCd': fx.sigCd += e.value * Math.min(scale, 1.5); break;
+        case 'cdr': fx.cdr += e.value * Math.min(scale, 1.5); break;
+        case 'dodge': fx.dodge += e.value * Math.min(scale, 1.5); break;
         case 'thorns': fx.thorns = true; break;
         case 'frostArmor': fx.frostArmor = true; break;
         case 'minions': fx.minions += e.value; break;
