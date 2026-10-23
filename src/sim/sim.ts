@@ -233,6 +233,7 @@ export class Sim {
   /** 專精 (single class): class level; abilities at 10 / 25 / 50. */
   readonly mastery: number;
   private unyieldUsed = false; // 戰士 不屈: once per map
+  private swingHealT = -9; // 戰士 不屈: last heal from a swing
   private volleyCount = 0; // 弓手 連射
   private masteryT = 0; // 千箭 / 天災 timer
   readonly spellType: SpellType;
@@ -847,6 +848,7 @@ export class Sim {
   /** Hit every enemy inside a cone (arc = 2π for a full circle). */
   arcHit(angle: number, reach: number, arc: number, mult: number, fx?: FxKind): void {
     const p = this.player;
+    let hitAny = false;
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       const dx = e.x - p.x, dz = e.z - p.z;
@@ -857,7 +859,10 @@ export class Sim {
       if (d > e.radius + 0.6 && Math.abs(diff) > arc / 2) continue;
       const { dmg, crit } = this.rollDamage();
       this.damageEnemy(e, dmg * mult, crit);
+      hitAny = true;
     }
+    // 戰士 不屈 (專精 Lv 10): a swing that connects heals 1% max HP (at most 3 times a second)
+    if (hitAny && this.cls.id === 'warrior' && this.mastery >= 10 && this.time - this.swingHealT >= 0.33) { this.swingHealT = this.time; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.01); }
     this.enemies = this.enemies.filter((e) => e.hp > 0);
     this.events.push({ type: 'swing', x: p.x, z: p.z, angle, reach, arc, fx });
   }
@@ -1203,6 +1208,8 @@ export class Sim {
     dmg *= defMultiplier(value(this.stats.def));
     if (this.uq.bossGuard && this.boss) dmg *= 0.75; // 騎士之盾
     if (this.cls.bossGuard && this.boss) dmg *= 1 - this.cls.bossGuard; // 弓手 / 法師: keep their distance from bosses
+    if (this.cls.id === 'warrior' && this.mastery >= 10 && this.boss) dmg *= 0.65; // 戰士 不屈: 35% less while a boss is in the fight (melee has to stand next to it)
+    if (this.cls.id === 'warrior' && this.mastery >= 10 && src !== 'boss' && src !== 'miniboss' && src !== 'slam' && src !== 'charge') dmg *= 0.8; // 戰士 不屈: small enemies hit 20% softer
     dmg = ultOnHurt(this, dmg); // 聖光壁壘 / 復仇之魂
     if (dmg <= 0) { p.invuln = PLAYER.hurtInvuln * 0.5; return false; }
     if (this.elemShield > 0) { // 元素護盾 takes the hit first
