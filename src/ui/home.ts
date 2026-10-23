@@ -13,7 +13,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, ENDLESS_START, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
+  activeBoard, activeBoards, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, ENDLESS_START, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -402,8 +402,27 @@ const UNLOCK_MSG: Record<UnlockCheck, string> = {
   souls: tr('靈魂唔夠', 'Not enough Souls'), runes: tr('符文唔夠', 'Not enough Runes'),
 };
 
+/** 配裝 A/B/C bar (Skills, Ultimates and Gear tabs): tap a letter to switch builds for this class. */
+function loadoutBar(ctx: HomeCtx, body: HTMLElement): void {
+  const save = ctx.getSave();
+  const cur = activeLoadout(save);
+  const el = h(`<div class="card loadoutbar"><div class="statline"><h3 style="margin:0">🗂️ ${tr('配裝', 'Builds')}</h3><div class="seg">${LOADOUT_NAMES.map((n, i) => `<button data-lo="${i}" class="${i === cur ? 'on' : ''}">${n}${!loadoutUsed(save, i) ? ' ＋' : ''}</button>`).join('')}</div></div><small>${tr('每個職業各自 3 套：裝備、終極技、箭種／法術、技能盤。新嘅一套會抄你而家嘅裝備同終極技，但技能盤由空白開始（每套自己投資靈魂同符文）。', 'Three builds per class: gear, ultimates, arrows / spells and skill boards. A new build copies your gear and ultimates, but its skill boards start empty (each build invests its own souls and runes).')}</small></div>`);
+  el.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest('button');
+    if (!b?.dataset.lo) return;
+    ev.stopPropagation();
+    const i = Number(b.dataset.lo);
+    if (i === activeLoadout(save)) return;
+    switchLoadout(save, i); writeSave(save);
+    ctx.banner(`🗂️ ${tr(`已轉去配裝 ${LOADOUT_NAMES[i]}`, `Switched to build ${LOADOUT_NAMES[i]}`)}`);
+    showHome(ctx, tab);
+  });
+  body.prepend(el);
+}
+
 function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
   const save = ctx.getSave();
+  queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   const boards = activeBoards(save);
   const board: BoardKey = boardTab && boards.includes(boardTab) ? boardTab : save.classId;
   const pre = copyPrefix(`${board}.`);
@@ -570,6 +589,7 @@ function undeadLine(save: SaveData): string {
 const ultAffordable = (save: SaveData) => ULT_IDS.some((u) => { const c = ultCost(save, u); return c !== null && save.crystals >= c && (!save.ults[u] || save.ultEquip.includes(u)); });
 
 function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
+  queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   const save = ctx.getSave();
   const slots = Array.from({ length: ULT_SLOTS }, (_, i) => save.ultEquip[i]);
   body.appendChild(h(`
@@ -657,6 +677,7 @@ function slotLabel(save: SaveData, slot: Slot): string {
 const salvSel = new Set<Rarity>(['common']);
 
 function renderGear(ctx: HomeCtx, body: HTMLElement): void {
+  queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   const save = ctx.getSave();
   // the bag lists what the current character is NOT wearing
   const bag = save.items.filter((i) => !isEquipped(save, i)).sort((a, b) =>

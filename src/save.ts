@@ -37,6 +37,7 @@ export interface SaveData {
   arrowType: Partial<Record<ClassId, ArrowType>>; // bows: chosen arrows per class
   arrowMix: Partial<Record<ClassId, ArrowType[]>>;
   endlessBest: number; // 無盡模式: most floors cleared in one run
+  loadouts: Partial<Record<ClassId, { active: number; sets: (Loadout | null)[] }>>; // 配裝 A/B/C per class
   bagBuys: number; // extra bag space bought with coins (+10 each) // 多重箭袋: extra arrow types used at the same time
   spellType: Partial<Record<ClassId, SpellType>>; // staffs: chosen spell per class
   spellMix: Partial<Record<ClassId, SpellType[]>>; // 多重法典: extra spells cast in turn
@@ -71,7 +72,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, bagBuys: 0, endlessBest: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, bagBuys: 0, endlessBest: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -161,6 +162,7 @@ function sanitize(raw: unknown): SaveData {
     arrowType: Object.fromEntries(Object.entries(r.arrowType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && ARROW_TYPES.includes(a as ArrowType))) as SaveData['arrowType'],
     arrowMix: Object.fromEntries(Object.entries(r.arrowMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => ARROW_TYPES.includes(x as ArrowType)))]])) as SaveData['arrowMix'],
     endlessBest: Math.max(0, Math.floor(num(r.endlessBest, 0))),
+    loadouts: sanitizeLoadouts(r.loadouts),
     bagBuys: Math.min(BAG_BUYS_MAX, Math.max(0, Math.floor(num(r.bagBuys, 0)))),
     spellMix: Object.fromEntries(Object.entries(r.spellMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => SPELL_TYPES.includes(x as SpellType)))]])) as SaveData['spellMix'],
     wbDay: typeof r.wbDay === 'string' ? r.wbDay : '',
@@ -294,7 +296,9 @@ export function equippedIn(s: SaveData, slot: EquipSlot): Item | undefined {
 export const isEquipped = (s: SaveData, it: Item) => EQUIP_SLOTS.some((slot) => equippedIn(s, slot) === it);
 /** Worn by any class (protects it from salvage and trades). */
 export const isEquippedAny = (s: SaveData, it: Item) => Object.values(s.equipped).includes(it.id);
-export const isProtected = (s: SaveData, it: Item) => it.locked || isEquippedAny(s, it);
+export const isProtected = (s: SaveData, it: Item) => it.locked || isEquippedAny(s, it) || inLoadout(s, it);
+/** Kept in a saved 配裝 (A/B/C) of any class: protected too. */
+export const inLoadout = (s: SaveData, it: Item) => Object.values(s.loadouts).some((l) => l?.sets.some((st) => st && Object.values(st.equipped).includes(it.id)));
 
 export function equippedItems(s: SaveData): Item[] {
   return EQUIP_SLOTS.map((slot) => equippedIn(s, slot)).filter((i): i is Item => !!i);
@@ -564,6 +568,84 @@ export function resetAwakening(s: SaveData): { souls: number; runes: number } {
 }
 
 export { BOARD_NODES };
+
+// ---------- 配裝 A/B/C (per class) ----------
+export const LOADOUT_COUNT = 3;
+export const LOADOUT_NAMES = ['A', 'B', 'C'];
+/** A saved build: gear, ultimates, arrows / spells / necro mode, and the skill boards (each set invests its own souls and runes). */
+export interface Loadout {
+  equipped: Record<string, string | null>;
+  ultEquip: UltId[];
+  arrowType?: ArrowType; arrowMix: ArrowType[];
+  spellType?: SpellType; spellMix: SpellType[];
+  necroMode: NecroMode;
+  board: string[];
+  boardSpent: SaveData['boardSpent'];
+  boardResets: SaveData['boardResets'];
+}
+function sanitizeLoadouts(raw: unknown): SaveData['loadouts'] {
+  const out: SaveData['loadouts'] = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [c, v] of Object.entries(raw as Record<string, { active?: number; sets?: unknown[] }>)) {
+    if (!CLASS_IDS.includes(c as ClassId) || !v || !Array.isArray(v.sets)) continue;
+    const sets = Array.from({ length: LOADOUT_COUNT }, (_, i) => {
+      const st = v.sets![i] as Partial<Loadout> | null | undefined;
+      if (!st || typeof st !== 'object') return null;
+      return {
+        equipped: Object.fromEntries(Object.entries(st.equipped ?? {}).filter(([, id]) => id === null || typeof id === 'string')) as Loadout['equipped'],
+        ultEquip: Array.isArray(st.ultEquip) ? st.ultEquip.filter((u) => ULT_IDS.includes(u)).slice(0, ULT_SLOTS) : [],
+        arrowType: ARROW_TYPES.includes(st.arrowType as ArrowType) ? st.arrowType : undefined,
+        arrowMix: Array.isArray(st.arrowMix) ? st.arrowMix.filter((a) => ARROW_TYPES.includes(a)) : [],
+        spellType: SPELL_TYPES.includes(st.spellType as SpellType) ? st.spellType : undefined,
+        spellMix: Array.isArray(st.spellMix) ? st.spellMix.filter((a) => SPELL_TYPES.includes(a)) : [],
+        necroMode: st.necroMode === 'summon' ? 'summon' : 'bolt',
+        board: Array.isArray(st.board) ? st.board.filter((id) => typeof id === 'string' && !!nodeById(id)) : [],
+        boardSpent: st.boardSpent && typeof st.boardSpent === 'object' ? st.boardSpent : {},
+        boardResets: st.boardResets && typeof st.boardResets === 'object' ? st.boardResets : {},
+      } as Loadout;
+    });
+    out[c as ClassId] = { active: Math.max(0, Math.min(LOADOUT_COUNT - 1, Math.floor(num(v.active, 0)))), sets };
+  }
+  return out;
+}
+/** The current build of this class, as a 配裝. */
+function snapshotLoadout(s: SaveData): Loadout {
+  const c = s.classId, keys: string[] = activeBoards(s);
+  const pick = <T,>(o: Partial<Record<BoardKey, T>>) => Object.fromEntries(Object.entries(o).filter(([k]) => keys.includes(k))) as Partial<Record<BoardKey, T>>;
+  return {
+    equipped: Object.fromEntries(EQUIP_SLOTS.map((sl) => [slotKey(sl, c), s.equipped[slotKey(sl, c)] ?? null])),
+    ultEquip: [...s.ultEquip], arrowType: s.arrowType[c], arrowMix: [...(s.arrowMix[c] ?? [])], spellType: s.spellType[c], spellMix: [...(s.spellMix[c] ?? [])],
+    necroMode: s.necroMode, board: s.board.filter((id) => keys.includes(boardKeyOf(id))), boardSpent: pick(s.boardSpent), boardResets: pick(s.boardResets),
+  };
+}
+export const activeLoadout = (s: SaveData) => s.loadouts[s.classId]?.active ?? 0;
+export const loadoutUsed = (s: SaveData, i: number) => i === activeLoadout(s) || !!s.loadouts[s.classId]?.sets[i];
+/** Switch this class to 配裝 i. The current build is saved into its set first. An empty set starts with the same
+ *  gear, ultimates and arrows, but an empty skill board (each set pays for its own panels). */
+export function switchLoadout(s: SaveData, i: number): void {
+  const c = s.classId;
+  const lo = (s.loadouts[c] ??= { active: 0, sets: new Array<Loadout | null>(LOADOUT_COUNT).fill(null) });
+  if (i === lo.active || i < 0 || i >= LOADOUT_COUNT) return;
+  const keys: string[] = activeBoards(s);
+  lo.sets[lo.active] = snapshotLoadout(s);
+  const next: Loadout | null = lo.sets[i] ?? null;
+  // take this class's boards off; the next set brings its own
+  s.board = s.board.filter((id) => !keys.includes(boardKeyOf(id)));
+  for (const k of keys) { delete s.boardSpent[k as BoardKey]; delete s.boardResets[k as BoardKey]; }
+  if (next) {
+    for (const [k, id] of Object.entries(next.equipped)) s.equipped[k] = id && itemById(s, id) ? id : null;
+    s.ultEquip = next.ultEquip.filter((u) => (s.ults[u] ?? 0) > 0);
+    if (next.arrowType) s.arrowType[c] = next.arrowType;
+    s.arrowMix[c] = [...next.arrowMix];
+    if (next.spellType) s.spellType[c] = next.spellType;
+    s.spellMix[c] = [...next.spellMix];
+    s.necroMode = next.necroMode;
+    s.board.push(...next.board.filter((id) => !s.board.includes(id)));
+    Object.assign(s.boardSpent, next.boardSpent);
+    Object.assign(s.boardResets, next.boardResets);
+  }
+  lo.active = i;
+}
 
 // ---------- 無盡模式 ----------
 export const ENDLESS_UNLOCK = 50; // clear tier 50 first
