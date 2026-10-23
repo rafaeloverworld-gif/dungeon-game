@@ -140,7 +140,7 @@ export function updateAbilities(sim: Sim, dt: number): void {
         if (Math.hypot(e.x - z.x, e.z - z.z) < z.r + e.radius) {
           e.slowTimer = 0.7;
           e.slowMult = Math.min(e.slowMult, z.slow ?? 0.5);
-          sim.damageEnemy(e, z.dmg, false, true);
+          sim.withSrc(z.src ?? 'skill', () => sim.damageEnemy(e, z.dmg, false, true));
           if ((z.kind === 'poison' || z.kind === 'fire') && e.hp > 0) sim.applyElem(e, z.kind); // 元素: poison / fire on the ground
         }
       }

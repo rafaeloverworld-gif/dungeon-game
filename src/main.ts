@@ -1,5 +1,5 @@
 import { DUNGEON, OFFLINE, SIM_DT } from './sim/config';
-import { Sim, type Input, type SimEvent } from './sim/sim';
+import { Sim, type DmgSrc, type Input, type SimEvent } from './sim/sim';
 import { biomeFor, isBigKind } from './sim/config';
 import { play, setTense, startMusic, unlockAudio } from './audio';
 import { CHEST_NAMES, doubleChance, itemName, RARITY_COLORS, type ChestKind } from './sim/gear';
@@ -240,12 +240,17 @@ function buildHud(): void {
 }
 
 // ---------- DPS meter (bottom left): damage per second over the last 5 s, per hero ----------
-let dpsSamples: { t: number; totals: number[] }[] = [];
+let dpsSamples: { t: number; totals: number[]; by: Partial<Record<DmgSrc, number>> }[] = [];
 let dpsDrawnAt = 0;
+/** Solo DPS meter: icon and name of each damage source. */
+const DMG_SRC: Record<DmgSrc, [string, string]> = {
+  attack: ['⚔️', tr('攻擊', 'Attack')], undead: ['💀', tr('亡靈', 'Undead')], ult: ['⚡', tr('終極', 'Ultimate')],
+  react: ['✨', tr('反應', 'Reaction')], skill: ['🌀', tr('技能', 'Skill')], thorns: ['🌵', tr('荊棘', 'Thorns')],
+};
 function updateDps(s: Sim): void {
   const now = s.time;
   if (!dpsSamples.length || now < dpsSamples[dpsSamples.length - 1].t) dpsSamples = []; // new run
-  if (!dpsSamples.length || now - dpsSamples[dpsSamples.length - 1].t >= 0.25) dpsSamples.push({ t: now, totals: s.heroes.map((h) => h.dmgDealt) });
+  if (!dpsSamples.length || now - dpsSamples[dpsSamples.length - 1].t >= 0.25) dpsSamples.push({ t: now, totals: s.heroes.map((h) => h.dmgDealt), by: { ...s.dmgBy } });
   while (dpsSamples.length > 2 && now - dpsSamples[0].t > 5) dpsSamples.shift();
   if (performance.now() - dpsDrawnAt < 250 || !hud) return;
   dpsDrawnAt = performance.now();
@@ -254,6 +259,13 @@ function updateDps(s: Sim): void {
   const top = Math.max(1, ...rows.map((r) => r.dps));
   let el = hud.root.querySelector('.dpsbar') as HTMLElement | null;
   if (!el) { el = document.createElement('div'); el.className = 'dpsbar'; hud.root.appendChild(el); }
+  if (!s.coop) {
+    // solo: where your damage comes from (last 5 s)
+    const src = (Object.keys(DMG_SRC) as DmgSrc[]).map((k) => ({ k, dps: Math.max(0, ((s.dmgBy[k] ?? 0) - (first.by[k] ?? 0)) / span) })).filter((r) => r.dps >= 1).sort((a, b) => b.dps - a.dps);
+    const total = rows[0]?.dps ?? 0, topS = Math.max(1, ...src.map((r) => r.dps));
+    el.innerHTML = `<small>DPS ${fmt(Math.round(total))}</small>${src.map((r) => `<div class="dpsrow"><span>${DMG_SRC[r.k][0]}${DMG_SRC[r.k][1]}</span><i><b style="width:${(r.dps / topS) * 100}%"></b></i><em>${Math.round((r.dps / Math.max(1, total)) * 100)}%</em></div>`).join('')}`;
+    return;
+  }
   el.innerHTML = `<small>DPS</small>${rows.map((r) => `<div class="dpsrow ${r.h === s ? 'me' : ''}"><span>${r.h.cls.icon}${s.coop ? (r.h === s ? tr('你', 'You') : tr('隊友', 'Ally')) : ''}</span><i><b style="width:${(r.dps / top) * 100}%"></b></i><em>${fmt(Math.round(r.dps))}</em></div>`).join('')}`;
 }
 

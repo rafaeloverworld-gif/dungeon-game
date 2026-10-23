@@ -2,9 +2,51 @@
 // It is deliberately "okay, not great" so taking control yourself is worth it.
 import { ARENA_HALF, isBigKind } from './config';
 import type { Sim } from './sim';
+import { value } from './stats';
+
+/** Is (x, z) inside a telegraphed attack (with a small margin)? */
+function inWarning(w: Sim['warnings'][number], x: number, z: number, pad: number): boolean {
+  if (w.line) {
+    const dx = w.line.x2 - w.x, dz = w.line.z2 - w.z, L2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((x - w.x) * dx + (z - w.z) * dz) / L2));
+    return Math.hypot(x - (w.x + dx * t), z - (w.z + dz * t)) < w.line.w / 2 + pad;
+  }
+  return Math.hypot(x - w.x, z - w.z) < w.r + pad;
+}
+
+/** Red circles / charge lines about to land on us: try 24 directions and pick the one where, at the moment
+ *  each attack lands, we are outside it (least damage taken; ties: the most room to spare). Null when safe. */
+function escapeWarnings(sim: Sim): { x: number; z: number } | null {
+  const p = sim.player, pad = 0.75;
+  const near = sim.warnings.filter((w) => inWarning(w, p.x, p.z, pad + 1.2));
+  if (!near.length) return null;
+  const speed = value(sim.stats.moveSpeed);
+  const lim = ARENA_HALF - 0.8;
+  let best: { x: number; z: number } | null = null, bestScore = Infinity;
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2, ux = Math.sin(a), uz = Math.cos(a);
+    let score = 0, room = Infinity;
+    for (const w of sim.warnings) {
+      const t = Math.max(0, w.timer);
+      const x = Math.max(-lim, Math.min(lim, p.x + ux * speed * t)), z = Math.max(-lim, Math.min(lim, p.z + uz * speed * t));
+      if (inWarning(w, x, z, pad)) score += w.dmg;
+      else if (!w.line) room = Math.min(room, Math.hypot(x - w.x, z - w.z) - w.r);
+    }
+    // a pillar in the way blocks the escape
+    for (const pl of sim.pillars) {
+      const t = ((pl.x - p.x) * ux + (pl.z - p.z) * uz);
+      if (t > 0 && t < speed * 1.2 && Math.hypot(p.x + ux * t - pl.x, p.z + uz * t - pl.z) < pl.r + 0.5) score += 1e6;
+    }
+    const total = score * 1000 - Math.min(room, 5);
+    if (total < bestScore) { bestScore = total; best = { x: ux, z: uz }; }
+  }
+  return best;
+}
 
 export function autopilotDirection(sim: Sim): { x: number; z: number } {
   const p = sim.player;
+  const esc = escapeWarnings(sim); // telegraphed attacks come first: getting out beats everything else
+  if (esc) return esc;
   let fx = 0, fz = 0;
   let threat = 0;
 

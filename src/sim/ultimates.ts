@@ -318,7 +318,7 @@ export function updateUltimates(sim: Sim, dt: number): void {
     const c = densest(sim, 3);
     if (c) {
       u.timers.poisonSwamp = ULT.poisonSwamp.cd(l) * cdm;
-      sim.zones.push({ x: c.x, z: c.z, r: ULT.poisonSwamp.radius(l) * areaMul(sim), timer: ULT.poisonSwamp.dur(l), tick: 0, dmg: atk(sim) * ULT.poisonSwamp.dmg(l), kind: 'poison', slow: 0.8, burst: limit(l) ? atk(sim) * 0.8 : undefined });
+      sim.zones.push({ x: c.x, z: c.z, r: ULT.poisonSwamp.radius(l) * areaMul(sim), timer: ULT.poisonSwamp.dur(l), tick: 0, dmg: atk(sim) * ULT.poisonSwamp.dmg(l), kind: 'poison', slow: 0.8, src: 'ult', burst: limit(l) ? atk(sim) * 0.8 : undefined });
     } else u.timers.poisonSwamp = 0.5;
   }
 
@@ -362,7 +362,7 @@ export function updateUltimates(sim: Sim, dt: number): void {
     const r = ULT.meteorShower.radius * areaMul(sim);
     const crit = sim.rand() < value(sim.stats.crit);
     sim.explode(m.x, m.z, r, m.dmg * (crit ? value(sim.stats.critDmg) : 1), crit, 'fire', { noProc: true, knock: 1, elem: 'fire' });
-    if (limit(L.meteorShower)) sim.zones.push({ x: m.x, z: m.z, r, timer: 3, tick: 0, dmg: m.dmg * 0.12, kind: 'fire', slow: 1 });
+    if (limit(L.meteorShower)) sim.zones.push({ x: m.x, z: m.z, r, timer: 3, tick: 0, dmg: m.dmg * 0.12, kind: 'fire', slow: 1, src: 'ult' });
     return false;
   });
 
@@ -531,7 +531,7 @@ export function ultOnHit(sim: Sim, e: Enemy, scale = 1): void {
   if (L.flameBurst && roll(ULT.flameBurst.chance(L.flameBurst))) {
     const l = L.flameBurst, r = ULT.flameBurst.radius(l) * areaMul(sim), { c, m } = critMul();
     sim.explode(e.x, e.z, r, atk(sim) * ULT.flameBurst.dmg(l) * m, c, 'fire', { noProc: true, elem: 'fire' });
-    if (limit(l)) sim.zones.push({ x: e.x, z: e.z, r, timer: 2, tick: 0, dmg: atk(sim) * 0.3, kind: 'fire', slow: 1 });
+    if (limit(l)) sim.zones.push({ x: e.x, z: e.z, r, timer: 2, tick: 0, dmg: atk(sim) * 0.3, kind: 'fire', slow: 1, src: 'ult' });
   }
   if (L.frostTouch && roll(ULT.frostTouch.chance(L.frostTouch))) {
     const l = L.frostTouch, r = ULT.frostTouch.radius(l) * areaMul(sim), { c, m } = critMul();

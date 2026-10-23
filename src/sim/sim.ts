@@ -75,6 +75,7 @@ export interface Projectile {
   owner?: Sim; // co-op: the hero who fired it (damage, procs and kills are theirs)
   elem?: Elem; // leaves this element on what it hits
   hitBlast?: number; // 多重箭袋 with 爆裂箭: a small blast on every hit (the arrow keeps piercing)
+  src?: DmgSrc; // counted as this source (default: your attack)
   homing?: boolean; // 追蹤箭: steers towards an enemy; after piercing one, turns to the next
   seek?: number; // id of the enemy it is chasing
   rehits?: number; // 追蹤箭: times it turned back to hit a Boss again
@@ -108,7 +109,10 @@ export interface Pillar { x: number; z: number; r: number }
 
 export type FxKind = 'fire' | 'frost' | 'holy' | 'arcane' | 'physical' | 'shadow' | 'heal';
 
-export interface Zone { x: number; z: number; r: number; timer: number; tick: number; dmg: number; kind?: 'poison' | 'fire'; slow?: number; burst?: number }
+export interface Zone { x: number; z: number; r: number; timer: number; tick: number; dmg: number; kind?: 'poison' | 'fire'; slow?: number; burst?: number; src?: DmgSrc }
+
+/** Where damage came from (the solo DPS meter breaks it down). */
+export type DmgSrc = 'attack' | 'undead' | 'ult' | 'react' | 'skill' | 'thorns';
 
 export type Phase = 'playing' | 'levelup' | 'transition' | 'won' | 'dead';
 
@@ -230,6 +234,11 @@ export class Sim {
   wbDamage = 0; // damage dealt to the world boss
   reactions = 0; // 元素反應 this run
   private spellCasts = 0; // 元素同調: every 2nd staff cast adds a second element
+  /** What is dealing damage right now, and the run's damage by source. */
+  src: DmgSrc = 'attack';
+  dmgBy: Partial<Record<DmgSrc, number>> = {};
+  /** Run fn with damage counted as src. */
+  withSrc(src: DmgSrc, fn: () => void): void { const prev = this.src; this.src = src; try { fn(); } finally { this.src = prev; } }
   dmgDealt = 0; // all damage this hero (and their undead / ultimates) dealt this run, for the DPS meter
   get timeLimit(): number { return this.wb ? WB_TIME : this.endless ? this.floorStart + DUNGEON.timeLimit : DUNGEON.timeLimit; } // 無盡模式: 10 minutes per floor
   /** 守關 dungeon (every 5th tier): its bosses are much tougher. */
@@ -626,9 +635,9 @@ export class Sim {
         p.attackTimer = 0.05;
       }
     }
-    updateAbilities(this, dt);
-    this.updateMinions(dt);
-    updateUltimates(this, dt);
+    this.withSrc('skill', () => updateAbilities(this, dt));
+    this.withSrc('undead', () => this.updateMinions(dt));
+    this.withSrc('ult', () => updateUltimates(this, dt));
   }
 
   // ---------- skeletons ----------
@@ -722,7 +731,7 @@ export class Sim {
         if (this.ut.poison && (m.poisonCd ?? 0) <= 0) { // 屍毒 (瘟疫幽魂: bigger, slowing)
           m.poisonCd = 3;
           const plague = this.combo.has('plague');
-          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1) * (this.combo.has('plagueLord') ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9 });
+          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1) * (this.combo.has('plagueLord') ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9, src: 'undead' });
         }
         const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * (this.combo.has('lichKing') ? 1.2 : 1) * (1 + 0.2 * (this.n('utCaster') - 1)) * (this.combo.has('grandLich') ? 1.25 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師 / 骸骨魔導王: bigger blasts)
         const slow = this.ut.wraith ? Math.max(0.3, 0.8 - 0.15 * this.n('utWraith')) : undefined; // 怨靈: stronger slow per copy
@@ -745,7 +754,7 @@ export class Sim {
         for (const e of this.enemies) {
           if (e.hp > 0 && Math.hypot(e.x - m.x, e.z - m.z) < e.radius + (m.big ? 0.6 : 0.4)) {
             m.hp -= e.touchDmg * armour * this.minionTaken(m); m.hurtCd = PLAYER.hurtInvuln;
-            if (this.sp.thorns) this.damageEnemy(e, value(this.stats.atk) * 0.4, false, true); // 荊棘 works for your undead too (weaker: there are many of them)
+            if (this.sp.thorns) this.withSrc('thorns', () => this.damageEnemy(e, value(this.stats.atk) * 0.4, false, true)); // 荊棘 works for your undead too (weaker: there are many of them)
             break;
           }
         }
@@ -865,12 +874,13 @@ export class Sim {
     const k = value(this.stats.atk) * (arch ? 3 : this.cls.id === 'mage' ? 1.5 : this.awk?.sub === 'mage' || this.awk?.sub2 === 'mage' ? 1.2 : 1); // 大法師 reactions ×2 more
     const area = Math.sqrt(value(this.stats.area));
     this.reactions++;
+    const prevSrc = this.src; this.src = 'react';
     if (has('poison')) {
       const other = a === 'poison' ? el : a;
       const r = 2.8 * area;
       if (other === 'fire') { // 毒爆: the poison catches fire
         this.explode(e.x, e.z, r, k * 2.6, false, 'heal', { noProc: true });
-        this.zones.push({ x: e.x, z: e.z, r: r * 0.8, timer: 2, tick: 0, dmg: k * 0.3, kind: 'fire', slow: 1 });
+        this.zones.push({ x: e.x, z: e.z, r: r * 0.8, timer: 2, tick: 0, dmg: k * 0.3, kind: 'fire', slow: 1, src: 'react' });
         this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('毒爆', 'Toxic Blaze'), fx: 'heal' });
       } else if (other === 'frost') { // 冰蝕: freezes small enemies around
         for (const o of this.enemies) if (o.hp > 0 && !isBigKind(o.kind) && Math.hypot(o.x - e.x, o.z - e.z) < r + o.radius) { o.slowTimer = Math.max(o.slowTimer, 1.5); o.slowMult = Math.min(o.slowMult, 0.05); }
@@ -883,6 +893,7 @@ export class Sim {
         this.events.push({ type: 'lightning', pts });
         this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('麻痺毒', 'Neurotoxin'), fx: 'arcane' });
       }
+      this.src = prevSrc;
       return;
     }
     if (has('fire') && has('frost')) {
@@ -897,6 +908,7 @@ export class Sim {
       this.explode(e.x, e.z, r, k * 1.2, false, 'frost', { noProc: true, slow: 0.5, slowTime: 2 });
       this.events.push({ type: 'react', x: e.x, z: e.z, name: tr('超導', 'Superconduct'), fx: 'frost' });
     }
+    this.src = prevSrc;
   }
 
   /** Bows: the arrow type changes damage, piercing, blasts, slows or adds arrows. */
@@ -1327,7 +1339,7 @@ export class Sim {
         if (h.down) continue;
         const dh = h === hero ? dPlayer : Math.hypot(h.player.x - e.x, h.player.z - e.z);
         if (dh < e.radius + PLAYER.radius && h.hurtPlayer(e.touchDmg, e.kind) && h.sp.thorns) {
-          h.damageEnemy(e, value(h.stats.atk) * 1.5, false, true); // 荊棘
+          h.withSrc('thorns', () => h.damageEnemy(e, value(h.stats.atk) * 1.5, false, true)); // 荊棘
         }
       }
     }
@@ -1423,6 +1435,7 @@ export class Sim {
       let exploded = false;
       if (alive && pr.fromPlayer) {
         const o = pr.owner ?? this; // whose shot: their damage bonuses, procs and kill effects
+        const prevSrc = o.src; o.src = pr.minion ? 'undead' : pr.src ?? 'attack';
         for (const e of this.enemies) {
           if (e.hp <= 0 || pr.hit.includes(e.id)) continue;
           if (Math.hypot(e.x - pr.x, e.z - pr.z) < e.radius + pr.radius) {
@@ -1449,6 +1462,7 @@ export class Sim {
         }
         // a fireball that reaches the end of its flight still explodes
         if (!alive && pr.blast && !exploded) o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, elem: pr.elem });
+        o.src = prevSrc;
       } else if (alive && !pr.fromPlayer) {
         const hit = H.find((h) => !h.down && Math.hypot(h.player.x - pr.x, h.player.z - pr.z) < PLAYER.radius + pr.radius);
         if (hit) {
@@ -1543,7 +1557,7 @@ export class Sim {
     if (this.cls.bigDmg && isBigKind(e.kind)) dmg *= 1 + this.cls.bigDmg; // 弓手: 弱點射擊
     if ((e.vulnT ?? 0) > 0) dmg *= 1 + VULN; // 超導
     if (e.chrono) dmg *= 1 + Math.max(this.ult.levels.chronoField ? ULT.chronoField.dmgTaken(this.ult.levels.chronoField) : 0, this.ult.levels.frostTouch ? 0.25 : 0); // 時之結界 / 寒冰之觸 極限
-    if (!noProc) ultOnHit(this, e); // on-hit ultimates (雷神之怒, 烈焰爆裂, 寒冰之觸, 影襲, 聖光審判)
+    if (!noProc) this.withSrc('ult', () => ultOnHit(this, e)); // on-hit ultimates (雷神之怒, 烈焰爆裂, 寒冰之觸, 影襲, 聖光審判)
     const bossDmg = (this.awk?.bossDmg ?? 0) + this.sp.bossDmg;
     if (bossDmg && isBigKind(e.kind)) dmg *= 1 + bossDmg;
     if (this.proc.execute && e.hp < e.maxHp * 0.3) dmg *= 1 + this.proc.execute; // 斬殺
@@ -1552,7 +1566,9 @@ export class Sim {
       this.proc.lifestealCd = 0.2; // at most 5 heals a second
       this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * 0.01);
     }
-    this.dmgDealt += Math.min(dmg, Math.max(0, e.hp));
+    const dealt = Math.min(dmg, Math.max(0, e.hp));
+    this.dmgDealt += dealt;
+    this.dmgBy[this.src] = (this.dmgBy[this.src] ?? 0) + dealt;
     if (e.kind === 'worldboss') { const d = Math.min(dmg, e.hp); for (const h of this.heroes) h.wbDamage += d; } // co-op: the party's damage counts for everyone
     e.hp -= dmg;
     e.hitFlash = 0.08;
