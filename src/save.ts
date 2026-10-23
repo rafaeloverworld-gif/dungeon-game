@@ -36,7 +36,8 @@ export interface SaveData {
   subClass2: Partial<Record<ClassId, ClassId>>; // third class per main class (昇華)
   arrowType: Partial<Record<ClassId, ArrowType>>; // bows: chosen arrows per class
   arrowMix: Partial<Record<ClassId, ArrowType[]>>;
-  endlessBest: number; // 無盡模式: most floors cleared in one run
+  endlessBest: number; // 無盡模式: most waves survived in one run
+  endlessTier: number; // 無盡模式: highest tier survived (counts for the World Boss max level)
   loadouts: Partial<Record<ClassId, { active: number; sets: (Loadout | null)[] }>>; // 配裝 A/B/C per class
   bagBuys: number; // extra bag space bought with coins (+10 each) // 多重箭袋: extra arrow types used at the same time
   spellType: Partial<Record<ClassId, SpellType>>; // staffs: chosen spell per class
@@ -72,7 +73,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, bagBuys: 0, endlessBest: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -162,6 +163,7 @@ function sanitize(raw: unknown): SaveData {
     arrowType: Object.fromEntries(Object.entries(r.arrowType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && ARROW_TYPES.includes(a as ArrowType))) as SaveData['arrowType'],
     arrowMix: Object.fromEntries(Object.entries(r.arrowMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => ARROW_TYPES.includes(x as ArrowType)))]])) as SaveData['arrowMix'],
     endlessBest: Math.max(0, Math.floor(num(r.endlessBest, 0))),
+    endlessTier: Math.max(0, Math.floor(num(r.endlessTier, 0))),
     loadouts: sanitizeLoadouts(r.loadouts),
     bagBuys: Math.min(BAG_BUYS_MAX, Math.max(0, Math.floor(num(r.bagBuys, 0)))),
     spellMix: Object.fromEntries(Object.entries(r.spellMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => SPELL_TYPES.includes(x as SpellType)))]])) as SaveData['spellMix'],
@@ -649,7 +651,8 @@ export function switchLoadout(s: SaveData, i: number): void {
 
 // ---------- 無盡模式 ----------
 export const ENDLESS_UNLOCK = 50; // clear tier 50 first
-export const ENDLESS_START = 50; // floor 1 is tier 50, +1 tier per floor
+/** 無盡模式 starts 10 tiers below your best clear (never below 40), so the first minutes are a warm-up. */
+export const endlessStart = (s: SaveData) => Math.max(40, s.highestCleared - 10);
 
 // ---------- bag space (bought with coins) ----------
 export const BAG_STEP = 10;
@@ -730,8 +733,8 @@ export function useWbTicket(s: SaveData): boolean {
   s.wbFights++;
   return true;
 }
-/** World Boss max level: the highest tier cleared, in the dungeon or in 無盡模式 (floor N cleared = tier 49 + N). */
-export const wbMaxLevel = (s: SaveData) => Math.max(WB_MIN_LEVEL, s.highestCleared, s.endlessBest > 0 ? ENDLESS_START + s.endlessBest - 1 : 0);
+/** World Boss max level: the highest tier cleared, in the dungeon or survived in 無盡模式. */
+export const wbMaxLevel = (s: SaveData) => Math.max(WB_MIN_LEVEL, s.highestCleared, s.endlessTier);
 
 export interface WbResult { reward: WbReward; named: Item | null; twin: Item | null; chestItems: Item[]; autoSalvaged: number; kept: Item[] }
 

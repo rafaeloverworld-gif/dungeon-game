@@ -48,6 +48,8 @@ export interface Enemy {
 export type Elem = 'fire' | 'frost' | 'shock' | 'poison';
 export const ELEM_TIME = 4;
 export const VULN = 0.4;
+/** 無盡模式: seconds per wave. */
+export const ENDLESS_WAVE = 30;
 /** 多重箭袋: every extra arrow type used at once multiplies arrow damage by this. */
 export const MIX_PENALTY = 0.75;
 /** 極·神射: each extra arrow type only costs this. */
@@ -112,7 +114,7 @@ export type FxKind = 'fire' | 'frost' | 'holy' | 'arcane' | 'physical' | 'shadow
 export interface Zone { x: number; z: number; r: number; timer: number; tick: number; dmg: number; kind?: 'poison' | 'fire'; slow?: number; burst?: number; src?: DmgSrc }
 
 /** Where damage came from (the solo DPS meter breaks it down). */
-export type DmgSrc = 'attack' | 'undead' | 'ult' | 'react' | 'skill' | 'thorns';
+export type DmgSrc = 'attack' | 'undead' | 'poison' | 'ult' | 'react' | 'skill' | 'thorns';
 
 export type Phase = 'playing' | 'levelup' | 'transition' | 'won' | 'dead';
 
@@ -134,6 +136,7 @@ export type SimEvent =
   | { type: 'levelup' }
   | { type: 'autoCard'; name: string; icon: string }
   | { type: 'boss'; kind: EnemyKind }
+  | { type: 'endlessWave'; wave: number }
   | { type: 'mapClear'; map: number }
   | { type: 'newMap'; map: number }
   | { type: 'won' }
@@ -214,8 +217,8 @@ export function buildStats(classId: ClassId, bonus: StatBonus): PlayerStats {
 export class Sim {
   tier: number; // 無盡模式 raises it every floor
   readonly endless: boolean;
-  floors = 0; // 無盡模式: floors cleared
-  floorStart = 0; // 無盡模式: when this floor started
+  floors = 0; // 無盡模式: waves survived
+  wave = 1; // 無盡模式: current wave
   readonly cls: ClassDef;
   readonly awk: AwakenedDef | null;
   readonly weapons: RunSetup['weapons'] | null;
@@ -240,7 +243,7 @@ export class Sim {
   /** Run fn with damage counted as src. */
   withSrc(src: DmgSrc, fn: () => void): void { const prev = this.src; this.src = src; try { fn(); } finally { this.src = prev; } }
   dmgDealt = 0; // all damage this hero (and their undead / ultimates) dealt this run, for the DPS meter
-  get timeLimit(): number { return this.wb ? WB_TIME : this.endless ? this.floorStart + DUNGEON.timeLimit : DUNGEON.timeLimit; } // 無盡模式: 10 minutes per floor
+  get timeLimit(): number { return this.wb ? WB_TIME : this.endless ? Infinity : DUNGEON.timeLimit; } // 無盡模式: no time limit, survive as long as you can
   /** 守關 dungeon (every 5th tier): its bosses are much tougher. */
   get isGate(): boolean { return !this.wb && DUNGEON.gateBossHp > 1 && this.tier % DUNGEON.gateEvery === 0; }
   get theme(): number { return this.wb ? this.wb.theme : biomeFor(this.tier).theme; }
@@ -510,6 +513,7 @@ export class Sim {
 
     this.time += dt;
     this.mapTime += dt;
+    if (this.endless) this.endlessTick();
     if (this.time >= this.timeLimit) {
       this.die('時間到');
       return;
@@ -731,7 +735,7 @@ export class Sim {
         if (this.ut.poison && (m.poisonCd ?? 0) <= 0) { // 屍毒 (瘟疫幽魂: bigger, slowing)
           m.poisonCd = 3;
           const plague = this.combo.has('plague');
-          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1) * (this.combo.has('plagueLord') ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9, src: 'undead' });
+          this.zones.push({ x: target.x, z: target.z, r: 1.6 * Math.sqrt(value(this.stats.area)) * (plague ? 1.5 : 1) * (this.combo.has('plagueLord') ? 1.5 : 1), timer: 3, tick: 0, dmg: atk * 0.15 * this.n('utPoison') * (plague ? 2 : 1) * this.comboPower, kind: 'poison', slow: plague ? 0.6 : 0.9, src: 'poison' });
         }
         const blast = this.ut.caster ? 1.7 * (this.combo.has('archmage') ? 1.4 : 1) * (this.combo.has('lichKing') ? 1.2 : 1) * (1 + 0.2 * (this.n('utCaster') - 1)) * (this.combo.has('grandLich') ? 1.25 : 1) * Math.sqrt(value(this.stats.area)) : undefined; // 骨法 (骨魔導師 / 骸骨魔導王: bigger blasts)
         const slow = this.ut.wraith ? Math.max(0.3, 0.8 - 0.15 * this.n('utWraith')) : undefined; // 怨靈: stronger slow per copy
@@ -1166,11 +1170,12 @@ export class Sim {
     const minions = this.enemies.length - (this.boss ? 1 : 0);
     let rate = Math.min(DUNGEON.spawnMax, DUNGEON.spawnBase + DUNGEON.spawnRamp * this.mapTime);
     if (this.bossSpawned) rate *= 0.5;
+    if (this.endless) rate = Math.min(14, 1.5 + 0.25 * this.wave); // 無盡模式: more and more at once
     if (this.wb) rate = 0.6; // world boss: a light trickle so you still level up
     this.spawnAcc += rate * dt;
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1;
-      if (minions >= DUNGEON.maxAlive) continue;
+      if (minions >= (this.endless ? 220 : DUNGEON.maxAlive)) continue;
       let r = this.rand();
       const pick = (w: number) => { if (r < w) return true; r -= w; return false; };
       const shooterW = this.map === 0 ? 0.12 : 0.2;
@@ -1232,6 +1237,24 @@ export class Sim {
     this.collideWorld(e, e.radius);
     this.enemies.push(e);
     return e;
+  }
+
+  /** 無盡模式: a new wave every 30 s — more enemies at once, one tier stronger every 2 waves; a mini boss every 3rd wave, a Boss every 5th. */
+  private endlessTick(): void {
+    const wave = 1 + Math.floor(this.time / ENDLESS_WAVE);
+    if (wave <= this.wave) return;
+    for (const h of this.heroes) { h.wave = wave; h.floors = wave - 1; if (wave % 2 === 1) h.tier++; h.events.push({ type: 'endlessWave', wave }); } // one tier stronger every 2 waves
+    if (wave % 5 === 0) {
+      const pt = this.spawnPoint(10, 13);
+      const b = this.addEnemy('boss', pt.x, pt.z);
+      if (!this.boss) this.boss = b;
+      this.events.push({ type: 'boss', kind: 'boss' });
+    } else if (wave % 3 === 0) {
+      const pt = this.spawnPoint(10, 13);
+      const b = this.addEnemy('miniboss', pt.x, pt.z);
+      if (!this.boss) this.boss = b;
+      this.events.push({ type: 'boss', kind: 'miniboss' });
+    }
   }
 
   private spawnBoss(): void {
@@ -1640,7 +1663,8 @@ export class Sim {
       return;
     }
     if (isBoss) {
-      this.boss = null;
+      if (this.boss === e || !this.endless) this.boss = null;
+      if (this.endless && !this.boss) this.boss = this.enemies.find((o) => o !== e && o.hp > 0 && isBigKind(o.kind)) ?? null; // the next big one shows in the bar
       if (e.kind === 'boss') { for (const h of this.heroes) { h.chests.gold++; h.events.push({ type: 'chest', kind: 'gold' }); } }
       else if (this.rand() < CHESTS.minibossSilverChance) { for (const h of this.heroes) { h.chests.silver++; h.events.push({ type: 'chest', kind: 'silver' }); } }
       this.onBossDead();
@@ -1648,20 +1672,15 @@ export class Sim {
     } else {
       for (const h of this.heroes) h.gainXp(def.xp);
       this.kills++;
-      if (!this.wb && !this.bossSpawned && this.kills >= this.quota) this.spawnBoss();
+      if (!this.wb && !this.endless && !this.bossSpawned && this.kills >= this.quota) this.spawnBoss();
     }
   }
 
   private onBossDead(): void {
     // every coin left on the map gets pulled in
     for (const c of this.coins) c.magnet = true;
-    if (this.map >= DUNGEON.maps - 1 && this.endless) {
-      // 無盡模式: next floor, one tier higher (the chests are kept)
-      for (const h of this.heroes) { h.runCoins += Math.round(10 * this.tier); h.floors++; h.tier++; h.floorStart = this.time; h.events.push({ type: 'mapClear', map: this.map }); }
-      this.map = -1;
-      this.phase = 'transition';
-      this.transitionTimer = 2.2;
-    } else if (this.map >= DUNGEON.maps - 1) {
+    if (this.endless) return; // 無盡模式: no maps to clear, the waves just keep coming
+    if (this.map >= DUNGEON.maps - 1) {
       this.vacuumCoins();
       for (const h of this.heroes) h.runCoins += Math.round(10 * this.tier); // clear bonus
       this.phase = 'won';

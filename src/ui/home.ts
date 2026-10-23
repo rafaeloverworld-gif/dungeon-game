@@ -13,7 +13,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, ENDLESS_START, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
+  activeBoard, activeBoards, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -168,7 +168,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
 /** 無盡模式 card: unlocked after clearing tier 50. */
 function endlessCard(save: SaveData): string {
   const open = save.highestCleared >= ENDLESS_UNLOCK;
-  return `<button class="card boardcard" data-act="endless" ${open ? '' : 'disabled'}><div class="statline"><h3 style="margin:0">♾️ ${tr('無盡模式', 'Endless')}</h3><small>${open ? tr(`最佳：${save.endlessBest} 層`, `Best: ${save.endlessBest} floors`) : tr(`通關第 ${ENDLESS_UNLOCK} 級解鎖`, `Clear Tier ${ENDLESS_UNLOCK} to unlock`)}</small></div><small>${tr(`由第 ${ENDLESS_START} 級開始，每過一層（3 張地圖）升一級，打到倒為止。寶箱同金幣死咗都照拎。過到嘅級數都計入世界 Boss 最高等級。`, `Starts at Tier ${ENDLESS_START}; every floor (3 maps) is one tier higher, until you fall. Chests and coins are kept when you die. Tiers cleared here count for the World Boss max level.`)}</small></button>`;
+  return `<button class="card boardcard" data-act="endless" ${open ? '' : 'disabled'}><div class="statline"><h3 style="margin:0">♾️ ${tr('無盡模式', 'Endless')}</h3><small>${open ? tr(`最佳：${save.endlessBest} 波`, `Best: ${save.endlessBest} waves`) : tr(`通關第 ${ENDLESS_UNLOCK} 級解鎖`, `Clear Tier ${ENDLESS_UNLOCK} to unlock`)}</small></div><small>${tr(`生存模式：由第 ${endlessStart(save)} 級開始（你最高通關減 10），怪物不停湧入，每 30 秒一波，每波怪更多、每 2 波強一級；每 3 波一隻小 Boss、每 5 波一隻 Boss。冇時間限制，撐到倒為止。寶箱同金幣死咗都照拎；撐過嘅波數都計入世界 Boss 最高等級。`, `Survival: starts at Tier ${endlessStart(save)} (your best clear − 10) and enemies never stop coming. A new wave every 30 s with more enemies, one tier stronger every 2 waves; a Mini-boss every 3rd wave, a Boss every 5th. No time limit — last as long as you can. Chests and coins are kept when you fall; waves survived count for the World Boss max level.`)}</small></button>`;
 }
 
 // ---------- 排行榜 ----------

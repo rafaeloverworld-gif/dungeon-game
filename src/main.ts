@@ -6,7 +6,7 @@ import { CHEST_NAMES, doubleChance, itemName, RARITY_COLORS, type ChestKind } fr
 import { Renderer } from './render/renderer';
 import { AWAKEN_TIER } from './sim/awakening';
 import { CLASSES } from './sim/classes';
-import { ENDLESS_START, parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
+import { endlessStart, parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
 import { namedChance, todaysBoss } from './sim/worldboss';
 import { createInput } from './input';
 import { cloudConnect, cloudPush, cloudReady } from './cloud';
@@ -149,7 +149,7 @@ function startRun(worldBossLevel?: number, endless = false): void {
   if (wbId && wbTicketsLeft(save) <= 0) { banner(tr('今日嘅挑戰次數用晒喇', 'No attempts left today')); return; }
   if (wbId) { save.wbLevel = worldBossLevel!; writeSave(save); }
   sim = new Sim({
-    tier: endless ? ENDLESS_START : worldBossLevel ?? save.selectedTier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: save.autoPickCards,
+    tier: endless ? endlessStart(save) : worldBossLevel ?? save.selectedTier, seed: (Math.random() * 2 ** 31) | 0, autoPickCards: save.autoPickCards,
     worldBoss: wbId, endless, ...runSetup(save),
   });
   // testing: an AI copy of your character joins as the second hero (2-player co-op)
@@ -244,7 +244,7 @@ let dpsSamples: { t: number; totals: number[]; by: Partial<Record<DmgSrc, number
 let dpsDrawnAt = 0;
 /** Solo DPS meter: icon and name of each damage source. */
 const DMG_SRC: Record<DmgSrc, [string, string]> = {
-  attack: ['⚔️', tr('攻擊', 'Attack')], undead: ['💀', tr('亡靈', 'Undead')], ult: ['⚡', tr('終極', 'Ultimate')],
+  attack: ['⚔️', tr('攻擊', 'Attack')], undead: ['💀', tr('亡靈', 'Undead')], poison: ['🧪', tr('毒池', 'Poison')], ult: ['⚡', tr('終極', 'Ultimate')],
   react: ['✨', tr('反應', 'Reaction')], skill: ['🌀', tr('技能', 'Skill')], thorns: ['🌵', tr('荊棘', 'Thorns')],
 };
 function updateDps(s: Sim): void {
@@ -286,11 +286,11 @@ function updateHud(): void {
     hud.map.textContent = EN ? `${sim.wb.icon} Phase ${sim.wbPhase + 1}` : `${sim.wb.icon} 第 ${sim.wbPhase + 1} 階段`;
     hud.kills.textContent = `${tr('傷害', 'Damage')} ${Math.floor((sim.wbDamage / (sim.boss?.maxHp ?? (sim.wbDamage || 1))) * 100)}%`;
   } else {
-    hud.map.textContent = sim.endless ? `♾️ ${tr(`第 ${sim.floors + 1} 層 · 第 ${sim.tier} 級 · ${sim.map + 1}/${DUNGEON.maps}`, `Floor ${sim.floors + 1} · T${sim.tier} · ${sim.map + 1}/${DUNGEON.maps}`)}` : `${tr('地圖', 'Map')} ${sim.map + 1}/${DUNGEON.maps}`;
+    hud.map.textContent = sim.endless ? `♾️ ${tr(`第 ${sim.wave} 波 · 第 ${sim.tier} 級`, `Wave ${sim.wave} · T${sim.tier}`)}` : `${tr('地圖', 'Map')} ${sim.map + 1}/${DUNGEON.maps}`;
     hud.kills.textContent = sim.bossSpawned ? tr('Boss 戰', 'Boss fight') : `${tr('擊殺', 'Kills')} ${sim.kills}/${sim.quota}`;
   }
   hud.coins.textContent = `🪙 ${fmt(sim.runCoins)} · 👻 ${fmt(sim.runSouls)}${sim.runRunes ? ` · 🔷 ${sim.runRunes}` : ''}${sim.runCrystals ? ` · 💎 ${sim.runCrystals}` : ''}`;
-  hud.timer.textContent = `⏱ ${mmss(Math.max(0, sim.timeLimit - sim.time))}`;
+  hud.timer.textContent = `⏱ ${mmss(sim.endless ? sim.time : Math.max(0, sim.timeLimit - sim.time))}`; // 無盡模式 counts up
   updateDps(sim);
   if (sim.coop) {
     let el = hud.root.querySelector('.partnerhp') as HTMLElement | null;
@@ -323,6 +323,9 @@ function updateHud(): void {
 function banner(text: string, icon?: string): void {
   const el = h(`<div class="banner">${icon ? `${ico(icon)} ` : ''}</div>`);
   el.append(text);
+  // two banners at once (e.g. map cleared + boss) stack instead of overlapping
+  const shown = ui.querySelectorAll('.banner').length;
+  if (shown) el.style.top = `calc(34% + ${shown * 44}px)`;
   ui.appendChild(el);
   setTimeout(() => el.remove(), 1700);
 }
@@ -360,6 +363,7 @@ function handleEvents(events: SimEvent[]): void {
     else if (ev.type === 'newMap') setTense(false);
     if (ev.type === 'boss') banner((ev.kind === 'boss' ? tr('⚠️ 最終 Boss 出現！', '⚠️ Final Boss appears!') : tr('⚠️ 小 Boss 出現！', '⚠️ Mini-boss appears!')) + (sim?.isGate ? tr('（守關：特別強）', ' (Gate: extra tough)') : ''));
     else if (ev.type === 'mapClear') banner(tr('地圖清除！', 'Map cleared!'));
+    else if (ev.type === 'endlessWave') banner(`♾️ ${tr(`第 ${ev.wave} 波`, `Wave ${ev.wave}`)}${ev.wave % 5 === 0 ? tr(' · Boss 出現！', ' · Boss!') : ev.wave % 3 === 0 ? tr(' · 小 Boss 出現！', ' · Mini-boss!') : ''}`);
     else if (ev.type === 'lastStand') banner(tr('🛡️ 不屈！', '🛡️ Last Stand!'));
     else if (ev.type === 'skill' && ev.signature) toast(ev.name, ev.icon);
     else if (ev.type === 'levelup' || ev.type === 'autoCard') { if (!save.tips.includes('levelup')) showRunTip(ui, save, 'levelup'); if (ev.type === 'autoCard') toast(`${tr('升級：', 'Level up: ')}${ev.name}`, ev.icon); }
@@ -499,7 +503,7 @@ function finishRun(won: boolean, reason: string): void {
   let unlocked = false;
   let firstClear = 0; // 💎 bonus for clearing a tier for the first time (gate tiers much more)
   const endlessNew = s.endless && s.floors > save.endlessBest;
-  if (s.endless) save.endlessBest = Math.max(save.endlessBest, s.floors);
+  if (s.endless) { save.endlessBest = Math.max(save.endlessBest, s.floors); if (s.floors > 0) save.endlessTier = Math.max(save.endlessTier, s.tier - (s.wave % 2 === 1 ? 1 : 0)); } // the tier of the last wave you got through
   if (won && !s.endless && s.tier > save.highestCleared) {
     for (let t = save.highestCleared + 1; t <= s.tier; t++) firstClear += t % 5 === 0 ? 15 : 3;
     save.highestCleared = s.tier; unlocked = true;
@@ -518,8 +522,8 @@ function finishRun(won: boolean, reason: string): void {
   ui.innerHTML = '';
   const el = h(`
     <div class="screen dim result">
-      <div class="big">${s.endless ? `♾️ ${tr(`無盡模式：過咗 ${s.floors} 層`, `Endless: ${s.floors} floors`)}` : won ? tr('🏆 通關！', '🏆 Cleared!') : reasonLabel(reason)}</div>
-      ${s.endless ? `<div class="card">${tr(`去到第 ${s.tier} 級 · 最佳 ${save.endlessBest} 層`, `Reached Tier ${s.tier} · Best ${save.endlessBest} floors`)}${endlessNew ? tr(' · 🎉 新紀錄', ' · 🎉 New best') : ''}</div>` : ''}
+      <div class="big">${s.endless ? `♾️ ${tr(`無盡模式：撐過 ${s.floors} 波`, `Endless: survived ${s.floors} waves`)}` : won ? tr('🏆 通關！', '🏆 Cleared!') : reasonLabel(reason)}</div>
+      ${s.endless ? `<div class="card">${tr(`撐咗 ${mmss(s.time)} · 去到第 ${s.tier} 級 · 最佳 ${save.endlessBest} 波`, `Lasted ${mmss(s.time)} · reached Tier ${s.tier} · best ${save.endlessBest} waves`)}${endlessNew ? tr(' · 🎉 新紀錄', ' · 🎉 New best') : ''}</div>` : ''}
       <div class="sub" style="margin-top:0">${s.cls.icon} ${s.cls.name} · ${EN ? `Tier ${s.tier} · Reached Map ${s.map + 1} · ${mmss(s.time)}` : `第 ${s.tier} 級地城 · 去到地圖 ${s.map + 1} · 用咗 ${mmss(s.time)}`}</div>
       <div class="rewards">
         <div class="card">${tr('金幣', 'Coins')}<b style="color:var(--gold)">+${fmt(coins)}</b></div>
