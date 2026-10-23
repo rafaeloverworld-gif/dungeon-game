@@ -236,6 +236,12 @@ export class Sim {
   readonly wb: WorldBossDef | null;
   wbDamage = 0; // damage dealt to the world boss
   reactions = 0; // 元素反應 this run
+  private arrowRot = 0; // 魔法弓手: next element for an arrow
+  /** 魔法弓手: arrows without an element take turns carrying fire, frost and lightning. */
+  private magicArrow(el: Elem | undefined): Elem | undefined {
+    if (el || !(this.awk?.id === 'archer_mage' || this.awk?.base === 'archer_mage')) return el;
+    return (['fire', 'frost', 'shock'] as const)[this.arrowRot++ % 3];
+  }
   private spellCasts = 0; // 元素同調: every 2nd staff cast adds a second element
   /** What is dealing damage right now, and the run's damage by source. */
   src: DmgSrc = 'attack';
@@ -934,7 +940,7 @@ export class Sim {
         pierce: type === 'blast' ? 0 : seekSpread ? this.stats.pierce + 3 : homing ? this.stats.pierce + (sharp ? 5 : 3) : this.stats.pierce + 1 + (type === 'pierce' ? 3 : type === 'frost' ? 2 : type === 'normal' ? 1 : 0), homing: homing || undefined,
         radius: 0.3, hit: [],
         blast: type === 'blast' ? 1.5 * Math.sqrt(value(this.stats.area)) : undefined, fx: type === 'blast' ? 'fire' : undefined,
-        slow: type === 'frost' ? 0.5 : undefined, ap: type === 'pierce' || undefined, elem: type === 'frost' ? 'frost' : type === 'blast' ? 'fire' : undefined,
+        slow: type === 'frost' ? 0.5 : undefined, ap: type === 'pierce' || undefined, elem: this.magicArrow(type === 'frost' ? 'frost' : type === 'blast' ? 'fire' : undefined),
       });
     }
   }
@@ -964,7 +970,7 @@ export class Sim {
         dmg: raw * mult * dm, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.15,
         pierce, radius: 0.3, hit: [], hitBlast: blast, fx: blast ? 'fire' : undefined,
         slow: t.has('frost') ? 0.5 : undefined, ap: t.has('pierce') || undefined,
-        elem: t.has('frost') ? 'frost' : undefined, homing: homing || undefined,
+        elem: this.magicArrow(t.has('frost') ? 'frost' : undefined), homing: homing || undefined,
       });
     }
   }

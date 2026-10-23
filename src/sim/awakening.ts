@@ -35,7 +35,7 @@ const A = (d: AwakenedDef) => d;
 export const AWAKENED: Record<string, AwakenedDef> = {
   warrior_warrior: A({
     id: 'warrior_warrior', main: 'warrior', sub: 'warrior', name: tr('雙刃戰士', 'Dual Blade'), en: 'Dual Blade', icon: '⚔️',
-    bonus: { atkSpeed: { mult: 1.3 } }, bonusText: tr('攻速 ×1.3', 'Atk Spd ×1.3'),
+    bonus: { atkSpeed: { mult: 1.3 }, atk: { mult: 1.15 }, maxHp: { mult: 1.1 } }, bonusText: tr('攻速 ×1.3、攻擊 ×1.15、HP ×1.1', 'Atk Spd ×1.3, ATK ×1.15, HP ×1.1'),
     signature: { kind: 'bladeStorm', name: tr('劍刃風暴', 'Blade Storm'), desc: tr('3 秒內不停旋轉，斬晒身邊所有敵人', 'Spin for 3s, slashing all nearby enemies'), cooldown: 12, icon: '🌪️' },
     focusStat: { key: 'atkSpeed', pct: 0.05, label: tr('攻速 +5%', 'Atk Spd +5%') },
   }),
@@ -65,7 +65,7 @@ export const AWAKENED: Record<string, AwakenedDef> = {
   }),
   archer_mage: A({
     id: 'archer_mage', main: 'archer', sub: 'mage', name: tr('魔法弓手', 'Magick Archer'), en: 'Magick Archer', icon: '🏹',
-    bonus: { range: { mult: 1.25 }, atk: { mult: 1.1 } }, bonusText: tr('射程 ×1.25、攻擊 ×1.1', 'Range ×1.25, ATK ×1.1'),
+    bonus: { range: { mult: 1.25 }, atk: { mult: 1.2 } }, bonusText: tr('射程 ×1.25、攻擊 ×1.2；每支箭輪流帶火、冰、雷元素（自己觸發元素反應）', 'Range ×1.25, ATK ×1.2; arrows take turns carrying fire, frost and lightning (set off reactions yourself)'),
     signature: { kind: 'arrowStorm', name: tr('魔法箭陣', 'Arrow Storm'), desc: tr('向四周射出 16 支魔法箭（每支 150%）', 'Fire 16 magic arrows all around (150% each)'), cooldown: 10, icon: '💫' },
     focusStat: { key: 'range', pct: 0.06, label: tr('射程 +6%', 'Range +6%') },
   }),
@@ -83,7 +83,7 @@ export const AWAKENED: Record<string, AwakenedDef> = {
   }),
   mage_mage: A({
     id: 'mage_mage', main: 'mage', sub: 'mage', name: tr('大法師', 'Archmage'), en: 'Archmage', icon: '🔮',
-    bonus: { atk: { mult: 1.3 }, atkSpeed: { mult: 1.2 } }, bonusText: tr('攻擊 ×1.3、攻速 ×1.2；可以多用一種法術；元素反應傷害 ×2、同一隻敵人反應冷卻減半；多重法典強化到 +10 變「極·大魔導」（四種法術、反應連鎖）', 'ATK ×1.3, Atk Spd ×1.2; one more spell; reactions ×2 damage and half the wait; a +10 Spell Mix item unlocks Max Archmage (all spells, chaining reactions)'),
+    bonus: { atk: { mult: 1.3 }, atkSpeed: { mult: 1.2 }, area: { mult: 1.15 } }, bonusText: tr('攻擊 ×1.3、攻速 ×1.2、範圍 ×1.15；可以多用一種法術；元素反應傷害 ×2、同一隻敵人反應冷卻減半；多重法典強化到 +10 變「極·大魔導」（四種法術、反應連鎖）', 'ATK ×1.3, Atk Spd ×1.2, Area ×1.15; one more spell; reactions ×2 damage and half the wait; a +10 Spell Mix item unlocks Max Archmage (all spells, chaining reactions)'),
     signature: { kind: 'arcaneBurst', name: tr('奧術爆發', 'Arcane Burst'), desc: tr('喺附近 5 隻敵人身上同時爆炸（每個 300%）', 'Blast 5 nearby enemies at once (300% each)'), cooldown: 12, icon: '💥' },
     focusStat: { key: 'atk', pct: 0.05, label: tr('攻擊 +5%', 'ATK +5%') },
   }),
@@ -113,7 +113,7 @@ export const AWAKENED: Record<string, AwakenedDef> = {
   }),
   necro_archer: A({
     id: 'necro_archer', main: 'necro', sub: 'archer', name: tr('骸骨狙擊手', 'Bone Sniper'), en: 'Bone Sniper', icon: '🦴',
-    bonus: { range: { mult: 1.2 }, crit: { flat: 0.12 } }, bonusText: tr('射程 ×1.2、暴擊率 +12%', 'Range ×1.2, Crit +12%'),
+    bonus: { range: { mult: 1.2 }, crit: { flat: 0.12 }, summon: { mult: 1.15 } }, bonusText: tr('射程 ×1.2、暴擊率 +12%、亡靈強度 ×1.15', 'Range ×1.2, Crit +12%, Undead Power ×1.15'),
     signature: { kind: 'boneSpear', name: tr('骨矛', 'Bone Spear'), desc: tr('射出一支穿透全場嘅骨矛（700%）', 'Fire a bone spear that pierces the whole field (700%)'), cooldown: 9, icon: '🦴' },
     focusStat: { key: 'critDmg', flat: 0.15, label: tr('暴擊傷害 +15%', 'Crit Dmg +15%') },
   }),
