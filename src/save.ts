@@ -585,7 +585,7 @@ export function buyBag(s: SaveData): boolean {
 /** 多重箭袋: how many arrow types you can use at once (1 + every +1 on items with it, up to all of them). */
 export function arrowSlots(s: SaveData): number {
   if (arrowMaxForm(s)) return ARROW_TYPES.length;
-  const extra = equippedItems(s).filter((i) => i.special === 'multiArrow' || i.special2 === 'multiArrow').reduce((a, i) => a + i.plus, 0);
+  const extra = equippedItems(s).filter((i) => i.special === 'multiArrow' || i.special2 === 'multiArrow').length; // one more arrow type per item worn with it
   return Math.min(ARROW_TYPES.length, 1 + extra + (isSharpshooter(s) ? 1 : 0)); // 神射手: one more arrow type
 }
 /** 神射手 (archer + archer, or a three-class mix grown from it). */
@@ -606,7 +606,7 @@ export const spellMaxForm = (s: SaveData) => isArchmage(s) && equippedItems(s).s
 /** 多重法典: how many spells you cast in turn (1 + every +1 on items with it, +1 for 大法師). */
 export function spellSlots(s: SaveData): number {
   if (spellMaxForm(s)) return SPELL_TYPES.length;
-  const extra = equippedItems(s).filter((i) => hasSpecial(i, 'multiSpell')).reduce((a, i) => a + i.plus, 0);
+  const extra = equippedItems(s).filter((i) => hasSpecial(i, 'multiSpell')).length; // one more spell per item worn with it
   return Math.min(SPELL_TYPES.length, 1 + extra + (isArchmage(s) ? 1 : 0));
 }
 export function spellsInUse(s: SaveData): SpellType[] {

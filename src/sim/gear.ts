@@ -150,11 +150,11 @@ export const SPECIALS = {
   giantSlayer: { family: 'blade', name: tr('屠巨', 'Giantslayer'), desc: tr('對小 Boss 同 Boss 傷害 +30%', '+30% dmg vs mini bosses and bosses') },
   // bows
   extraArrow: { family: 'bow', name: tr('分裂', 'Split'), desc: tr('每次攻擊多一下（多一支箭 / 多一個火球 / 多斬一下）', '+1 hit per attack (extra arrow / fireball / slash)') },
-  multiArrow: { family: 'bow', name: tr('多重箭袋', 'Arrow Mix'), desc: tr('呢件裝備每強化 +1，就可以多揀一種箭同時用（效果疊埋；每多一種，全部箭傷害 ×0.75）', 'Each +1 on this item lets you use one more arrow type at once (effects combine; each extra type: all arrow damage ×0.75)') },
+  multiArrow: { family: 'bow', name: tr('多重箭袋', 'Arrow Mix'), desc: tr('每裝一件有呢個特效嘅裝備，就可以多揀一種箭同時用（效果疊埋；每多一種，全部箭傷害 ×0.75）', 'Each item you wear with this lets you use one more arrow type at once (effects combine; each extra type: all arrow damage ×0.75)') },
   piercing: { family: 'bow', name: tr('貫穿', 'Piercing'), desc: tr('箭可以多穿 2 個敵人', 'Arrows pierce 2 more enemies') },
   critBurst: { family: 'bow', name: tr('爆裂', 'Burst'), desc: tr('暴擊時喺敵人身上引發小爆炸（80%）', 'Crits cause a small explosion (80%)') },
   // magic
-  multiSpell: { family: 'magic', name: tr('多重法典', 'Spell Mix'), desc: tr('呢件裝備每強化 +1，就可以多揀一種法術，每次施法全部一齊放（每多一種，全部傷害 ×0.75），一個人都觸發到元素反應', 'Each +1 on this item lets you pick one more spell; every cast fires all of them (each extra one: all damage ×0.75), so you can set off reactions alone') },
+  multiSpell: { family: 'magic', name: tr('多重法典', 'Spell Mix'), desc: tr('每裝一件有呢個特效嘅裝備，就可以多揀一種法術，每次施法全部一齊放（每多一種，全部傷害 ×0.75），一個人都觸發到元素反應', 'Each item you wear with this lets you pick one more spell; every cast fires all of them (each extra one: all damage ×0.75), so you can set off reactions alone') },
   bigBlast: { family: 'magic', name: tr('浩瀚', 'Vast'), desc: tr('範圍 ×1.3（爆炸、斬擊、技能）', 'Area ×1.3 (blasts, slashes, skills)') },
   manaFlow: { family: 'magic', name: tr('湧流', 'Flow'), desc: tr('技能同招牌技冷卻 -20%', 'Skill and Signature skill cooldown -20%') },
   arcaneEcho: { family: 'magic', name: tr('共振', 'Resonance'), desc: tr('攻擊命中有 25% 機會引發小爆炸', 'Hits have 25% chance to cause a small explosion') },
