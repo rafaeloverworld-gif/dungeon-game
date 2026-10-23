@@ -77,6 +77,8 @@ export interface Projectile {
   hitBlast?: number; // 多重箭袋 with 爆裂箭: a small blast on every hit (the arrow keeps piercing)
   homing?: boolean; // 追蹤箭: steers towards an enemy; after piercing one, turns to the next
   seek?: number; // id of the enemy it is chasing
+  rehits?: number; // 追蹤箭: times it turned back to hit a Boss again
+  reArm?: { id: number; t: number }; // 追蹤箭: can hit this Boss again after t seconds
 }
 
 /** Necromancer allies: skeletons from skills, or slain enemies raised as undead (they keep their kind:
@@ -963,6 +965,12 @@ export class Sim {
         const score = d + (1 - (dx * pr.vx + dz * pr.vz) / (sp * (d || 1))) * 2; // prefer ones in front
         if (score < bd) { bd = score; t = e; }
       }
+      // nothing new to chase: turn back to a (mini) Boss it already went through, up to 4 times
+      if (!t && (pr.rehits ?? 0) < 4) {
+        let bd2 = 9;
+        for (const e of this.enemies) { if (e.hp <= 0 || !isBigKind(e.kind)) continue; const d = Math.hypot(e.x - pr.x, e.z - pr.z); if (d < bd2) { bd2 = d; t = e; } }
+        if (t) { pr.rehits = (pr.rehits ?? 0) + 1; pr.reArm = { id: t.id, t: 0.25 }; pr.life = Math.max(pr.life, 1); }
+      }
       pr.seek = t?.id;
     }
     if (!t) return;
@@ -1404,6 +1412,7 @@ export class Sim {
     const H = this.heroes;
     const keep: Projectile[] = [];
     for (const pr of this.projectiles) {
+      if (pr.reArm) { pr.reArm.t -= dt; if (pr.reArm.t <= 0) { const id = pr.reArm.id; pr.hit = pr.hit.filter((x) => x !== id); pr.reArm = undefined; } }
       if (pr.homing) this.steer(pr, dt);
       pr.x += pr.vx * dt;
       pr.z += pr.vz * dt;
@@ -1531,6 +1540,7 @@ export class Sim {
     if (e.kind === 'shield' && !armourPierce) dmg *= 0.75; // 盾兵
     if (e.elite === 'armored' && !armourPierce) dmg *= 0.6;
     if (e.markTimer > 0) dmg *= 1.5;
+    if (this.cls.bigDmg && isBigKind(e.kind)) dmg *= 1 + this.cls.bigDmg; // 弓手: 弱點射擊
     if ((e.vulnT ?? 0) > 0) dmg *= 1 + VULN; // 超導
     if (e.chrono) dmg *= 1 + Math.max(this.ult.levels.chronoField ? ULT.chronoField.dmgTaken(this.ult.levels.chronoField) : 0, this.ult.levels.frostTouch ? 0.25 : 0); // 時之結界 / 寒冰之觸 極限
     if (!noProc) ultOnHit(this, e); // on-hit ultimates (雷神之怒, 烈焰爆裂, 寒冰之觸, 影襲, 聖光審判)
