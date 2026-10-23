@@ -13,7 +13,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
+  activeBoard, activeBoards, canPickSub, isPure, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -129,6 +129,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
           ${CLASS_IDS.map((id) => `<button data-class="${id}" class="${id === save.classId ? 'on' : ''}"><span>${CLASSES[id].icon}</span>${CLASSES[id].name}</button>`).join('')}
         </div>
         <p class="desc">${c.desc}</p>
+        ${masteryBlock(save)}
         ${awakeningBlock(save)}
         ${statSummary(save)}
         <p class="note" style="text-align:left;margin:8px 0 0">${tr('試玩版可以隨時轉職業。武器要啱你職業用嘅類型先用得（用唔著嘅可以交換），防具同飾品全部職業通用。', 'Beta: switch class any time. Weapons must match your class (Trade the rest); armour and accessories fit every class.')}</p>
@@ -282,6 +283,23 @@ function showWorldBoss(ctx: HomeCtx): void {
 }
 
 // ---------- 覺醒 ----------
+/** 專精: what staying a single class unlocks at class Lv 10 / 25 / 50. */
+const MASTERY_INFO: Record<ClassId, [string, string][]> = {
+  warrior: [[tr('不屈', 'Unyielding'), tr('防禦 +30%；每張地圖一次：致命一擊唔死，剩 1 血，1.5 秒無敵', 'DEF +30%; once per map a killing blow leaves you at 1 HP with 1.5 s of safety')], [tr('劍氣', 'Sword Wave'), tr('每次斬擊再射一道穿透劍氣（100%）', 'Every swing also sends a piercing sword wave (100%)')], [tr('戰神', 'War God'), tr('HP 低過一半：傷害同攻速 ×1.5', 'Below half HP: damage and attack speed ×1.5')]],
+  archer: [[tr('鷹眼', 'Hawk Eye'), tr('射程 +30%、暴擊傷害 +30%', 'Range +30%, crit damage +30%')], [tr('連射', 'Rapid Fire'), tr('每 3 次攻擊多射一輪', 'Every 3rd attack fires twice')], [tr('千箭', 'Thousand Arrows'), tr('每 8 秒向四周射 24 支穿透箭（150%）', 'Every 8 s, 24 piercing arrows all around (150%)')]],
+  mage: [[tr('元素大師', 'Element Master'), tr('多用一種法術（同時放）', 'One more spell at once')], [tr('法力護盾', 'Mana Shield'), tr('元素護盾上限 40%、每次反應 +5%', 'Elemental shield up to 40%, +5% per reaction')], [tr('天災', 'Cataclysm'), tr('每 10 秒喺 6 隻敵人身上落隕石（攻擊 ×4）', 'Every 10 s, meteors on 6 enemies (ATK ×4)')]],
+  necro: [[tr('屍潮', 'Corpse Tide'), tr('亡靈上限 +3', '+3 Undead at once')], [tr('不死', 'Undying'), tr('亡靈被打爆有 25% 機會半血起身', 'A destroyed Undead has a 25% chance to get back up at half HP')], [tr('死亡君主', 'Lord of Death'), tr('HP ×1.5、亡靈強度 ×1.15', 'HP ×1.5, Undead Power ×1.15')]],
+};
+/** Class level line + 專精 progress (shown while you are still a single class). */
+function masteryBlock(save: SaveData): string {
+  const c = save.classId, L = classLevel(save, c), pct = Math.round(classProgress(save, c) * 100);
+  const levels = `<small class="line">${CLASS_IDS.map((k) => `${CLASSES[k].icon} Lv ${classLevel(save, k)}`).join(' · ')}</small>`;
+  const head = `<div class="statline"><b>📈 ${CLASSES[c].name} ${tr('職業', 'class')} Lv ${L}</b><small>${pct}%</small></div><div class="bar xp" style="height:6px;margin:4px 0"><i style="width:${pct}%"></i></div>${levels}<small class="line">${tr(`用嗰個職業打關先升級（第二、第三職業各得一半）。揀做第二職業要嗰個職業 Lv ${SUB_LEVEL}，第三職業要 Lv ${SUB2_LEVEL}。`, `Classes level up when you play them (second / third class get half). A second class needs that class at Lv ${SUB_LEVEL}, a third at Lv ${SUB2_LEVEL}.`)}</small>`;
+  if (!isPure(save)) return `<div class="awk mastery">${head}</div>`;
+  const rows = MASTERY_INFO[c].map(([n, d], i) => `<small class="line">${L >= MASTERY_LEVELS[i] ? '✅' : '🔒'} Lv ${MASTERY_LEVELS[i]} <b>${n}</b>${tr('：', ': ')}${d}</small>`).join('');
+  return `<div class="awk mastery">${head}<div class="sig">🎖️ <b>${tr('專精', 'Mastery')}</b>${tr(`：淨係用一個職業（唔覺醒，或者第二、第三職業都揀返同一個）就有呢啲能力。每級職業 HP 同攻擊 +1.5%（而家 +${Math.round(Math.min(50, L) * 1.5)}%）`, `: stay one class (no second class, or pick the same class again) to get these. +1.5% HP and ATK per class level (now +${Math.round(Math.min(50, L) * 1.5)}%)`)}</div>${rows}</div>`;
+}
+
 function awakeningBlock(save: SaveData): string {
   const sub = subOf(save), sub2 = sub2Of(save);
   const awk = mixOf(save);
@@ -311,12 +329,13 @@ function showAwaken(ctx: HomeCtx): void {
         <div class="col">
           ${CLASS_IDS.map((sub) => {
             const a = awakenedFor(main, sub)!;
-            return `<button class="awkopt ${chosen === sub ? 'on' : ''}" data-sub="${sub}">
+            const ok = canPickSub(save, sub);
+            return `<button class="awkopt ${chosen === sub ? 'on' : ''}" data-sub="${sub}" ${ok ? '' : 'disabled'}>
               <span class="ic">${a.icon}</span>
               <span><b>${a.name}</b> <small>${EN ? '' : `${a.en} · `}${tr('副職業：', 'Second: ')}${CLASSES[sub].name}</small>
               <small class="line">${a.bonusText}</small>
               <small class="line">${ico(a.signature.icon)} ${a.signature.name}${tr('：', ': ')}${a.signature.desc}</small>
-              <small class="line">🌟 ${EN ? `Unlocks the ${a.name} Board: Signature skill upgrades + unique passives` : `會開一塊「${a.name}板」：招牌技強化 + 專屬被動`}</small></span>
+              <small class="line">🌟 ${EN ? `Unlocks the ${a.name} Board: Signature skill upgrades + unique passives` : `會開一塊「${a.name}板」：招牌技強化 + 專屬被動`}</small>${ok ? '' : `<small class="line" style="color:var(--danger)">🔒 ${tr(`要${CLASSES[sub].name} Lv ${SUB_LEVEL}（而家 Lv ${classLevel(save, sub)}）`, `Needs ${CLASSES[sub].name} Lv ${SUB_LEVEL} (now Lv ${classLevel(save, sub)})`)}</small>`}</span>
             </button>`;
           }).join('')}
           <div class="awkfoot">
@@ -360,11 +379,12 @@ function showAscend(ctx: HomeCtx): void {
         <div class="col">
           ${CLASS_IDS.map((c) => {
             const a = ascendedFor(main, sub, c);
-            return `<button class="awkopt ${chosen === c ? 'on' : ''}" data-sub2="${c}">
+            const ok = canPickSub(save, c, true);
+            return `<button class="awkopt ${chosen === c ? 'on' : ''}" data-sub2="${c}" ${ok ? '' : 'disabled'}>
               <span class="ic">${a.icon}</span>
               <span><b>${a.name}</b> <small>${tr('第三職業：', 'Third: ')}${CLASSES[c].name}</small>
               <small class="line">+ ${ESSENCE_INFO[c].bonusText}</small>
-              <small class="line">${ico(a.echo!.icon)} ${a.echo!.name}${tr('：', ': ')}${a.echo!.desc}</small></span>
+              <small class="line">${ico(a.echo!.icon)} ${a.echo!.name}${tr('：', ': ')}${a.echo!.desc}</small>${ok ? '' : `<small class="line" style="color:var(--danger)">🔒 ${tr(`要${CLASSES[c].name} Lv ${SUB2_LEVEL}（而家 Lv ${classLevel(save, c)}）`, `Needs ${CLASSES[c].name} Lv ${SUB2_LEVEL} (now Lv ${classLevel(save, c)})`)}</small>`}</span>
             </button>`;
           }).join('')}
           <div class="awkfoot">

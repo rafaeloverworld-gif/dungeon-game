@@ -52,6 +52,8 @@ export const VULN = 0.4;
 export const ENDLESS_WAVE = 30;
 /** 多重箭袋: every extra arrow type used at once multiplies arrow damage by this. */
 export const MIX_PENALTY = 0.75;
+/** 專精: HP and ATK per class level while you stay a single class. */
+export const MASTERY_STAT = 0.015;
 /** 極·神射: each extra arrow type only costs this. */
 export const MIX_PENALTY_MAX = 0.88;
 
@@ -156,6 +158,7 @@ export interface RunSetup {
   arrowType?: ArrowType; // bows: which arrows (Gear tab)
   arrowTypes?: ArrowType[]; // 多重箭袋: several arrow types at once (the first is arrowType)
   arrowMax?: boolean; // 極·神射: extra arrow types cost less
+  mastery?: number; // 專精: class level when you stay a single class (0 = mixed class)
   spellType?: SpellType; // staffs (fireball attack): which spell (Gear tab)
   spellTypes?: SpellType[]; // 多重法典: spells cast in turn
   spellMax?: boolean; // 極·大魔導: reactions chain to nearby enemies
@@ -227,6 +230,11 @@ export class Sim {
   readonly arrowType: ArrowType;
   readonly arrowTypes: ArrowType[];
   readonly arrowMax: boolean;
+  /** 專精 (single class): class level; abilities at 10 / 25 / 50. */
+  readonly mastery: number;
+  private unyieldUsed = false; // 戰士 不屈: once per map
+  private volleyCount = 0; // 弓手 連射
+  private masteryT = 0; // 千箭 / 天災 timer
   readonly spellType: SpellType;
   readonly spellTypes: SpellType[];
   readonly spellMax: boolean;
@@ -360,6 +368,8 @@ export class Sim {
     this.arrowType = setup.arrowType ?? 'normal';
     this.arrowTypes = setup.arrowTypes?.length ? setup.arrowTypes : [this.arrowType];
     this.arrowMax = !!setup.arrowMax;
+    const pure = (!setup.subClassId || setup.subClassId === setup.classId) && (!setup.subClass2Id || setup.subClass2Id === setup.classId);
+    this.mastery = pure ? setup.mastery ?? 0 : 0; // 專精: a single class, or the same class picked again (雙刃戰士, 三刀流劍聖…)
     this.spellType = setup.spellType ?? 'fire';
     this.spellTypes = setup.spellTypes?.length ? setup.spellTypes : [this.spellType];
     this.spellMax = !!setup.spellMax;
@@ -409,6 +419,10 @@ export class Sim {
     if (powers.length) this.comboPower = powers[0] * (1 + COMBO_EXTRA * (powers.length - 1));
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
+    if (this.mastery > 0) { const k = 1 + MASTERY_STAT * Math.min(50, this.mastery); this.stats.maxHp.base *= k; this.stats.atk.base *= k; } // 專精: HP and ATK +1.5% per class level (up to Lv 50)
+    if (this.cls.id === 'archer' && this.mastery >= 10) { this.stats.range.base *= 1.3; this.stats.critDmg.base += 0.3; } // 弓手 鷹眼
+    if (this.cls.id === 'necro' && this.mastery >= 50) { this.stats.maxHp.base *= 1.5; this.stats.summon.base *= 1.15; } // 死靈 死亡君主
+    if (this.cls.id === 'warrior' && this.mastery >= 10) this.stats.def.base *= 1.3; // 戰士 不屈 also: DEF +30%
     this.stats.multishot += (fx?.multishot ?? 0) + (this.awk?.extraMultishot ?? 0) + extraMulti;
     this.stats.pierce += extraPierce + (fx?.pierce ?? 0);
     this.stats.minions += fx?.minions ?? 0;
@@ -634,11 +648,12 @@ export class Sim {
       const target = this.nearestEnemy(p.x, p.z, reach);
       if (target) {
         const frenzy = this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1; // 狂風
-        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy);
+        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy * (this.warGod ? 1.5 : 1));
         const base = Math.atan2(target.x - p.x, target.z - p.z);
         p.facing = base;
         const once = (mult: number) => (melee ? this.swing(base, reach, mult) : this.attack.kind === 'summon' ? this.summonAttack(base, mult) : this.shoot(base, mult));
         once(1);
+        if (this.cls.id === 'archer' && this.mastery >= 25 && !melee && ++this.volleyCount % 3 === 0) once(1); // 弓手 連射: every 3rd attack fires twice
         if (this.proc.double && this.rand() < this.proc.double) once(1); // 連擊
         if (this.sp.echo && this.rand() < this.sp.echo) once(0.6); // 回響
       } else {
@@ -646,6 +661,7 @@ export class Sim {
       }
     }
     this.withSrc('skill', () => updateAbilities(this, dt));
+    if (this.mastery >= 50) this.withSrc('skill', () => this.masteryTick(dt));
     this.withSrc('undead', () => this.updateMinions(dt));
     this.withSrc('ult', () => updateUltimates(this, dt));
   }
@@ -657,7 +673,7 @@ export class Sim {
   /** How many skeletons you can have at once (more can exist briefly from 骸骨大軍 / 亡者軍團). */
   get minionCap(): number {
     const base = this.cls.id === 'necro' || this.awk?.sub === 'necro' || this.awk?.sub2 === 'necro' || this.autoSkills.some((a) => a.id === 'raiseDead') ? 3 : 0;
-    return base + (this.attack.kind === 'summon' ? 2 : 0) + this.stats.minions + ((this.awk?.base ?? this.awk?.id) === 'necro_necro' ? 1 : 0) + (this.awk?.id === 'necro_necro_necro' ? 1 : 0) + this.n('utLasting') + (this.combo.has('eternal') ? 3 : 0); // 不朽骨: +1 Undead per copy (永生骨軍 +3 more)
+    return base + (this.attack.kind === 'summon' ? 2 : 0) + this.stats.minions + ((this.awk?.base ?? this.awk?.id) === 'necro_necro' ? 1 : 0) + (this.awk?.id === 'necro_necro_necro' ? 1 : 0) + this.n('utLasting') + (this.combo.has('eternal') ? 3 : 0) + (this.cls.id === 'necro' && this.mastery >= 10 ? 3 : 0); // 專精 屍潮 +3; 不朽骨: +1 Undead per copy (永生骨軍 +3 more)
   }
 
   /** How much of a hit an undead takes (骨堡壘 -30%, crowned -50%). */
@@ -770,6 +786,9 @@ export class Sim {
         }
       }
     }
+    if (this.cls.id === 'necro' && this.mastery >= 25) { // 死靈 不死: a destroyed undead (not one that ran out of time) gets back up 40% of the time
+      for (const m of this.minions) if (m.hp <= 0 && m.life > 0 && !this.sp.boneBurst && this.rand() < 0.25) { m.hp = m.maxHp * 0.5; this.events.push({ type: 'explode', x: m.x, z: m.z, r: 0.9, fx: 'shadow' }); }
+    }
     this.minions = this.minions.filter((m) => m.hp > 0 && m.life > 0);
     this.enemies = this.enemies.filter((e) => e.hp > 0);
   }
@@ -787,6 +806,33 @@ export class Sim {
     const arc = Math.min(Math.PI * 2, ((this.attack.arcDegrees ?? 140) * Math.PI) / 180 * Math.min(1.6, Math.sqrt(value(this.stats.area))));
     const comboMult = 1 + 0.6 * (this.stats.multishot - 1);
     this.arcHit(angle, reach, arc, comboMult * mult, this.attack.kind === 'reap' ? 'shadow' : undefined);
+    if (this.cls.id === 'warrior' && this.mastery >= 25) { // 戰士 劍氣: every swing also sends a piercing sword wave
+      const p = this.player, sp = 16, { dmg, crit } = this.rollDamage();
+      this.projectiles.push({ x: p.x, z: p.z, vx: Math.sin(angle) * sp, vz: Math.cos(angle) * sp, dmg: dmg * mult * 1.0, crit, fromPlayer: true, life: 0.55, pierce: 99, radius: 0.7, hit: [], javelin: true, src: 'skill' });
+    }
+  }
+
+  /** 戰士 戰神 (專精 Lv 50): below half HP, attacks and attack speed ×1.5. */
+  get warGod(): boolean { return this.cls.id === 'warrior' && this.mastery >= 50 && this.player.hp < this.maxHp * 0.5; }
+
+  /** 專精 Lv 50 abilities on a timer: 弓手 千箭 (every 8 s, 24 arrows all around), 法師 天災 (every 10 s, 6 meteors). */
+  private masteryTick(dt: number): void {
+    this.masteryT -= dt;
+    if (this.masteryT > 0) return;
+    const p = this.player;
+    if (this.cls.id === 'archer') {
+      this.masteryT = 8;
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * Math.PI * 2, sp = 20, { dmg, crit } = this.rollDamage();
+        this.projectiles.push({ x: p.x, z: p.z, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, dmg: dmg * 1.5, crit, fromPlayer: true, life: value(this.stats.range) / sp + 0.2, pierce: 3, radius: 0.3, hit: [], src: 'skill' });
+      }
+      this.events.push({ type: 'skill', name: tr('千箭', 'Thousand Arrows'), icon: '🏹', signature: false });
+    } else if (this.cls.id === 'mage') {
+      this.masteryT = 10;
+      const targets = this.enemies.filter((e) => e.hp > 0 && Math.hypot(e.x - p.x, e.z - p.z) < 14).sort(() => this.rand() - 0.5).slice(0, 6);
+      for (const e of targets) this.explode(e.x, e.z, 2.6 * Math.sqrt(value(this.stats.area)), value(this.stats.atk) * 4, false, 'fire', { noProc: true, elem: 'fire' });
+      if (targets.length) this.events.push({ type: 'skill', name: tr('天災', 'Cataclysm'), icon: '☄️', signature: false });
+    } else this.masteryT = 999;
   }
 
   /** Hit every enemy inside a cone (arc = 2π for a full circle). */
@@ -873,7 +919,7 @@ export class Sim {
     const a = e.elem;
     const arch = this.awk?.id === 'mage_mage' || this.awk?.base === 'mage_mage'; // 大法師
     e.elem = undefined; e.elemT = 0; e.reactCd = arch ? 0.2 : 0.4;
-    if (this.cls.id === 'mage') this.elemShield = Math.min(this.maxHp * 0.15, this.elemShield + this.maxHp * 0.03); // 元素護盾
+    if (this.cls.id === 'mage') { const big = this.mastery >= 25; this.elemShield = Math.min(this.maxHp * (big ? 0.4 : 0.15), this.elemShield + this.maxHp * (big ? 0.05 : 0.03)); } // 元素護盾 (專精 法力護盾: up to 40%)
     if (this.spellMax && this.chainDepth < 2) { // 極·大魔導: the reaction spreads the new element to 3 enemies nearby (they can react too)
       this.chainDepth++;
       const near = this.enemies.filter((o) => o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 3.5).slice(0, 3);
@@ -1159,6 +1205,10 @@ export class Sim {
     while (this.recentHits.length && this.recentHits[0].t < this.time - 5) this.recentHits.shift();
     p.hp -= dmg;
     p.invuln = PLAYER.hurtInvuln;
+    if (p.hp <= 0 && this.cls.id === 'warrior' && this.mastery >= 10 && !this.unyieldUsed) { // 戰士 不屈: once per map, a killing blow leaves 1 HP
+      this.unyieldUsed = true; p.hp = 1; p.invuln = 1.5;
+      this.events.push({ type: 'skill', name: tr('不屈', 'Unyielding'), icon: '🛡️', signature: false });
+    }
     this.events.push({ type: 'hurt' });
     if (this.sp.frostGuard && this.rand() < 0.15) {
       this.explode(p.x, p.z, 3.5 * Math.sqrt(value(this.stats.area)), value(this.stats.atk) * 1.5, false, 'frost', { slow: 0.6, noProc: true });
@@ -1591,6 +1641,7 @@ export class Sim {
     if (bossDmg && isBigKind(e.kind)) dmg *= 1 + bossDmg;
     if (this.proc.execute && e.hp < e.maxHp * 0.3) dmg *= 1 + this.proc.execute; // 斬殺
     if (this.uq.berserk && this.player.hp < this.maxHp * 0.5) dmg *= 1.3; // 狂戰之魂
+    if (this.warGod) dmg *= 1.5; // 戰神
     if (this.proc.lifesteal && this.proc.lifestealCd <= 0 && this.rand() < this.proc.lifesteal) {
       this.proc.lifestealCd = 0.2; // at most 5 heals a second
       this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * 0.01);
@@ -1716,6 +1767,7 @@ export class Sim {
       h.spinTimer = 0;
       if (h.lastStand) h.lastStand.used = false;
       h.sp.secondWindUsed = false;
+      h.unyieldUsed = false;
       if (h.down) { h.down = false; h.reviveT = 0; h.player.hp = h.maxHp * 0.25; } // a fallen co-op hero is back for the next map
       else h.player.hp = Math.min(h.maxHp, h.player.hp + h.maxHp * 0.25);
     }

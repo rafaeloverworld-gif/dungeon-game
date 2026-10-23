@@ -39,6 +39,7 @@ export interface SaveData {
   endlessBest: number; // 無盡模式: most waves survived in one run
   endlessTier: number; // 無盡模式: highest tier survived (counts for the World Boss max level)
   loadouts: Partial<Record<ClassId, { active: number; sets: (Loadout | null)[] }>>; // 配裝 A/B/C per class
+  classXp: Partial<Record<ClassId, number>>; // 職業熟練度: XP earned by playing each class (main 100%, second / third 50%)
   bagBuys: number; // extra bag space bought with coins (+10 each) // 多重箭袋: extra arrow types used at the same time
   spellType: Partial<Record<ClassId, SpellType>>; // staffs: chosen spell per class
   spellMix: Partial<Record<ClassId, SpellType[]>>; // 多重法典: extra spells cast in turn
@@ -73,7 +74,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -165,6 +166,7 @@ function sanitize(raw: unknown): SaveData {
     endlessBest: Math.max(0, Math.floor(num(r.endlessBest, 0))),
     endlessTier: Math.max(0, Math.floor(num(r.endlessTier, 0))),
     loadouts: sanitizeLoadouts(r.loadouts),
+    classXp: Object.fromEntries(Object.entries(r.classXp ?? {}).filter(([c]) => CLASS_IDS.includes(c as ClassId)).map(([c, v]) => [c, Math.max(0, num(v, 0))])) as SaveData['classXp'],
     bagBuys: Math.min(BAG_BUYS_MAX, Math.max(0, Math.floor(num(r.bagBuys, 0)))),
     spellMix: Object.fromEntries(Object.entries(r.spellMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => SPELL_TYPES.includes(x as SpellType)))]])) as SaveData['spellMix'],
     wbDay: typeof r.wbDay === 'string' ? r.wbDay : '',
@@ -257,6 +259,39 @@ export function writeSaveLocalOnly(s: SaveData): void {
 
 export function exportSave(s: SaveData): string { return JSON.stringify(s, null, 2); }
 export function importSave(text: string): SaveData { return sanitize(JSON.parse(text)); }
+
+// ---------- 職業熟練度 (class levels) ----------
+/** Total class XP to reach class level L (Lv 5 ≈ half an hour of play, Lv 15 ≈ 2 h, Lv 25 ≈ 4 h, Lv 50 = the long game). */
+export const classXpTotal = (L: number) => 50 * (L - 1) * (L - 1) + 1300 * (L - 1);
+export const CLASS_MAX_LEVEL = 60;
+export function classLevel(s: SaveData, c: ClassId): number {
+  const xp = s.classXp[c] ?? 0;
+  let L = 1;
+  while (L < CLASS_MAX_LEVEL && xp >= classXpTotal(L + 1)) L++;
+  return L;
+}
+/** Progress inside the current class level (0–1). */
+export function classProgress(s: SaveData, c: ClassId): number {
+  const L = classLevel(s, c);
+  if (L >= CLASS_MAX_LEVEL) return 1;
+  return ((s.classXp[c] ?? 0) - classXpTotal(L)) / (classXpTotal(L + 1) - classXpTotal(L));
+}
+/** Class level needed to pick a class as the second / third class. */
+export const SUB_LEVEL = 5, SUB2_LEVEL = 15;
+/** 專精 (staying a single class): abilities at these class levels. */
+export const MASTERY_LEVELS = [10, 25, 50] as const;
+/** After a run: the main class gets all the XP, the second and third classes half. */
+export function addClassXp(s: SaveData, xp: number): void {
+  const c = s.classId, sub = subOf(s), sub2 = sub2Of(s);
+  s.classXp[c] = (s.classXp[c] ?? 0) + xp;
+  for (const o of new Set([sub, sub2])) if (o && o !== c) s.classXp[o] = (s.classXp[o] ?? 0) + xp * 0.5;
+}
+/** 專精 counts while you stay one class: no second class, or the same class picked again. */
+export const isPure = (s: SaveData) => { const a = subOf(s), b = sub2Of(s); return (!a || a === s.classId) && (!b || b === s.classId); };
+/** Run XP goes to the character and to the classes in use. */
+export function addRunXp(s: SaveData, xp: number): number { addClassXp(s, xp); return addAccountXp(s, xp); }
+/** Can this class be picked as the second (or third) class? */
+export const canPickSub = (s: SaveData, c: ClassId, third = false) => classLevel(s, c) >= (third ? SUB2_LEVEL : SUB_LEVEL);
 
 export function addAccountXp(s: SaveData, xp: number): number {
   let gained = 0;
@@ -441,7 +476,7 @@ export const panelCost = (s: SaveData, id: string) => scaledCost(nodeById(id)!, 
 export const unlockableNow = (s: SaveData) => activeBoards(s).reduce((a, k) => a + boardNodesOf(k).filter((n) => unlockCheck(s, copyPrefix(k + '.') + n.id) === 'ok').length, 0);
 
 export function awaken(s: SaveData, sub: ClassId): void {
-  if (!canAwaken(s)) return;
+  if (!canAwaken(s) || !canPickSub(s, sub)) return;
   s.subClass[s.classId] = sub;
 }
 
@@ -463,7 +498,7 @@ function refundBoards(s: SaveData, keys: string[]): { souls: number; runes: numb
 
 /** 昇華: add a third class. The old two-class board is cleared and every soul and rune on it comes back. */
 export function ascend(s: SaveData, sub2: ClassId): { souls: number; runes: number } | null {
-  if (!canAscend(s)) return null;
+  if (!canAscend(s) || !canPickSub(s, sub2, true)) return null;
   const refund = refundBoards(s, [`${s.classId}_${subOf(s)}`]);
   s.subClass2[s.classId] = sub2;
   return refund;
@@ -692,7 +727,8 @@ export const spellMaxForm = (s: SaveData) => isArchmage(s) && equippedItems(s).s
 export function spellSlots(s: SaveData): number {
   if (spellMaxForm(s)) return SPELL_TYPES.length;
   const extra = equippedItems(s).filter((i) => hasSpecial(i, 'multiSpell')).length; // one more spell per item worn with it
-  return Math.min(SPELL_TYPES.length, 1 + extra + (isArchmage(s) ? 1 : 0));
+  const pure = isPure(s) && s.classId === 'mage' && classLevel(s, 'mage') >= 10; // 專精 元素大師
+  return Math.min(SPELL_TYPES.length, 1 + extra + (isArchmage(s) ? 1 : 0) + (pure ? 1 : 0));
 }
 export function spellsInUse(s: SaveData): SpellType[] {
   const main = s.spellType[s.classId] ?? 'fire';
@@ -709,7 +745,7 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
-  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
+  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), mastery: isPure(s) ? classLevel(s, s.classId) : 0, spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
 }
 
 /** Stats preview including skills and awakening (for the home screen). */
@@ -744,7 +780,7 @@ export function claimWorldBoss(s: SaveData, bossId: ReturnType<typeof todaysBoss
   s.coins += reward.coins;
   s.souls += reward.souls;
   s.runes += reward.runes;
-  addAccountXp(s, reward.xp);
+  addRunXp(s, reward.xp);
   const loot = openChests(s, { silver: reward.silver, gold: reward.gold }, level);
   let named: Item | null = null;
   if (reward.namedRoll && Math.random() < namedChance(level)) {

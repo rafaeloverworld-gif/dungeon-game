@@ -6,7 +6,7 @@ import { CHEST_NAMES, doubleChance, itemName, RARITY_COLORS, type ChestKind } fr
 import { Renderer } from './render/renderer';
 import { AWAKEN_TIER } from './sim/awakening';
 import { CLASSES } from './sim/classes';
-import { endlessStart, parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
+import { endlessStart, parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp, addRunXp, claimWorldBoss, loadSave, offlineIncome, openChests, runSetup, useWbTicket, wbTicketsLeft, writeSave, type SaveData } from './save';
 import { namedChance, todaysBoss } from './sim/worldboss';
 import { createInput } from './input';
 import { cloudConnect, cloudPush, cloudReady } from './cloud';
@@ -499,7 +499,7 @@ function finishRun(won: boolean, reason: string): void {
   save.runes += s.runRunes;
   save.crystals += s.runCrystals;
   const lvBefore = save.level;
-  addAccountXp(save, s.runXp);
+  addRunXp(save, s.runXp);
   let unlocked = false;
   let firstClear = 0; // 💎 bonus for clearing a tier for the first time (gate tiers much more)
   const endlessNew = s.endless && s.floors > save.endlessBest;
@@ -643,7 +643,7 @@ function claimWbRun(s: Sim, killed: boolean, reason: string): void {
   save.souls += Math.floor(s.runSouls);
   save.runes += s.runRunes;
   const lvBefore = save.level;
-  addAccountXp(save, s.runXp);
+  addRunXp(save, s.runXp);
   const res = claimWorldBoss(save, wb.id, s.tier, frac, killed);
   const crystals = (killed ? 8 : frac >= 0.66 ? 4 : frac >= 0.33 ? 2 : 1) + s.runCrystals;
   save.crystals += crystals;

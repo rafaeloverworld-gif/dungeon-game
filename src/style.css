@@ -473,3 +473,6 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .combolist small { display: block; margin-top: 3px; }
 .setrow.stack { flex-direction: column; align-items: stretch; gap: 8px; }
 .setrow.stack .seg button { flex: 1; white-space: nowrap; }
+.awkopt:disabled { opacity: 0.5; }
+.awk.mastery { margin-bottom: 8px; }
+.awk.mastery small.line { display: block; margin-top: 4px; }
