@@ -397,7 +397,7 @@ export class Sim {
     if (fx?.cdr) this.sp.cdMult *= 1 - fx.cdr;
     if (fx?.thorns) this.sp.thorns = true;
     if (fx?.frostArmor) this.sp.frostGuard = true;
-    this.dodge = fx?.dodge ?? 0;
+    this.dodge = 1 - (1 - (fx?.dodge ?? 0)) * (1 - (this.cls.dodge ?? 0)); // gear / skills and the class's own 迴避 (弓手)
     for (const u of fx?.uniques ?? []) this.uq[u] = true;
     this.healOnKill += (this.cls.healOnKill ?? 0) + (fx?.healOnKill ?? 0);
     for (const sk of fx?.autoSkills ?? []) {

@@ -24,6 +24,7 @@ export interface ClassDef {
   preferredDistance: number; // autopilot tries to keep this distance from enemies
   healOnKill?: number; // fraction of max HP healed per kill (warrior passive)
   raiseChance?: number; // necromancer: chance a kill raises a skeleton
+  dodge?: number; // 弓手 迴避: chance to ignore a hit completely
   bigDmg?: number; // 弓手 弱點射擊: extra damage to mini bosses and bosses
   bossGuard?: number; // ranged classes: take this much less damage while a boss is in the fight
 }
@@ -36,10 +37,10 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     arcDegrees: 150, preferredDistance: 1.6, healOnKill: 0.008,
   },
   archer: {
-    id: 'archer', name: tr('弓手', 'Archer'), icon: '🏹', desc: tr('遠程射擊最近嘅敵人，暴擊率高、速度快。保持距離：有 Boss 喺場時受傷 -30%。弱點射擊：對小 Boss 同 Boss 傷害 +40%。', 'Shoots the nearest enemy from range. High crit, fast attacks. Keeps their distance: 30% less damage while a boss is in the fight. Weak Spot: +40% damage to Mini-bosses and Bosses.'),
+    id: 'archer', name: tr('弓手', 'Archer'), icon: '🏹', desc: tr('遠程射擊最近嘅敵人，暴擊率高、速度快。保持距離：有 Boss 喺場時受傷 -30%。弱點射擊：對小 Boss 同 Boss 傷害 +40%。迴避：25% 機會完全無視一下傷害。', 'Shoots the nearest enemy from range. High crit, fast attacks. Keeps their distance: 30% less damage while a boss is in the fight. Weak Spot: +40% damage to Mini-bosses and Bosses. Evasion: 25% chance to ignore a hit completely.'),
     attack: 'arrow', mainWeapon: tr('弓', 'Bow'), subWeapon: tr('箭筒', 'Quiver'),
     base: { hp: 175, atk: 19.5, def: 10, attackInterval: 0.5, range: 10, moveSpeed: 6, crit: 0.12, critDmg: 1.6 },
-    projectileSpeed: 20, preferredDistance: 7, bossGuard: 0.3, bigDmg: 0.4,
+    projectileSpeed: 20, preferredDistance: 7, bossGuard: 0.3, bigDmg: 0.4, dodge: 0.25,
   },
   mage: {
     id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。有 Boss 喺場時受傷 -35%。元素護盾：每次觸發反應得到最大 HP 3% 護盾（最多 15%）。元素同調：每 2 次施法加多一種元素，兩種元素喺敵人身上會起反應（火+冰=蒸發爆炸、火+雷=超載、冰+雷=超導），法師嘅反應傷害 +50%。', 'Fireballs explode on hit. Best area damage, but lowest HP. 35% less damage while a boss is in the fight. Elemental Shield: each reaction you set off gives a 3% max HP shield (up to 15%). Elemental Sync: every 2nd cast adds a second element; two elements on an enemy react (fire+frost = Steam Blast, fire+lightning = Overload, frost+lightning = Superconduct). Mage reactions hit 50% harder.'),
