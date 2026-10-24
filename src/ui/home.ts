@@ -1,4 +1,4 @@
-import { prefs as fxPrefs, setPref } from '../audio';
+import { prefs as fxPrefs, setPref, setVolume, audioControlsHtml, wireAudioControls } from '../audio';
 // Home screen: 出發 (class + dungeon), 裝備 (gear), 強化 (shop), 設定 (settings + save).
 import { ACCOUNT, DUNGEON, SHOP, type ShopKey, biomeFor, ENEMY_UNLOCKS, ELITES, tierPower } from '../sim/config';
 import { ARROW_TYPES, ARROWS, ATTACK_NAMES, CLASSES, CLASS_IDS, SPELL_TYPES, SPELLS, NECRO_MODES, type ArrowType, type ClassId, type NecroMode, type SpellType } from '../sim/classes';
@@ -121,7 +121,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
   const c = CLASSES[save.classId];
   body.appendChild(h(`
     <div class="col">
-      <h1>${tr('地城 Beta 5', 'Dungeon Beta 5')} <small class="buildtag">${buildLabel()}</small></h1>
+      <h1>${tr('地城 Beta 5', 'Dungeon Beta 5')} <small class="buildtag">${buildLabel()}</small><button class="mini soundbtn" data-act="sound" aria-label="${tr('聲音', 'Sound')}">${fxPrefs.music || fxPrefs.sfx ? '🔊' : '🔇'}</button></h1>
       ${questCard(save)}
       <div class="card">
         <h3>${tr('職業', 'Class')}</h3>
@@ -162,6 +162,12 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
     else if (b.dataset.act === 'tier-') { save.selectedTier--; writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'tier+') { save.selectedTier++; writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'start') ctx.startRun();
+    else if (b.dataset.act === 'sound') {
+      const m = h(`<div class="screen dim modal"><div class="card"><h3>🔊 ${tr('聲音', 'Sound')}</h3>${audioControlsHtml()}<button class="ghost" data-act="close" style="width:100%;margin-top:8px">${tr('完成', 'Done')}</button></div></div>`);
+      wireAudioControls(m);
+      m.addEventListener('click', (ev) => { const t = ev.target as HTMLElement; if (t === m || t.closest('[data-act=close]')) { m.remove(); showHome(ctx); } });
+      ctx.ui.appendChild(m);
+    }
     else if (b.dataset.act === 'endless') { if (save.highestCleared >= ENDLESS_UNLOCK) ctx.startEndless(); }
   });
 }
@@ -798,10 +804,10 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
       <div class="card">
         <h3>${awk ? `${awk.icon} ${awk.name}` : `${CLASSES[save.classId].icon} ${CLASSES[save.classId].name}`} · ${tr('裝備', 'Gear')}</h3>
         ${statSummary(save)}
-        <div class="undeadline">⚔️ ${tr('攻擊方式：', 'Attack: ')}<b>${ATTACK_NAMES[atkKind === 'shadow' && save.necroMode === 'summon' ? 'summon' : atkKind]}</b><small>${tr('由主武器決定（劍 / 槍 = 斬擊（弓手揸槍 = 擲槍）、弓 = 射箭、法杖 = 火球（死靈 = 暗影彈）、鐮刀 = 橫掃）', 'Set by your main-hand weapon (sword / spear = slash (an Archer throws the spear), bow = arrows, staff = fireballs (shadow bolts for a Necromancer), scythe = sweep)')}</small>
+        <div class="undeadline">⚔️ ${tr('攻擊方式：', 'Attack: ')}<b>${ATTACK_NAMES[save.classId === 'necro' && save.necroMode === 'summon' ? 'summon' : atkKind]}</b><small>${tr('由主武器決定（劍 / 槍 = 斬擊（弓手揸槍 = 擲槍）、弓 = 射箭、法杖 = 火球（死靈 = 暗影彈）、鐮刀 = 橫掃）', 'Set by your main-hand weapon (sword / spear = slash (an Archer throws the spear), bow = arrows, staff = fireballs (shadow bolts for a Necromancer), scythe = sweep)')}</small>
           ${(atkKind === 'arrow' || atkKind === 'javelin') ? `${arrowMax > 1 ? `<small>🏹 ${arrowJi ? tr(`<b>極·神射</b>：所有箭種可以同時用（已揀 ${arrowUse.length}）。每多一種全部箭傷害只係 ×0.88`, `<b>Max Sharpshooter</b>: every arrow type at once (${arrowUse.length} picked). Each extra type only costs ×0.88 damage`) : tr(`可以同時用 ${arrowMax} 種箭（已揀 ${arrowUse.length}）。撳一下揀／取消；效果疊埋，每多一種全部箭傷害 ×0.75`, `Use up to ${arrowMax} arrow types at once (${arrowUse.length} picked). Tap to add / remove; effects combine, each extra type: all arrows ×0.75 damage`)}</small>` : ''}<div class="arrowpick">${ARROW_TYPES.map((a) => `<button data-arrow="${a}" class="${arrowUse.includes(a) ? 'on' : ''}">${ARROWS[a].icon} ${ARROWS[a].name}</button>`).join('')}</div>${arrowUse.map((a) => `<small>${ARROWS[a].icon} <b>${ARROWS[a].name}</b>${tr('：', ': ')}${ARROWS[a].desc}</small>`).join('')}` : ''}
           ${save.classId === 'warrior' ? `<div class="arrowpick"><button data-blood="0" class="${save.bloodMode ? '' : 'on'}">⚔️ ${tr('攻擊流', 'ATK')}</button><button data-blood="1" class="${save.bloodMode ? 'on' : ''}">❤️ ${tr('血戰', 'Blood War')}</button></div><small>${save.bloodMode ? tr('❤️ <b>血戰</b>：攻擊力 = 最大 HP × 300%（攻擊加成全部唔計，暴擊照計）。所有傷害（攻擊、技能、終極技、反應）都跟 HP 計：堆 HP 就係堆傷害。', '❤️ <b>Blood War</b>: ATK = 300% of max HP (ATK bonuses are ignored, crits still count). Every damage source (attacks, skills, ultimates, reactions) runs on HP: stack HP to stack damage.') : tr('⚔️ <b>攻擊流</b>：正常用攻擊力計傷害。改「血戰」就會用最大 HP 計。', '⚔️ <b>ATK</b>: damage uses your ATK as usual. Switch to Blood War to use max HP instead.')}</small>` : ''}
-          ${atkKind === 'shadow' ? `<div class="arrowpick">${(['bolt', 'summon'] as NecroMode[]).map((a) => `<button data-necro="${a}" class="${save.necroMode === a ? 'on' : ''}">${NECRO_MODES[a].icon} ${NECRO_MODES[a].name}</button>`).join('')}</div><small>${NECRO_MODES[save.necroMode].icon} <b>${NECRO_MODES[save.necroMode].name}</b>${tr('：', ': ')}${NECRO_MODES[save.necroMode].desc}</small>` : ''}
+          ${save.classId === 'necro' ? `<div class="arrowpick">${(['bolt', 'summon'] as NecroMode[]).map((a) => `<button data-necro="${a}" class="${save.necroMode === a ? 'on' : ''}">${a === 'bolt' && atkKind !== 'shadow' ? `⚔️ ${tr('用武器', 'Use weapon')}（${ATTACK_NAMES[atkKind]}）` : `${NECRO_MODES[a].icon} ${NECRO_MODES[a].name}`}</button>`).join('')}</div><small>${save.necroMode === 'bolt' && atkKind !== 'shadow' ? tr(`⚔️ <b>用武器</b>：用你件武器攻擊（${ATTACK_NAMES[atkKind]}）；亡靈靠殺敵同技能召喚`, `⚔️ <b>Use weapon</b>: attack with your weapon (${ATTACK_NAMES[atkKind]}); Undead come from kills and skills`) : `${NECRO_MODES[save.necroMode].icon} <b>${NECRO_MODES[save.necroMode].name}</b>${tr('：', ': ')}${NECRO_MODES[save.necroMode].desc}`}</small>` : ''}
           ${atkKind === 'fireball' ? `${spellMaxN > 1 ? `<small>📖 ${spellJi ? tr(`<b>極·大魔導</b>：四種法術同時放（已揀 ${spellUse.length}），每多一種只係 ×0.88，反應會連鎖去附近敵人`, `<b>Max Archmage</b>: all four spells at once (${spellUse.length} picked), each extra only ×0.88; reactions chain to nearby enemies`) : tr(`可以同時放 ${spellMaxN} 種法術（已揀 ${spellUse.length}）。撳一下揀／取消；每多一種全部傷害 ×0.75`, `Cast up to ${spellMaxN} spells at once (${spellUse.length} picked). Tap to add / remove; each extra: all damage ×0.75`)}</small>` : ''}<div class="arrowpick">${SPELL_TYPES.map((a) => `<button data-spell="${a}" class="${spellUse.includes(a) ? 'on' : ''}">${SPELLS[a].icon} ${SPELLS[a].name}</button>`).join('')}</div>${spellUse.map((a) => `<small>${SPELLS[a].icon} <b>${SPELLS[a].name}</b>${tr('：', ': ')}${SPELLS[a].desc}</small>`).join('')}` : ''}</div>
         ${elemLine(save, atkKind)}
         ${undeadLine(save)}
@@ -1193,6 +1199,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       </div>
       <div class="card"><h3>${tr('聲音同畫面', 'Sound & display')}</h3>
         <div class="seg fxprefs">${([['sfx', tr('🔊 音效', '🔊 SFX')], ['music', tr('🎵 音樂', '🎵 Music')], ['numbers', tr('💥 傷害數字', '💥 Damage numbers')]] as const).map(([k, n]) => `<button data-fx="${k}" class="${fxPrefs[k] ? 'on' : ''}">${n}</button>`).join('')}</div>
+        ${audioControlsHtml()}
       </div>
       <div class="card"><h3>${tr('遊戲', 'Game')}</h3>${ctx.autoPickToggle()}
         <div class="setrow stack"><div><b>${tr('開寶箱自動分解', 'Auto-salvage chest loot')}</b><small>${tr('揀咗嘅品質或以下會自動賣做金幣；傳說永遠唔會賣', 'Drops at or below this rarity turn into coins; legendaries never do')}</small></div>
@@ -1227,9 +1234,10 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       <div class="note">${tr('地城 Beta 5 · 職業、技能板、覺醒、裝備、交換、世界 Boss、離線收益。', 'Dungeon Beta 5 · Classes, Skill Boards, Awakening, Gear, Trade, World Boss, offline rewards.')}</div>
     </div>`));
   ctx.wireToggles(body);
+  wireAudioControls(body);
   body.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
-    if (b?.dataset.fx) { const k = b.dataset.fx as 'sfx' | 'music' | 'numbers'; setPref(k, !fxPrefs[k]); showHome(ctx); return; }
+    if (b?.dataset.fx) { const k = b.dataset.fx as 'sfx' | 'music' | 'numbers'; setPref(k, !fxPrefs[k]); if (k !== 'numbers' && fxPrefs[k]) { const vk = k === 'sfx' ? 'sfxVol' : 'musicVol'; if (!fxPrefs[vk]) setVolume(vk, 0.8); } showHome(ctx); return; }
     if (b?.dataset.lang) { if (b.dataset.lang !== getLang()) setLang(b.dataset.lang as 'zh' | 'en'); return; }
     if (b?.dataset.act?.startsWith('ol-')) { void onlineAction(ctx, body, b.dataset.act); return; }
     if (b?.dataset.coopbot) { setCoopBot(b.dataset.coopbot === '1'); showHome(ctx); return; }

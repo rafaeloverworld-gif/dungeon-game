@@ -1,21 +1,49 @@
+import { tr } from './i18n';
 // Sound: every effect is synthesized with WebAudio (no files to download), plus a small procedural
 // dungeon loop. Settings (sound / music / damage numbers) live in localStorage, like the language.
 type Sfx = 'hit' | 'crit' | 'kill' | 'bigKill' | 'explode' | 'coin' | 'levelup' | 'boss' | 'hurt' | 'chest' | 'zap' | 'wave' | 'warn' | 'win' | 'lose' | 'click';
 
 const KEY = 'website-game-fx';
-interface FxPrefs { sfx: boolean; music: boolean; numbers: boolean }
+interface FxPrefs { sfx: boolean; music: boolean; numbers: boolean; sfxVol: number; musicVol: number }
 export const prefs: FxPrefs = (() => {
-  try { return { sfx: true, music: true, numbers: true, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return { sfx: true, music: true, numbers: true }; }
+  const d = { sfx: true, music: true, numbers: true, sfxVol: 0.8, musicVol: 0.8 };
+  try { return { ...d, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return d; }
 })();
-export function setPref(k: keyof FxPrefs, v: boolean): void {
+const savePrefs = () => { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch { /* blocked */ } };
+export function setPref(k: 'sfx' | 'music' | 'numbers', v: boolean): void {
   prefs[k] = v;
-  try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch { /* blocked */ }
+  savePrefs();
   if (k === 'music') { if (v) startMusic(); else stopMusic(); }
+}
+/** Volume 0..1 for effects or music (0 also switches it off, anything above switches it on). */
+export function setVolume(k: 'sfxVol' | 'musicVol', v: number): void {
+  prefs[k] = Math.max(0, Math.min(1, v));
+  const on = prefs[k] > 0;
+  if (k === 'musicVol') { if (musicBus) musicBus.gain.value = 0.16 * prefs.musicVol; if (on !== prefs.music) setPref('music', on); }
+  else { if (sfxBus) sfxBus.gain.value = prefs.sfxVol; if (on !== prefs.sfx) prefs.sfx = on; }
+  savePrefs();
+}
+
+/** Sound settings block (sliders + mute buttons), used on the Settings tab, the home screen and the pause menu. */
+export function audioControlsHtml(): string {
+  const row = (k: 'sfxVol' | 'musicVol', icon: string, name: string) => `<label class="volrow"><span>${icon} ${name}</span><input type="range" min="0" max="100" step="5" value="${Math.round(prefs[k] * 100)}" data-vol="${k}"><b>${Math.round(prefs[k] * 100)}</b></label>`;
+  return `<div class="audioctl">${row('musicVol', '🎵', tr('音樂', 'Music'))}${row('sfxVol', '🔊', tr('音效', 'Effects'))}</div>`;
+}
+export function wireAudioControls(root: HTMLElement): void {
+  root.addEventListener('input', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    if (!t.dataset.vol) return;
+    unlockAudio();
+    setVolume(t.dataset.vol as 'sfxVol' | 'musicVol', Number(t.value) / 100);
+    const b = t.parentElement?.querySelector('b'); if (b) b.textContent = t.value;
+    if (t.dataset.vol === 'sfxVol') play('click');
+  });
 }
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let musicBus: GainNode | null = null;
+let sfxBus: GainNode | null = null;
 let noiseBuf: AudioBuffer | null = null;
 
 /** Browsers only allow sound after a tap: call this from the first pointer event. */
@@ -26,7 +54,8 @@ export function unlockAudio(): void {
       if (!AC) return;
       ctx = new AC();
       master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
-      musicBus = ctx.createGain(); musicBus.gain.value = 0.16; musicBus.connect(master);
+      musicBus = ctx.createGain(); musicBus.gain.value = 0.16 * prefs.musicVol; musicBus.connect(master);
+      sfxBus = ctx.createGain(); sfxBus.gain.value = prefs.sfxVol; sfxBus.connect(master);
       noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -39,7 +68,7 @@ const last: Partial<Record<Sfx, number>> = {};
 const GAP: Partial<Record<Sfx, number>> = { hit: 0.05, crit: 0.06, kill: 0.04, coin: 0.06, explode: 0.08, zap: 0.08, hurt: 0.15 };
 
 function tone(freq: number, dur: number, type: OscillatorType, vol: number, slideTo?: number, delay = 0): void {
-  if (!ctx || !master) return;
+  if (!ctx || !sfxBus) return;
   const t = ctx.currentTime + delay;
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = type;
@@ -47,19 +76,19 @@ function tone(freq: number, dur: number, type: OscillatorType, vol: number, slid
   if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(master);
+  o.connect(g).connect(sfxBus);
   o.start(t); o.stop(t + dur + 0.02);
 }
 
 function noise(dur: number, vol: number, freq: number, q = 1, delay = 0): void {
-  if (!ctx || !master || !noiseBuf) return;
+  if (!ctx || !sfxBus || !noiseBuf) return;
   const t = ctx.currentTime + delay;
   const s = ctx.createBufferSource(); s.buffer = noiseBuf;
   const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
   f.frequency.exponentialRampToValueAtTime(Math.max(60, freq * 0.2), t + dur);
   const g = ctx.createGain();
   g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(f).connect(g).connect(master);
+  s.connect(f).connect(g).connect(sfxBus);
   s.start(t); s.stop(t + dur + 0.02);
 }
 

@@ -61,6 +61,9 @@ export const MIX_PENALTY_MAX = 0.88;
 export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 20, absorbSpell: 24, absorbMelee: 10 };
 /** 骨爆: every blast hits this much harder (on top of max HP × 150% × copies). */
 export const BONE_BURST_MULT = 1.5;
+/** 骨爆 summoner: after a blast the next raise comes within this many seconds. */
+export let BONE_BURST_REFILL = 0.15;
+export const setBoneRefill = (v: number) => { BONE_BURST_REFILL = v; };
 /** 戰士 血戰: ATK = max HP × this (ATK bonuses are ignored). */
 export const BLOOD_ATK = 3;
 export const MIX_OVER = 0.03, MIX_PENALTY_CAP = 0.94;
@@ -384,7 +387,7 @@ export class Sim {
     this.weapons = setup.weapons ?? null;
     const wk = this.weapons?.main ? attackFor(this.weapons.main, setup.classId) : null;
     const kind0 = wk ?? this.cls.attack;
-    this.attack = ATTACK_STYLES[kind0 === 'shadow' && setup.necroMode === 'summon' ? 'summon' : kind0];
+    this.attack = ATTACK_STYLES[setup.classId === 'necro' && setup.necroMode === 'summon' ? 'summon' : kind0]; // a necromancer can summon with any weapon
     this.arrowType = setup.arrowType ?? 'normal';
     this.arrowTypes = setup.arrowTypes?.length ? setup.arrowTypes : [this.arrowType];
     this.arrowMax = !!setup.arrowMax;
@@ -805,7 +808,7 @@ export class Sim {
         m.hp = 0;
         if (this.combo.has('endless') && this.rand() < 0.3) this.summon(m.x, m.z, { force: true, life: 12 }); // 不滅骨爆
         // 骨爆 refills fast: a summoner raises the next one at once; otherwise 25% chance one rises by your side
-        if (this.attack.kind === 'summon') p.attackTimer = Math.min(p.attackTimer, 0.15);
+        if (this.attack.kind === 'summon') p.attackTimer = Math.min(p.attackTimer, BONE_BURST_REFILL);
         else if (this.rand() < 0.25) { const a = this.rand() * Math.PI * 2; this.summon(p.x + Math.sin(a) * 1.5, p.z + Math.cos(a) * 1.5, { life: 12 }); }
         // 骨爆: the blast is as big as the undead's max HP (tanky undead hit harder)
         this.explode(m.x, m.z, r * (this.combo.has('chainBurst') ? 1.5 : 1), m.maxHp * BONE_BURST_MULT * (1 + 0.5 * this.n('boneBurst')) * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true }); // no ultimate procs, so the blast itself is big

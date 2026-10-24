@@ -1,7 +1,7 @@
 import { DUNGEON, OFFLINE, SIM_DT } from './sim/config';
 import { Sim, type DmgSrc, type Input, type SimEvent } from './sim/sim';
 import { biomeFor, isBigKind } from './sim/config';
-import { play, setTense, startMusic, unlockAudio } from './audio';
+import { audioControlsHtml, play, setTense, startMusic, unlockAudio, wireAudioControls } from './audio';
 import { CHEST_NAMES, doubleChance, itemName, RARITY_COLORS, type ChestKind } from './sim/gear';
 import { Renderer } from './render/renderer';
 import { AWAKEN_TIER } from './sim/awakening';
@@ -456,9 +456,11 @@ function showPause(): void {
         <button class="primary" data-act="resume">${tr('繼續', 'Resume')}</button>
         <button data-act="quit">${session ? tr('離開合作（保留金幣同經驗）', 'Leave co-op (keep Coins & XP)') : tr('放棄地城（保留金幣同經驗）', 'Give up (keep Coins & XP)')}</button>
         <div class="card">${autoPickToggle()}</div>
+        <div class="card"><h3 style="margin:0 0 6px">🔊 ${tr('聲音', 'Sound')}</h3>${audioControlsHtml()}</div>
       </div>
     </div>`);
   wireToggles(pauseEl);
+  wireAudioControls(pauseEl);
   pauseEl.addEventListener('pointerdown', (ev) => ev.stopPropagation());
   pauseEl.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
