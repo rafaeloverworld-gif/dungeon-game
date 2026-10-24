@@ -14,7 +14,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS_MAX, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, treeAllowOf, treeEquipNow, pureBuy, pureReset, pureRank, pureCanBuy, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, treeAllowOf, treeEquipNow, changeClass, pureBuy, pureReset, pureRank, pureCanBuy, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, ultSlots, ultSlotCost, buyUltSlot, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -153,7 +153,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
   body.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b) return;
-    if (b.dataset.class) { save.classId = b.dataset.class as ClassId; writeSave(save); showHome(ctx); }
+    if (b.dataset.class) { changeClass(save, b.dataset.class as ClassId); writeSave(save); showHome(ctx); }
     else if (b.dataset.act === 'awaken') showAwaken(ctx);
     else if (b.dataset.act === 'ascend') showAscend(ctx);
     else if (b.dataset.act === 'worldboss') showWorldBoss(ctx);

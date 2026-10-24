@@ -65,6 +65,7 @@ export interface SaveData {
   crystals: number; // 💎 for 終極技
   ults: Partial<Record<UltId, number>>; // unlocked 終極技 -> level 1..10
   ultEquip: UltId[]; // up to ultSlots(s) equipped
+  ultByClass: Partial<Record<ClassId, UltId[]>>; // each class remembers its own equipped ultimates (its current 配裝)
   ultSlotBuys: number; // extra 終極技 slots bought with 靈晶
   wbLevel: number; // last chosen world boss level
   collection: Record<string, number>; // named legendary id -> times obtained
@@ -92,7 +93,7 @@ export const freshSave = (): SaveData => ({
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], stash: [], stashBuys: 0, stashTabs: [], stashTabOf: {}, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
   subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', bloodMode: false, trees: {}, pure: {}, board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
-  wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], ultSlotBuys: 0, wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
+  wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], ultByClass: {}, ultSlotBuys: 0, wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -206,6 +207,7 @@ function sanitize(raw: unknown): SaveData {
     ults: Object.fromEntries(ULT_IDS.map((u) => [u, Math.min(ULT_MAX_LEVEL, Math.max(0, Math.floor(num(r.ults?.[u], 0))))]).filter(([, v]) => v)),
     ultEquip: Array.isArray(r.ultEquip) ? [...new Set(r.ultEquip.filter((u): u is UltId => ULT_IDS.includes(u as UltId) && num(r.ults?.[u as UltId], 0) > 0))].slice(0, ULT_SLOTS + Math.min(ULT_SLOT_COSTS.length, Math.max(0, Math.floor(num(r.ultSlotBuys, 0))))) : [],
     ultSlotBuys: Math.min(ULT_SLOT_COSTS.length, Math.max(0, Math.floor(num(r.ultSlotBuys, 0)))),
+    ultByClass: Object.fromEntries(Object.entries(r.ultByClass ?? {}).filter(([c, v]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(v)).map(([c, v]) => [c, [...new Set((v as string[]).filter((u): u is UltId => ULT_IDS.includes(u as UltId)))].slice(0, ULT_SLOTS_MAX)])) as SaveData['ultByClass'],
     collection: Object.fromEntries(NAMED.map((n) => [n.id, Math.max(0, Math.floor(num(r.collection?.[n.id], 0)))]).filter(([, v]) => v)),
   };
   retireBaseBoards(out);
@@ -1067,4 +1069,13 @@ export function pureBonus(s: SaveData): StatBonus {
   const b: StatBonus = {};
   for (const p of PURE_STATS) { const n = pureRank(s, s.classId, p.id); if (n) addBonus(b, p.id, p.flat ? { flat: p.step * n } : { pct: p.step * n }); }
   return b;
+}
+
+/** Change the main class: the ultimates you had equipped stay with the old class, the new class brings back its own. */
+export function changeClass(s: SaveData, c: ClassId): void {
+  if (c === s.classId) return;
+  s.ultByClass[s.classId] = [...s.ultEquip];
+  s.classId = c;
+  const mine = s.ultByClass[c];
+  if (mine) s.ultEquip = mine.filter((u) => (s.ults[u] ?? 0) > 0).slice(0, ultSlots(s));
 }
