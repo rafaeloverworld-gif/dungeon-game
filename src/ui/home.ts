@@ -750,7 +750,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
         </div>
         <button data-act="salvage-sel" class="${salvSel.has('epic') || salvSel.has('legendary') ? 'danger' : ''}" ${toSell.length ? '' : 'disabled'} style="font-size:13px;padding:8px 10px;width:100%;margin-top:6px">${toSell.length ? (EN ? `Salvage ${toSell.length} selected (🪙 ${fmt(sellValue)})` : `分解所選 ${toSell.length} 件（🪙 ${fmt(sellValue)}）`) : tr('揀咗嘅稀有度冇嘢可以分解', 'Nothing to salvage at these rarities')}</button>
         <small class="note" style="display:block;margin-top:4px">${tr('鎖定同已裝備嘅唔會分解', 'Locked and equipped items are kept')}</small>
-        ${bag.length ? `<div class="pickbar">${bagPickMode ? `<button data-act="bagpick-all">${tr('全選', 'All')}</button><button data-act="bagpick-none">${tr('清除', 'Clear')}</button><button class="primary" data-act="bagpick-stash" ${bagPicked.size ? '' : 'disabled'}>🏦 ${EN ? `Store ${bagPicked.size}` : `放入倉庫 ${bagPicked.size} 件`}${stashTargetTab(save) ? ` → ${esc(save.stashTabs.find((t) => t.id === stashTargetTab(save))!.name)}` : ''}</button><button class="ghost" data-act="bagpick">${tr('完成', 'Done')}</button>` : `<button data-act="bagpick">☑ ${tr('多選放入倉庫', 'Multi-select to Storage')}</button>`}</div>${bagPickMode ? `<small class="note" style="display:block">${tr('已裝備 / 喺 A/B/C 套裝入面嘅揀唔到', 'Worn gear and gear in an A/B/C build can’t be picked')}</small>` : ''}` : ''}
+        ${bag.length ? `<div class="pickbar">${bagPickMode ? `<button data-act="bagpick-all">${tr('全選', 'All')}</button><button data-act="bagpick-none">${tr('清除', 'Clear')}</button><button class="primary" data-act="bagpick-stash" ${bagPicked.size ? '' : 'disabled'}>🏦 ${EN ? `Store ${bagPicked.size}` : `放入倉庫 ${bagPicked.size} 件`}${stashTargetTab(save) ? ` → ${esc(save.stashTabs.find((t) => t.id === stashTargetTab(save))!.name)}` : ''}</button><button class="ghost" data-act="bagpick">${tr('完成', 'Done')}</button>${(() => { const sel = bag.filter((i) => bagPicked.has(i.id) && !isProtected(save, i)); const big = sel.some((i) => i.rarity === 'epic' || i.rarity === 'legendary'); return `<button class="danger" data-act="bagpick-salvage" data-big="${big ? 1 : 0}" ${sel.length ? '' : 'disabled'} style="flex-basis:100%">${sel.length ? (EN ? `Salvage ${sel.length} (🪙 ${fmt(sel.reduce((a, i) => a + salvageValue(i), 0))})` : `分解 ${sel.length} 件（🪙 ${fmt(sel.reduce((a, i) => a + salvageValue(i), 0))}）`) : tr('分解（鎖定嘅唔計）', 'Salvage (locked ones are skipped)')}</button>`; })()}` : `<button data-act="bagpick">☑ ${tr('多選（放入倉庫 / 分解）', 'Multi-select (Store / Salvage)')}</button>`}</div>${bagPickMode ? `<small class="note" style="display:block">${tr('已裝備 / 喺 A/B/C 套裝入面嘅揀唔到；🔒 鎖定嘅可以放倉庫但唔會分解', 'Worn gear and gear in an A/B/C build can’t be picked; 🔒 locked gear can be stored but is never salvaged')}</small>` : ''}` : ''}
         <div class="bag">${bag.length ? bag.map((it) => bagPickMode ? (canStash(save, it) ? itemRow(save, it, { showSlot: true, selectable: true, selected: bagPicked.has(it.id) }).replace('data-item=', 'data-bp=') : '') : itemRow(save, it, { showSlot: true })).join('') : `<p class="note">${tr('背包係空嘅。通關地城開寶箱就有裝備。', 'Bag is empty. Clear dungeons and open chests for gear.')}</p>`}</div>
       </div>
     </div>`));
@@ -764,6 +764,15 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
     else if (b.dataset.act === 'bagpick') { bagPickMode = !bagPickMode; bagPicked.clear(); showHome(ctx); }
     else if (b.dataset.act === 'bagpick-all') { bag.filter((i) => canStash(save, i)).forEach((i) => bagPicked.add(i.id)); showHome(ctx); }
     else if (b.dataset.act === 'bagpick-none') { bagPicked.clear(); showHome(ctx); }
+    else if (b.dataset.act === 'bagpick-salvage') {
+      if (b.dataset.big === '1' && b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('包括史詩 / 傳說，再撳一次確認分解', 'Includes Epic / Legendary. Tap again to salvage'); return; }
+      const ids = [...bagPicked].filter((id) => { const it = itemById(save, id); return it && !isProtected(save, it); });
+      const got = salvage(save, ids);
+      ids.forEach((id) => bagPicked.delete(id));
+      writeSave(save);
+      showHome(ctx);
+      ctx.banner(EN ? `Salvaged ${ids.length} for 🪙 ${fmt(got)}` : `分解咗 ${ids.length} 件，得到 🪙 ${fmt(got)}`);
+    }
     else if (b.dataset.act === 'bagpick-stash') {
       let n = 0, full = false;
       for (const id of [...bagPicked]) { const res = toStash(save, id, stashTargetTab(save)); if (res === 'ok') { n++; bagPicked.delete(id); } else if (res === 'full') { full = true; break; } }
