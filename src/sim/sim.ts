@@ -463,12 +463,12 @@ export class Sim {
     this.stats.pierce += extraPierce + (fx?.pierce ?? 0);
     if (this.sp.oneShot && this.attack.kind === 'summon') this.sp.oneShot = false; // a summoner has no hit to charge
     if (this.sp.oneShot) { // 一擊流 (蓄力): one slow, huge hit — extras and on-hit triggers turn into damage
-      const extra = this.stats.multishot - 1 + (this.cls.id === 'archer' && this.arrowTypes[0] === 'spread' ? 2 : 0); // 散射's 2 extra arrows become damage too
+      const extra = this.stats.multishot - 1 + (this.cls.id === 'archer' && this.arrowTypes.includes('spread') ? 2 : 0); // 散射's 2 extra arrows become damage too
       this.oneShotMult = ONE_SHOT.mult * (1 + 0.5 * Math.max(0, extra)) * (1 + this.proc.double) * (1 + 0.6 * this.sp.echo);
       this.stats.multishot = 1;
       this.stats.atkSpeed.mult *= ONE_SHOT.speed;
       this.proc.double = 0; this.sp.echo = 0;
-      this.arrowTypes = [this.arrowTypes[0]]; this.spellTypes = [this.spellTypes[0]];
+      this.spellTypes = [this.spellTypes[0]]; // arrows: still one arrow, but it carries every arrow type you picked (多重箭袋 / 極·神射 penalties apply)
       this.oneShotAbsorb = oneShotAbsorb(this.ult.levels) * (this.attack.kind === 'fireball' ? ONE_SHOT.absorbSpell : this.attack.kind === 'arc' || this.attack.kind === 'reap' ? ONE_SHOT.absorbMelee : ONE_SHOT.absorb);
     }
     this.stats.minions += fx?.minions ?? 0;
