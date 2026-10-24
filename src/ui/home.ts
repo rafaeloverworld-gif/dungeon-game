@@ -13,7 +13,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -740,6 +740,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
         <div class="statline"><h3 style="margin:0">${tr('背包', 'Bag')} ${save.items.length}/${bagMax(save)}</h3>
           <span>${bagCost(save) !== null ? `<button data-act="bag" style="font-size:13px;padding:6px 10px" ${save.coins < bagCost(save)! ? 'disabled' : ''}>🎒 +${BAG_STEP}（🪙 ${fmt(bagCost(save)!)}）</button>` : ''}
           <button data-act="trade" style="font-size:13px;padding:6px 10px">🔁 ${tr('交換', 'Trade')}</button></span></div>
+        <button data-act="stash" style="font-size:13px;padding:8px 10px;width:100%;margin:6px 0">🏦 ${tr('倉庫', 'Storage')} ${save.stash.length}/${stashMax(save)}</button>
         <div class="sellrow">
           <span>${tr('分解：', 'Salvage:')}</span>
           ${RARITIES.map((r) => `<button data-sell="${r}" class="${salvSel.has(r) ? 'on' : ''}" style="--rc:${RARITY_COLORS[r]}">${RARITY_NAMES[r]}</button>`).join('')}
@@ -754,6 +755,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
     if (!b) return;
     if (b.dataset.item) { const it = itemById(save, b.dataset.item); if (it) showItem(ctx, it); }
     else if (b.dataset.act === 'trade') showTrade(ctx);
+    else if (b.dataset.act === 'stash') showStash(ctx);
     else if (b.dataset.act === 'bag') { if (buyBag(save)) { writeSave(save); showHome(ctx); } }
     else if (b.dataset.necro) { save.necroMode = b.dataset.necro as NecroMode; writeSave(save); showHome(ctx); }
     else if (b.dataset.spell) {
@@ -842,6 +844,7 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
           <button data-act="upgrade" ${it.plus >= MAX_PLUS || save.coins < cost ? 'disabled' : ''}>${it.plus >= MAX_PLUS ? tr('已經強化到最高', 'Max upgrade') : (EN ? `Upgrade +${it.plus + 1} (🪙 ${fmt(cost)}${chance < 1 ? ` · ${Math.round(chance * 100)}% chance` : ''})` : `強化 +${it.plus + 1}（🪙 ${fmt(cost)}${chance < 1 ? ` · 成功率 ${Math.round(chance * 100)}%` : ''}）`)}</button>
           ${it.fails ? `<small class="note" style="margin:-4px 0 0">${EN ? `Failed ${it.fails} in a row: next try +${it.fails * 10}% chance` : `已連續失敗 ${it.fails} 次，下次成功率 +${it.fails * 10}%`}</small>` : ''}
           <button data-act="lock">${it.locked ? `🔓 ${tr('解除鎖定', 'Unlock')}` : `🔒 ${tr('鎖定（唔會俾分解 / 交換）', 'Lock (no Salvage / Trade)')}`}</button>
+          ${canStash(save, it) ? `<button data-act="stash">🏦 ${tr('放入倉庫', 'Move to Storage')} (${save.stash.length}/${stashMax(save)})</button>` : ''}
           ${isProtected(save, it) ? '' : `<button data-act="salvage" class="danger">${EN ? `Salvage (🪙 ${fmt(salvageValue(it))})` : `分解（得 🪙 ${fmt(salvageValue(it))}）`}</button>`}
           <button data-act="close" class="ghost">${tr('關閉', 'Close')}</button>
         </div>
@@ -864,6 +867,11 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
     }
     if (b.dataset.reroll !== undefined) { reroll(save, it, Number(b.dataset.reroll)); reopen = true; msg = `✅ ${tr('詞綴已重抽', 'Affix rerolled')}`; }
     if (act === 'salvage') salvage(save, [it.id]);
+    if (act === 'stash') {
+      const res = toStash(save, it.id);
+      if (res === 'full') { reopen = true; msg = `❌ ${tr('倉庫滿咗，去倉庫擴充先', 'Storage is full. Expand it first')}`; }
+      else if (res === 'ok') ctx.banner(`🏦 ${tr('已放入倉庫', 'Moved to Storage')}`);
+    }
     writeSave(save);
     el.remove();
     showHome(ctx);
@@ -874,6 +882,39 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
 
 // ---------- 交換 ----------
 const CAT_NAMES: Record<TradeCat, string> = { weapon: tr('武器', 'Weapons'), armour: tr('防具', 'Armour'), accessory: tr('飾品', 'Accessories') };
+function showStash(ctx: HomeCtx, note = ''): void {
+  const save = ctx.getSave();
+  const order: Record<string, number> = { legendary: 0, epic: 1, rare: 2, uncommon: 3, common: 4 };
+  const list = [...save.stash].sort((a, b) => (order[a.rarity] ?? 9) - (order[b.rarity] ?? 9) || b.tier - a.tier);
+  const cost = stashCost(save);
+  const bagFull = save.items.length >= bagMax(save);
+  const el = h(`
+    <div class="screen dim modal">
+      <div class="card" style="max-height:86vh;overflow:auto;width:min(94vw,520px)">
+        <div class="statline"><h3 style="margin:0">🏦 ${tr('倉庫', 'Storage')} ${save.stash.length}/${stashMax(save)}</h3><small>${tr('背包', 'Bag')} ${save.items.length}/${bagMax(save)}</small></div>
+        <small class="note" style="display:block;text-align:left;margin:4px 0 8px">${tr('倉庫入面嘅裝備唔會俾分解 / 交換，所有職業共用，雲端存檔一齊保存。要著就先取出返背包。撳一件就取出。', 'Gear in Storage is never salvaged or traded, is shared by all classes, and is part of your cloud save. Take it back to the bag to wear it. Tap an item to take it out.')}</small>
+        ${note ? `<p class="cmp ${note.startsWith('✅') ? 'up' : 'down'}">${note}</p>` : ''}
+        ${cost !== null ? `<button data-act="expand" ${save.coins < cost ? 'disabled' : ''} style="width:100%;margin-bottom:8px">🏦 +${STASH_STEP} ${tr('格', 'slots')}（🪙 ${fmt(cost)}）</button>` : `<small class="note" style="display:block">${tr('倉庫已經擴充到最大', 'Storage is at max size')}</small>`}
+        ${bagFull && list.length ? `<p class="cmp down">${tr('背包滿咗，取唔出', 'Bag is full; nothing can be taken out')}</p>` : ''}
+        <div class="bag">${list.length ? list.map((it) => itemRow(save, it, { showSlot: true }).replace('data-item=', 'data-out=')).join('') : `<p class="note">${tr('倉庫係空嘅。喺背包撳一件裝備 → 「放入倉庫」。', 'Storage is empty. Tap an item in your bag → "Move to Storage".')}</p>`}</div>
+        <button class="ghost" data-act="close" style="width:100%;margin-top:8px">${tr('關閉', 'Close')}</button>
+      </div>
+    </div>`);
+  el.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest('button');
+    if (!b) { if (ev.target === el) el.remove(); return; }
+    if (b.dataset.act === 'close') { el.remove(); return; }
+    let msg = '';
+    if (b.dataset.act === 'expand') { if (buyStash(save)) msg = `✅ ${tr('倉庫擴充咗', 'Storage expanded')}`; }
+    if (b.dataset.out) msg = fromStash(save, b.dataset.out) === 'full' ? `❌ ${tr('背包滿咗', 'Bag is full')}` : `✅ ${tr('已取出返背包', 'Moved to bag')}`;
+    writeSave(save);
+    el.remove();
+    showHome(ctx);
+    showStash(ctx, msg);
+  });
+  ctx.ui.appendChild(el);
+}
+
 function showTrade(ctx: HomeCtx): void {
   const save = ctx.getSave();
   let cat: TradeCat = 'weapon';

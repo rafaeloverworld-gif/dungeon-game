@@ -28,6 +28,8 @@ export interface SaveData {
   autoPickCards: boolean; // pick level-up cards automatically
   classId: ClassId;
   items: Item[]; // everything you own, equipped or not
+  stash: Item[]; // 倉庫: kept safe, out of the bag (can't be worn or salvaged from here)
+  stashBuys: number; // extra 倉庫 space bought with coins
   equipped: Record<string, string | null>; // slot key -> item id (weapons are kept per class, see slotKey)
   nextItemId: number;
   lastSeen: number; // ms timestamp, for offline income
@@ -73,7 +75,7 @@ export const slotKey = (slot: EquipSlot, classId: ClassId) => (slot === 'mainWea
 export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
-  classId: 'archer', items: [], equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
+  classId: 'archer', items: [], stash: [], stashBuys: 0, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
   subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
@@ -153,7 +155,9 @@ function sanitize(raw: unknown): SaveData {
     autoPickCards: typeof r.autoPickCards === 'boolean' ? r.autoPickCards : true,
     classId: CLASS_IDS.includes(r.classId as ClassId) ? (r.classId as ClassId) : 'archer',
     items, equipped,
-    nextItemId: Math.max(Math.floor(num(r.nextItemId, 1)), items.length + 1),
+    nextItemId: Math.max(Math.floor(num(r.nextItemId, 1)), items.length + (Array.isArray(r.stash) ? r.stash.length : 0) + 1),
+    stash: Array.isArray(r.stash) ? r.stash.map(sanitizeItem).filter((i): i is Item => !!i).filter((i) => !items.some((o) => o.id === i.id)) : [],
+    stashBuys: Math.min(STASH_BUYS_MAX, Math.max(0, Math.floor(num(r.stashBuys, 0)))),
     lastSeen: num(r.lastSeen, Date.now()),
     updatedAt: num(r.updatedAt, 0),
     ...sanitizeSkills(r),
@@ -690,6 +694,36 @@ export function switchLoadout(s: SaveData, i: number): void {
 export const ENDLESS_UNLOCK = 50; // clear tier 50 first
 /** 無盡模式 starts 10 tiers below your best clear (never below 40), so the first minutes are a warm-up. */
 export const endlessStart = (s: SaveData) => Math.max(40, s.highestCleared - 10);
+
+// ---------- 倉庫 (storage) ----------
+export const STASH_BASE = 50, STASH_STEP = 25, STASH_BUYS_MAX = 8;
+export const stashMax = (s: SaveData) => STASH_BASE + STASH_STEP * s.stashBuys;
+export const stashCost = (s: SaveData): number | null => (s.stashBuys >= STASH_BUYS_MAX ? null : Math.round(3000 * Math.pow(1.6, s.stashBuys)));
+export function buyStash(s: SaveData): boolean {
+  const c = stashCost(s);
+  if (c === null || s.coins < c) return false;
+  s.coins -= c; s.stashBuys++;
+  return true;
+}
+/** Can this item go into the 倉庫? (not worn by any class, not in a saved build) */
+export const canStash = (s: SaveData, it: Item) => !isEquippedAny(s, it) && !inLoadout(s, it);
+export function toStash(s: SaveData, id: string): 'ok' | 'full' | 'worn' {
+  const it = s.items.find((i) => i.id === id);
+  if (!it) return 'worn';
+  if (!canStash(s, it)) return 'worn';
+  if (s.stash.length >= stashMax(s)) return 'full';
+  s.items = s.items.filter((i) => i !== it);
+  s.stash.push(it);
+  return 'ok';
+}
+export function fromStash(s: SaveData, id: string): 'ok' | 'full' {
+  const it = s.stash.find((i) => i.id === id);
+  if (!it) return 'ok';
+  if (s.items.length >= bagMax(s)) return 'full';
+  s.stash = s.stash.filter((i) => i !== it);
+  s.items.push(it);
+  return 'ok';
+}
 
 // ---------- bag space (bought with coins) ----------
 export const BAG_STEP = 10;
