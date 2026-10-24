@@ -7,13 +7,13 @@ import {
   RARITY_NAMES, rerollCost, salvageValue, SLOT_ICONS, SLOT_NAMES, EQUIP_SLOTS, EQUIP_NAMES, itemSlotOf, type EquipSlot, SPECIALS, TRADE_COUNT, undeadName, UNDEAD_TRAITS, activeCombos, BONE_COMBOS, doubleChance, STACK_TEXT, isMax, MAX_STACK, MAX_POWER, COMBO_EXTRA, type SpecialId, tradeRarityWeights, upgradeChance,
   upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, weaponUsers, specialClass, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
-import { buildStats } from '../sim/sim';
+import { buildStats, mixPenalty } from '../sim/sim';
 import { value } from '../sim/stats';
 import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO, PURE_SIGNATURE } from '../sim/awakening';
 import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, isEquippedAny, inLoadout,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, spellOver, arrowOver, isEquippedAny, inLoadout,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -644,6 +644,14 @@ function elemLine(save: SaveData, atkKind: string): string {
       [p >= MAX_PLUS, p < 0 ? tr('著住一件 +10 多重箭袋（而家冇著）', 'Wear a +10 Arrow Mix item (none worn)') : (EN ? `Wear a +10 Arrow Mix item (best now +${p})` : `著住一件 +10 多重箭袋（而家最高 +${p}）`)],
     ]));
   }
+  const mixRow = (sp: SpecialId, over: number, max: boolean, slots: number, total: number, word: string) => {
+    const n = equippedItems(save).filter((i) => i.special === sp || i.special2 === sp).length;
+    if (!n) return '';
+    const pen = Math.round(mixPenalty(max, over) * 100) / 100;
+    return `<small>📚 ${EN ? `${SPECIALS[sp].name} ×${n}: ${slots}/${total} ${word} at once; each extra one: all damage ×${pen}${over ? ` (${over} spare item${over > 1 ? 's' : ''}: −3% penalty each, best ×0.94)` : ''}` : `${SPECIALS[sp].name} ×${n} 件：同時用 ${slots}/${total} 種${word}，每多一種全部傷害 ×${pen}${over ? `（多出 ${over} 件，每件減 3% 懲罰，最好 ×0.94）` : ''}`}</small>`;
+  };
+  if (atkKind === 'fireball') parts.push(mixRow('multiSpell', spellOver(save), spellMaxForm(save), spellSlots(save), SPELL_TYPES.length, tr('法術', 'spells')));
+  if (atkKind === 'arrow') parts.push(mixRow('multiArrow', arrowOver(save), arrowMaxForm(save), arrowSlots(save), ARROW_TYPES.length, tr('箭', 'arrow types')));
   const src = elemSources(save, atkKind);
   const have = Object.keys(src) as El[];
   if (atkKind === 'fireball' || have.length) {

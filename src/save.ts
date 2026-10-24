@@ -815,6 +815,19 @@ export function spellSlots(s: SaveData): number {
   const pure = isPure(s) && s.classId === 'mage' && classLevel(s, 'mage') >= 10; // 專精 元素大師
   return Math.min(SPELL_TYPES.length, 1 + extra + (isArchmage(s) ? 1 : 0) + (pure ? 1 : 0));
 }
+/** 多重法典 items beyond what it takes to cast every spell: each makes mixing cheaper (see MIX_OVER in the sim). */
+export function spellOver(s: SaveData): number {
+  const n = equippedItems(s).filter((i) => hasSpecial(i, 'multiSpell')).length;
+  if (spellMaxForm(s)) return Math.max(0, n - 1); // the +10 one opens 極; the rest are extra
+  const pure = isPure(s) && s.classId === 'mage' && classLevel(s, 'mage') >= 10;
+  return Math.max(0, n - (SPELL_TYPES.length - 1 - (isArchmage(s) ? 1 : 0) - (pure ? 1 : 0)));
+}
+/** 多重箭袋 items beyond what it takes to use every arrow type. */
+export function arrowOver(s: SaveData): number {
+  const n = equippedItems(s).filter((i) => hasSpecial(i, 'multiArrow')).length;
+  if (arrowMaxForm(s)) return Math.max(0, n - 1);
+  return Math.max(0, n - (ARROW_TYPES.length - 1 - (isSharpshooter(s) ? 1 : 0)));
+}
 export function spellsInUse(s: SaveData): SpellType[] {
   const main = s.spellType[s.classId] ?? 'fire';
   return [main, ...(s.spellMix[s.classId] ?? []).filter((a) => a !== main)].slice(0, spellSlots(s));
@@ -830,7 +843,7 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
-  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), mastery: isPure(s) ? classLevel(s, s.classId) : 0, spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
+  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), arrowOver: arrowOver(s), mastery: isPure(s) ? classLevel(s, s.classId) : 0, spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), spellOver: spellOver(s), necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
 }
 
 /** Stats preview including skills and awakening (for the home screen). */

@@ -56,6 +56,9 @@ export const MIX_PENALTY = 0.75;
 export const MASTERY_STAT = 0.015;
 /** 極·神射: each extra arrow type only costs this. */
 export const MIX_PENALTY_MAX = 0.88;
+/** Every 多重箭袋 / 多重法典 item beyond what fills all the slots: each extra type or spell costs 3% less (up to ×0.94). */
+export const MIX_OVER = 0.03, MIX_PENALTY_CAP = 0.94;
+export const mixPenalty = (max: boolean, over: number) => Math.min(MIX_PENALTY_CAP, (max ? MIX_PENALTY_MAX : MIX_PENALTY) + MIX_OVER * over);
 
 /** A telegraphed attack: a red warning on the floor that hits when the timer runs out. */
 export interface Warning { x: number; z: number; r: number; timer: number; max: number; dmg: number; line?: { x2: number; z2: number; w: number } }
@@ -158,6 +161,8 @@ export interface RunSetup {
   arrowType?: ArrowType; // bows: which arrows (Gear tab)
   arrowTypes?: ArrowType[]; // 多重箭袋: several arrow types at once (the first is arrowType)
   arrowMax?: boolean; // 極·神射: extra arrow types cost less
+  arrowOver?: number; // 多重箭袋 items beyond the last arrow type: mixing costs less
+  spellOver?: number; // 多重法典 items beyond the last spell: mixing costs less
   mastery?: number; // 專精: class level when you stay a single class (0 = mixed class)
   spellType?: SpellType; // staffs (fireball attack): which spell (Gear tab)
   spellTypes?: SpellType[]; // 多重法典: spells cast in turn
@@ -239,6 +244,8 @@ export class Sim {
   readonly spellType: SpellType;
   readonly spellTypes: SpellType[];
   readonly spellMax: boolean;
+  readonly spellOver: number;
+  readonly arrowOver: number;
   private chainDepth = 0;
   /** 元素護盾 (Mage): each reaction you set off adds a shield of 3% max HP (up to 15%). */
   elemShield = 0;
@@ -377,6 +384,8 @@ export class Sim {
     this.spellType = setup.spellType ?? 'fire';
     this.spellTypes = setup.spellTypes?.length ? setup.spellTypes : [this.spellType];
     this.spellMax = !!setup.spellMax;
+    this.spellOver = setup.spellOver ?? 0;
+    this.arrowOver = setup.arrowOver ?? 0;
     this.wb = setup.worldBoss ? WORLD_BOSSES[setup.worldBoss] : null;
     this.autoPickCards = setup.autoPickCards;
     this.ult = newUltRun(setup.ults ?? []);
@@ -903,7 +912,7 @@ export class Sim {
     if (arrow && this.arrowTypes.length > 1) { this.shootMixedArrows(base, mult, this.arrowTypes); return; }
     if (arrow) { this.shootArrows(base, mult, arrow); return; }
     if (isFire && this.spellTypes.length > 1) { // 多重法典: every chosen spell at once, each extra one costs ×0.75 (極·大魔導 ×0.88)
-      const pen = (this.spellMax ? 0.88 : 0.75) ** (this.spellTypes.length - 1);
+      const pen = mixPenalty(this.spellMax, this.spellOver) ** (this.spellTypes.length - 1);
       for (const t of this.spellTypes) { if (t === 'fire') this.castFireballs(base, mult * pen); else this.castSpells(base, mult * pen, t); }
       return;
     }
@@ -1040,7 +1049,7 @@ export class Sim {
     const n = this.stats.multishot + (t.has('spread') ? 2 : 0);
     const spread = t.has('spread') ? 0.2 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
-    let dm = 1.15 * (this.arrowMax ? MIX_PENALTY_MAX : MIX_PENALTY) ** (types.length - 1);
+    let dm = 1.15 * mixPenalty(this.arrowMax, this.arrowOver) ** (types.length - 1);
     if (t.has('normal')) dm *= 1.4;
     if (t.has('spread')) dm *= 0.8;
     if (t.has('homing')) dm *= 0.75;
