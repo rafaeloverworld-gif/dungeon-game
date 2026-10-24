@@ -529,6 +529,7 @@ function castTree(sim: Sim, sk: TreeActive, def: TreeSkill, target: Enemy, scale
   const code = sk.mod !== -1 ? def.mods?.[sk.mod]?.code : undefined;
   const k = rankMult(sk.rank) * (sk.enh ? 1.3 : 1) * (code === 'power' ? 1.5 : 1) * scale;
   if ('auto' in c) castAuto(sim, c.auto, sk.enh, target, k);
+  else if ('autos' in c) { castAuto(sim, c.autos[0], sk.enh, target, k * 0.75); castAuto(sim, c.autos[1], sk.enh, target.hp > 0 ? target : sim.nearestEnemy(p.x, p.z, 11), k * 0.75); } // 混合層 合技: two skills at 75% each
   else castSignature(sim, c.sig, k, sk.enh);
   if (scale === 1) sim.events.push({ type: 'skill', name: def.name, icon: def.icon, signature: false });
   if (scale !== 1 || !code) return;

@@ -4,7 +4,8 @@
 import { tr } from '../i18n';
 import type { ClassId } from './classes';
 import type { StatKey } from './stats';
-import type { AutoSkillId } from './skills';
+import type { AutoSkillId, UniqueId } from './skills';
+import { UNIQUE_DESC } from './skills';
 
 export const TREE_TIERS = [0, 5, 12, 20, 30]; // points spent in this tree to open tiers 1..5
 export const TREE_EQUIP = 4; // active skills cast at once
@@ -17,7 +18,7 @@ export type ModCode = 'echo' | 'power' | 'heal' | 'shield' | 'cdr' | 'buff' | 'i
   | 'b_crit' | 'b_nth3' | 'b_extra4' | 'b_mark' | 'b_heal' | 'b_move' | 'b_slow';
 export interface TreeMod { name: string; desc: string; code?: ModCode }
 /** How an active is cast: an old auto skill (scaled through ATK) or a Signature-style skill. */
-export type TreeCast = { auto: AutoSkillId } | { sig: string; base?: number };
+export type TreeCast = { auto: AutoSkillId } | { sig: string; base?: number } | { autos: [AutoSkillId, AutoSkillId] };
 /** A generic basic attack (ranged / summon): attack speed, damage, side shots. */
 export interface BasicSpec { speed: number; mult: number; enhMult: number; side?: number; sideMult?: number; enhSide?: number; summon?: boolean; drain?: number; curse?: boolean }
 export interface TreeSkill {
@@ -35,6 +36,8 @@ export interface TreeSkill {
   stat?: { stat: StatKey; pct?: number; flat?: number };
   pass?: 'rage' | 'healOnKill' | 'lastStand' | 'thorns' | 'cdr' | 'overlord';
   cast?: TreeCast; // generic actives
+  stat2?: { stat: StatKey; pct?: number; flat?: number }; // 混合層 passives: a second stat
+  uniq?: UniqueId; // 混合層 passive: a special effect
   bs?: BasicSpec; // generic basics
 }
 
@@ -246,20 +249,69 @@ const NECRO: TreeSkill[] = [
   lordP('n_lord', ['死亡君主', 'Lord of Death'], '👑'),
 ];
 
+// ---------- 混合層: each two-class pair has its own 2 actives + 2 passives ----------
+type MixSpec = { a1: [[string, string], string, AutoSkillId, AutoSkillId, [string, string]]; a2: [[string, string], string, string, number, [string, string]]; p: [[string, string], string, StatKey, number, boolean, StatKey, number, boolean]; u: [[string, string], string, UniqueId] };
+const MIX_SPECS: Record<string, MixSpec> = {
+  warrior_warrior: { a1: [['雙刃亂舞', 'Twin Frenzy'], '⚔️', 'whirlwind', 'slam', ['旋風斬同震地一齊出', 'Whirlwind and Ground Slam at once']], a2: [['裂地三重', 'Triple Quake'], '💢', 'quake', 14, ['三圈衝擊波', 'Three shockwaves']], p: [['雙刃', 'Twin Blades'], '🗡️', 'atkSpeed', 0.04, false, 'atk', 0.03, false], u: [['狂戰之魂', 'Berserker Soul'], '😤', 'berserk'] },
+  warrior_archer: { a1: [['旋槍', 'Spear Spin'], '🔱', 'whirlwind', 'arrowFan', ['轉一圈再射出一排箭', 'Spin, then a fan of arrows']], a2: [['槍雨', 'Spear Rain'], '☄️', 'skyfall', 16, ['長槍從天而降', 'Spears rain from the sky']], p: [['騎兵', 'Cavalry'], '🐎', 'atk', 0.04, false, 'moveSpeed', 0.04, false], u: [['破甲', 'Armour Break'], '🎯', 'markHits'] },
+  warrior_mage: { a1: [['聖光震擊', 'Holy Smite'], '⚜️', 'slam', 'frostNova', ['震地加冰霜新星', 'Ground Slam plus Frost Nova']], a2: [['聖劍', 'Holy Blade'], '🗡️', 'spellSlash', 10, ['一記大範圍聖光斬', 'A wide holy slash']], p: [['聖盾', 'Holy Shield'], '🛡️', 'maxHp', 0.06, false, 'def', 0.08, false], u: [['神恩', 'Grace'], '✨', 'guardRegen'] },
+  warrior_necro: { a1: [['死亡旋風', 'Death Spin'], '💀', 'whirlwind', 'corpseBlast', ['旋風斬再引爆屍體', 'Whirlwind, then a corpse blast']], a2: [['死亡新星', 'Death Nova'], '☠️', 'deathNova', 12, ['身邊大爆炸', 'A big blast around you']], p: [['死亡騎士', 'Death Knight'], '🩸', 'atk', 0.04, false, 'maxHp', 0.05, false], u: [['屍爆', 'Corpse Burst'], '💥', 'killBlast'] },
+  archer_warrior: { a1: [['戰吼箭', 'War Volley'], '🪶', 'arrowFan', 'warCry', ['一排箭加戰吼', 'A fan of arrows and a war cry']], a2: [['衝鋒射擊', 'Charge Shot'], '🔱', 'charge', 9, ['衝刺穿過敵人', 'Dash through enemies']], p: [['獵手', 'Huntsman'], '🎯', 'crit', 0.02, true, 'atk', 0.03, false], u: [['貫穿連鎖', 'Chain Crit'], '⚡', 'chainCrit'] },
+  archer_archer: { a1: [['箭幕', 'Arrow Curtain'], '🌧️', 'arrowRain', 'arrowFan', ['箭雨加疾風箭', 'Arrow Rain plus Gale Arrows']], a2: [['箭暴', 'Arrow Storm'], '🌪️', 'arrowStorm', 11, ['向四周射出一整圈箭', 'Arrows in every direction']], p: [['鷹眼', 'Hawkeye'], '👁️', 'critDmg', 0.08, true, 'range', 0.05, false], u: [['連珠', 'Streak'], '⏱️', 'sigOnKill'] },
+  archer_mage: { a1: [['流星箭雨', 'Meteor Arrows'], '💫', 'arrowRain', 'meteor', ['箭雨加隕石', 'Arrow Rain plus a Meteor']], a2: [['隕石召喚', 'Meteor Call'], '🌠', 'meteorCall', 16, ['隕石砸向最強嘅幾隻敵人', 'Meteors on the strongest enemies']], p: [['魔箭', 'Magic Arrows'], '🔮', 'atk', 0.04, false, 'area', 0.06, false], u: [['魔爆箭', 'Blast Arrows'], '💥', 'killBlast'] },
+  archer_necro: { a1: [['詛咒箭', 'Cursed Arrows'], '🕸️', 'arrowFan', 'curse', ['一排箭加詛咒', 'A fan of arrows and a curse']], a2: [['幽魂風暴', 'Ghost Storm'], '👻', 'soulStorm', 12, ['向四周射出靈魂', 'Souls fly out all around']], p: [['幽魂獵手', 'Ghost Hunter'], '🌑', 'crit', 0.02, true, 'summon', 0.06, false], u: [['獵人本能', 'Hunter Instinct'], '🎯', 'markHits'] },
+  mage_warrior: { a1: [['元素斬', 'Elemental Slash'], '🗡️', 'frostNova', 'whirlwind', ['冰霜新星加旋風斬', 'Frost Nova plus Whirlwind']], a2: [['法刃衝鋒', 'Spellblade Charge'], '🔱', 'charge', 9, ['衝刺穿過敵人', 'Dash through enemies']], p: [['魔力護體', 'Mana Armour'], '🛡️', 'atk', 0.04, false, 'maxHp', 0.05, false], u: [['騎士之盾', 'Knight Guard'], '🛡️', 'bossGuard'] },
+  mage_archer: { a1: [['星落', 'Starfall'], '☄️', 'meteor', 'arrowRain', ['隕石加箭雨', 'Meteor plus Arrow Rain']], a2: [['天墜', 'Skyfall'], '🌠', 'skyfall', 16, ['大量魔法彈從天而降', 'Magic bolts rain all around the target']], p: [['遠詠', 'Far Chant'], '🌀', 'area', 0.06, false, 'range', 0.05, false], u: [['貫穿連鎖', 'Chain Crit'], '⚡', 'chainCrit'] },
+  mage_mage: { a1: [['冰火交融', 'Fire and Ice'], '🔥', 'meteor', 'frostNova', ['隕石加冰霜新星', 'Meteor plus Frost Nova']], a2: [['隕石召喚', 'Meteor Call'], '🌠', 'meteorCall', 14, ['隕石砸向最強嘅幾隻敵人', 'Meteors on the strongest enemies']], p: [['大法師', 'High Mage'], '💥', 'critDmg', 0.08, true, 'area', 0.06, false], u: [['法陣', 'Rune Circle'], '🔯', 'sigField'] },
+  mage_necro: { a1: [['冥冰', 'Death Frost'], '❄️', 'frostNova', 'corpseBlast', ['冰霜新星再引爆屍體', 'Frost Nova, then a corpse blast']], a2: [['靈魂風暴', 'Soul Storm'], '👻', 'soulStorm', 12, ['向四周射出靈魂，減速', 'Souls fly out and slow']], p: [['死靈法典', 'Necronomicon'], '📕', 'atk', 0.04, false, 'summon', 0.06, false], u: [['屍爆', 'Corpse Burst'], '💥', 'killBlast'] },
+  necro_warrior: { a1: [['骸骨戰吼', 'Bone Cry'], '💀', 'raiseDead', 'warCry', ['召喚骷髏加戰吼', 'Raise skeletons and a war cry']], a2: [['裂地三重', 'Triple Quake'], '💢', 'quake', 14, ['三圈衝擊波', 'Three shockwaves']], p: [['骨將', 'Bone General'], '🦴', 'summon', 0.06, false, 'maxHp', 0.05, false], u: [['狂戰之魂', 'Berserker Soul'], '😤', 'berserk'] },
+  necro_archer: { a1: [['屍爆箭雨', 'Corpse Rain'], '🌧️', 'corpseBlast', 'arrowRain', ['屍爆加箭雨', 'Corpse Blast plus Arrow Rain']], a2: [['幽魂箭雨', 'Ghost Volley'], '👻', 'ghostVolley', 11, ['向附近敵人射出幽魂箭', 'Ghost arrows at nearby enemies']], p: [['骨弓', 'Bone Bow'], '🏹', 'summon', 0.06, false, 'crit', 0.02, true], u: [['獵人本能', 'Hunter Instinct'], '🎯', 'markHits'] },
+  necro_mage: { a1: [['咒火', 'Hexfire'], '🕸️', 'curse', 'meteor', ['詛咒加隕石', 'Curse plus a Meteor']], a2: [['死亡新星', 'Death Nova'], '☠️', 'deathNova', 12, ['身邊大爆炸', 'A big blast around you']], p: [['冥火', 'Netherfire'], '🔥', 'summon', 0.06, false, 'area', 0.06, false], u: [['法陣', 'Rune Circle'], '🔯', 'sigField'] },
+  necro_necro: { a1: [['亡者狂歡', 'Dead Revel'], '💀', 'raiseDead', 'corpseBlast', ['召喚骷髏再引爆屍體', 'Raise skeletons, then a corpse blast']], a2: [['白骨墳場', 'Bone Grave'], '⚰️', 'boneGrave', 14, ['骷髏喺敵人腳下爬出嚟', 'Skeletons rise under the enemies']], p: [['冥王', 'Underlord'], '👑', 'summon', 0.06, false, 'atk', 0.04, false], u: [['神恩', 'Grace'], '✨', 'guardRegen'] },
+};
+const pctOrFlat = (v: number, r: number) => `${Math.round(v * 100 * r)}%`;
+function mixLayer(key: string): TreeSkill[] {
+  const m = MIX_SPECS[key];
+  if (!m) return [];
+  const [n1, i1, au1, au2, w1] = m.a1, [n2, i2, sig, cd2, w2] = m.a2, [pn, pi, s1, v1, f1, s2, v2, f2] = m.p, [un, ui, uq] = m.u;
+  return [
+    A(`x_${key}_1`, n1, i1, 1, 9, { autos: [au1, au2] }, w1, 'power', 'cdr'),
+    { id: `x_${key}_2`, name: tr(pn[0], pn[1]), icon: pi, kind: 'passive', tier: 1, max: 3, stat: f1 ? { stat: s1, flat: v1 } : { stat: s1, pct: v1 }, stat2: f2 ? { stat: s2, flat: v2 } : { stat: s2, pct: v2 },
+      desc: (r) => tr(`${STAT_LABEL[s1][0]} +${pctOrFlat(v1, r)}、${STAT_LABEL[s2][0]} +${pctOrFlat(v2, r)}`, `${STAT_LABEL[s1][1]} +${pctOrFlat(v1, r)}, ${STAT_LABEL[s2][1]} +${pctOrFlat(v2, r)}`) },
+    A(`x_${key}_3`, n2, i2, 3, cd2, { sig }, w2, 'echo', 'buff'),
+    { id: `x_${key}_4`, name: tr(un[0], un[1]), icon: ui, kind: 'passive', tier: 3, max: 1, uniq: uq, desc: () => UNIQUE_DESC[uq] },
+  ];
+}
+const STAT_LABEL: Record<string, [string, string]> = {
+  atk: ['攻擊', 'ATK'], maxHp: ['HP', 'HP'], def: ['防禦', 'DEF'], atkSpeed: ['攻速', 'Attack speed'], moveSpeed: ['移速', 'Move speed'], crit: ['暴擊率', 'Crit rate'],
+  critDmg: ['暴擊傷害', 'Crit damage'], range: ['射程', 'Range'], area: ['範圍', 'Area'], summon: ['亡靈強度', 'Undead power'],
+};
+const MIX_LAYER_CACHE: Record<string, TreeSkill[]> = {};
+export const mixLayerOf = (key: string) => (MIX_LAYER_CACHE[key] ??= mixLayer(key));
+export const MIX_LAYER_KEYS = Object.keys(MIX_SPECS);
+
+// ---------- 專精層 (single class only): stats bought with souls ----------
+export type PureStat = 'atk' | 'maxHp' | 'critDmg' | 'crit' | 'atkSpeed' | 'area' | 'summon';
+export const PURE_STATS: { id: PureStat; step: number; flat: boolean; icon: string }[] = [
+  { id: 'atk', step: 0.04, flat: false, icon: '⚔️' }, { id: 'maxHp', step: 0.05, flat: false, icon: '❤️' }, { id: 'critDmg', step: 0.12, flat: true, icon: '💥' },
+  { id: 'crit', step: 0.01, flat: true, icon: '🎯' }, { id: 'atkSpeed', step: 0.025, flat: false, icon: '💨' }, { id: 'area', step: 0.08, flat: false, icon: '🌀' }, { id: 'summon', step: 0.05, flat: false, icon: '🦴' },
+];
+export const PURE_MAX = 20;
+export const pureStatName = (id: PureStat) => tr(STAT_LABEL[id][0], STAT_LABEL[id][1]);
+/** Souls for the next rank (rank = ranks owned now). */
+export const pureCost = (rank: number) => Math.round(800 * 1.22 ** rank);
+
 export const TREES: Partial<Record<ClassId, TreeSkill[]>> = { warrior: WARRIOR, archer: ARCHER, mage: MAGE, necro: NECRO };
 export const treeSkill = (c: ClassId, id: string) => TREES[c]?.find((s) => s.id === id);
 let BY_ID: Map<string, TreeSkill> | null = null;
 /** Any class's tree skill by id (ids are unique across trees: w_ / a_ / m_ / n_). */
-export const treeSkillAny = (id: string) => (BY_ID ??= new Map(Object.values(TREES).flat().map((x) => [x.id, x]))).get(id);
+export const treeSkillAny = (id: string) => (BY_ID ??= new Map([...Object.values(TREES).flat(), ...MIX_LAYER_KEYS.flatMap(mixLayerOf)].map((x) => [x.id, x]))).get(id);
 /** 混合層: a second class lends its tiers 1–3 (actives + passives), a third class its tiers 1–2. */
 export const LAYER_TIERS = { sub: 3, sub2: 2 };
-export function layerSkills(c: ClassId, sub: ClassId | null, sub2: ClassId | null): { cls: ClassId; skills: TreeSkill[] }[] {
-  const out: { cls: ClassId; skills: TreeSkill[] }[] = [];
-  const add = (x: ClassId | null, maxTier: number) => {
-    if (!x || x === c || out.some((o) => o.cls === x)) return;
-    out.push({ cls: x, skills: (TREES[x] ?? []).filter((k) => k.kind !== 'basic' && k.tier <= maxTier) });
-  };
-  add(sub, LAYER_TIERS.sub); add(sub2, LAYER_TIERS.sub2);
+export function layerSkills(c: ClassId, sub: ClassId | null, sub2: ClassId | null): { cls: ClassId; skills: TreeSkill[]; mix?: boolean }[] {
+  const out: { cls: ClassId; skills: TreeSkill[]; mix?: boolean }[] = [];
+  if (sub) out.push({ cls: sub, skills: mixLayerOf(`${c}_${sub}`), mix: true }); // the pair's own layer
+  if (sub2 && sub2 !== c && sub2 !== sub) out.push({ cls: sub2, skills: (TREES[sub2] ?? []).filter((k) => k.kind !== 'basic' && k.tier <= LAYER_TIERS.sub2) });
   return out;
 }
 /** Skill ids that count for this character: the main tree plus the 混合層. */

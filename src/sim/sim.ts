@@ -476,6 +476,8 @@ export class Sim {
     for (const [id, r0] of Object.entries(setup.tree?.passives ?? {})) { // 技能樹 stat passives (專精 multiplies them)
       const sk = treeSkillAny(id), r = r0 * (setup.tree?.scale ?? 1);
       if (sk?.stat) addBonus(bonus, sk.stat.stat, { pct: sk.stat.pct ? sk.stat.pct * r : undefined, flat: sk.stat.flat ? sk.stat.flat * r : undefined });
+      if (sk?.stat2) addBonus(bonus, sk.stat2.stat, { pct: sk.stat2.pct ? sk.stat2.pct * r : undefined, flat: sk.stat2.flat ? sk.stat2.flat * r : undefined }); // 混合層
+      if (sk?.uniq) this.uq[sk.uniq] = true;
       if (sk?.pass === 'overlord') { addBonus(bonus, 'atk', { pct: 0.1 * r }); addBonus(bonus, 'critDmg', { flat: 0.2 * r }); }
     }
     if (setup.tree?.basic?.id === 'wb_flurry' && setup.tree.basic.mod === 1) addBonus(bonus, 'moveSpeed', { pct: 0.15 }); // 技能樹 疾風

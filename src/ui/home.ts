@@ -8,13 +8,13 @@ import {
   upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, weaponUsers, specialClass, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
 import { buildStats, mixPenalty } from '../sim/sim';
-import { TREE_CLASSES, TREE_EQUIP, TREE_TIERS, tierOpen, treeSpent, layerSkills, LAYER_TIERS, type TreeSkill } from '../sim/tree';
+import { TREE_CLASSES, TREE_EQUIP, TREE_TIERS, tierOpen, treeSpent, layerSkills, LAYER_TIERS, PURE_MAX, PURE_STATS, pureCost, pureStatName, type PureStat, type TreeSkill } from '../sim/tree';
 import { value } from '../sim/stats';
 import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO, PURE_SIGNATURE } from '../sim/awakening';
 import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS_MAX, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, treeAllowOf, treeEquipNow, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, treeAllowOf, treeEquipNow, pureBuy, pureReset, pureRank, pureCanBuy, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, ultSlots, ultSlotCost, buyUltSlot, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -454,6 +454,16 @@ function loadoutBar(ctx: HomeCtx, body: HTMLElement): void {
 
 // ---------- 技能樹 (Diablo-style) ----------
 let treeSel: string | null = null;
+/** 專精層: single-class stats bought with souls. */
+function pureCard(save: SaveData): string {
+  const c = save.classId, p = save.pure[c];
+  return `<div class="card ttier"><div class="statline"><b>🎖️ ${tr('專精層（用靈魂）', 'Mastery layer (souls)')}</b><small>👻 ${fmt(save.souls)}</small></div>
+    <small class="note" style="display:block;text-align:left">${tr(`唔揀第二職業先有。每項最多 ${PURE_MAX} 級，愈升愈貴；重置免費，靈魂全數退返。`, `Single class only. Up to ${PURE_MAX} ranks each, each rank costs more; reset is free and refunds every soul.`)}</small>
+    ${PURE_STATS.filter((x) => x.id !== 'summon' || c === 'necro').map((x) => { const n = pureRank(save, c, x.id), v = Math.round(x.step * n * 1000) / 10;
+      return `<div class="purerow"><span>${x.icon} <b>${pureStatName(x.id)}</b> +${v}% <small>（${n}/${PURE_MAX}）</small></span>${n < PURE_MAX ? `<button data-pbuy="${x.id}" ${pureCanBuy(save, x.id) ? '' : 'disabled'}>+${Math.round(x.step * 1000) / 10}% · 👻 ${fmt(pureCost(n))}</button>` : `<small>${tr('滿級', 'Max')}</small>`}</div>`; }).join('')}
+    ${p?.spent ? `<div class="tbtns"><button data-preset>↺ ${tr('重置專精層', 'Reset mastery layer')}（👻 ${fmt(p.spent)}）</button></div>` : ''}
+  </div>`;
+}
 function renderTree(ctx: HomeCtx, body: HTMLElement): void {
   const save = ctx.getSave();
   const c = save.classId;
@@ -489,19 +499,22 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
   body.appendChild(h(`
     <div class="col">
       <div class="card">
-        <div class="statline"><h3 style="margin:0">🌳 ${CLASSES[c].icon} ${CLASSES[c].name}${tr('技能樹', ' skill tree')}</h3><small>${tr('技能點', 'Points')} <b style="color:var(--gold)">${left}</b> / ${total}</small></div>
+        <div class="statline"><h3 style="margin:0">🌳 ${mixOf(save) ? `${mixOf(save)!.icon} ${mixOf(save)!.name}` : `${CLASSES[c].icon} ${CLASSES[c].name}`}${tr('技能樹', ' skill tree')}</h3><small>${tr('技能點', 'Points')} <b style="color:var(--gold)">${left}</b> / ${total}</small></div>
         <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點。主動技能升滿 5 級開「✨ 強化」，強化之後喺兩個「🔀 變化」揀一個。最多同時裝備 ${TREE_EQUIP} 個主動技能（會自動放）。用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。舊嘅職業技能盤已經由技能樹取代，用過嘅靈魂同符文全數退還（可以用喺混合職業技能盤）。`, `1 point per class level. Max an active skill (rank 5) to unlock ✨ Enhance, then pick one of two 🔀 modifiers. Up to ${TREE_EQUIP} actives equipped (cast automatically). Tiers open at ${TREE_TIERS.join(' / ')} points spent. The old class boards are replaced by the tree; every soul and rune spent on them was refunded (use them on mixed-class boards).`)}</small>
         ${layers.length ? `<small class="note" style="display:block;text-align:left">🔗 ${tr('混合職業：第二職業嘅第 1–3 層（第三職業第 1–2 層）技能都可以喺呢度用點數學（最底「混合層」）。換第二職業之後，舊嗰個混合層嘅點數會暫時唔計（唔扣點、唔生效），換返就返嚟。', 'Mixed classes: your second class\'s tiers 1–3 (third class tiers 1–2) can be learned here with the same points (the "Mixed layer" at the bottom). Change the second class and that layer sleeps (no cost, no effect) until you change back.')}</small>` : ''}
         <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button>${others.length ? `<button data-board="${others[0]}">📋 ${tr('混合職業技能盤', 'Mixed-class board')}</button>` : ''}</div>
       </div>
       ${[0, 1, 2, 3, 4, 5].map((tier) => `<div class="card ttier ${tierOpen(t, tier) ? '' : 'locked'}"><div class="statline"><b>${tier === 0 ? tr('⚔️ 基本攻擊（揀一個用）', '⚔️ Basic attack (pick one)') : tr(`第 ${tier} 層`, `Tier ${tier}`)}</b><small>${tier === 0 ? tr('取代普通攻擊', 'Replaces your normal attack') : tierOpen(t, tier) ? tr('已開', 'Open') : `🔒 ${EN ? `${TREE_TIERS[tier - 1]} points` : `要 ${TREE_TIERS[tier - 1]} 點`}（${spent}）`}</small></div>${skills.filter((x) => x.tier === tier).map(card).join('')}</div>`).join('')}
-      ${layers.map((l) => `<div class="card ttier"><div class="statline"><b>🔗 ${tr('混合層', 'Mixed layer')}：${CLASSES[l.cls].icon} ${CLASSES[l.cls].name}</b><small>${tr(`第 1–${l.cls === subOf(save) ? LAYER_TIERS.sub : LAYER_TIERS.sub2} 層技能，用同一棵樹嘅點數`, `Tiers 1–${l.cls === subOf(save) ? LAYER_TIERS.sub : LAYER_TIERS.sub2}, same points as your tree`)}</small></div>${l.skills.map(card).join('')}</div>`).join('')}
+      ${layers.map((l) => `<div class="card ttier"><div class="statline"><b>🔗 ${l.mix ? `${mixFor(c, l.cls, null)?.name ?? CLASSES[l.cls].name}${tr('專屬層', ' layer')}` : `${tr('第三職業層', 'Third-class layer')}：${CLASSES[l.cls].icon} ${CLASSES[l.cls].name}`}</b><small>${l.mix ? tr('呢個組合獨有：2 個主動 + 2 個被動', 'Only this pair has these: 2 actives + 2 passives') : tr(`${CLASSES[l.cls].name}第 1–${LAYER_TIERS.sub2} 層技能`, `${CLASSES[l.cls].name} tiers 1–${LAYER_TIERS.sub2}`)}</small></div>${l.skills.map(card).join('')}</div>`).join('')}
+      ${isPure(save) ? pureCard(save) : ''}
     </div>`));
   body.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b) return;
     if (b.dataset.board) { boardTab = b.dataset.board as BoardKey; showMainBoard = true; showHome(ctx); return; }
     if (b.dataset.tsel) { treeSel = treeSel === b.dataset.tsel ? null : b.dataset.tsel; showHome(ctx); return; }
+    if (b.dataset.pbuy) { if (pureBuy(save, b.dataset.pbuy as PureStat)) { writeSave(save); showHome(ctx); } return; }
+    if (b.dataset.preset !== undefined) { if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳確認（退返全部靈魂）', 'Tap again (all souls back)'); return; } pureReset(save, c); writeSave(save); showHome(ctx); return; }
     if (b.dataset.tact === 'reset') { if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳確認重置', 'Tap again to reset'); return; } treeReset(save, c); writeSave(save); showHome(ctx); return; }
     if (b.dataset.tact && b.dataset.tid && treeDo(save, c, b.dataset.tid, b.dataset.tact as TreeAct)) { writeSave(save); showHome(ctx); }
   });
