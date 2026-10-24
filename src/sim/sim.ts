@@ -58,7 +58,7 @@ export const MASTERY_STAT = 0.015;
 export const MIX_PENALTY_MAX = 0.88;
 /** Every 多重箭袋 / 多重法典 item beyond what fills all the slots: each extra type or spell costs 3% less (up to ×0.94). */
 /** 一擊流 (蓄力) tuning: attack speed, hit multiplier, crit-bonus multiplier, and how much of the on-hit ultimates' average goes into a hit. */
-export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 4.5, absorbSpell: 14, absorbMelee: 3 };
+export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 13, absorbSpell: 24, absorbMelee: 10 };
 export const MIX_OVER = 0.03, MIX_PENALTY_CAP = 0.94;
 export const mixPenalty = (max: boolean, over: number) => Math.min(MIX_PENALTY_CAP, (max ? MIX_PENALTY_MAX : MIX_PENALTY) + MIX_OVER * over);
 
