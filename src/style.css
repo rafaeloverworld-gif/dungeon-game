@@ -476,3 +476,16 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .awkopt:disabled { opacity: 0.5; }
 .awk.mastery { margin-bottom: 8px; }
 .awk.mastery small.line { display: block; margin-top: 4px; }
+.stashcard { max-height: 86vh; overflow: auto; width: min(94vw, 520px); }
+.stashcard .chiplabel { display: block; text-align: left; color: var(--muted); margin: 6px 0 3px; }
+.stashcard .chips, .stashpick .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.stashcard .chips button { font-size: 12px; padding: 5px 9px; border-radius: 999px; }
+.stashcard .chips button.on { background: var(--accent, #ffc23d); color: #111; }
+.stashcard .chips button small { opacity: .7; margin-left: 2px; }
+.stashmgr { text-align: left; margin-top: 8px; font-size: 13px; }
+.stashmgr summary { cursor: pointer; color: var(--muted); }
+.stashmgr .row { display: flex; gap: 5px; margin: 6px 0; }
+.stashmgr input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid #333a4d; background: #12151f; color: inherit; font-size: 14px; }
+.stashmgr .row button { font-size: 13px; padding: 6px 10px; }
+.stashpick { margin: -2px 0 8px 10px; padding: 8px; border-left: 3px solid var(--accent, #ffc23d); display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.stashpick .chips button { font-size: 12px; padding: 5px 9px; }

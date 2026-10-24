@@ -5,7 +5,7 @@ import { ARROW_TYPES, ARROWS, ATTACK_NAMES, CLASSES, CLASS_IDS, SPELL_TYPES, SPE
 import {
   ACCESSORY_SLOTS, ARMOUR_SLOTS, canReroll, procText, PROC_SKILLS, isWeaponSlot, itemIcon, itemName, itemScore, lineText, MAX_PLUS, RARITIES, RARITY_COLORS,
   RARITY_NAMES, rerollCost, salvageValue, SLOT_ICONS, SLOT_NAMES, EQUIP_SLOTS, EQUIP_NAMES, itemSlotOf, type EquipSlot, SPECIALS, TRADE_COUNT, undeadName, UNDEAD_TRAITS, activeCombos, BONE_COMBOS, doubleChance, STACK_TEXT, isMax, MAX_STACK, MAX_POWER, COMBO_EXTRA, type SpecialId, tradeRarityWeights, upgradeChance,
-  upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, type Item, type ItemKind, type Rarity, type Slot,
+  upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, weaponUsers, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
 import { buildStats } from '../sim/sim';
 import { value } from '../sim/stats';
@@ -13,7 +13,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -844,7 +844,7 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
           <button data-act="upgrade" ${it.plus >= MAX_PLUS || save.coins < cost ? 'disabled' : ''}>${it.plus >= MAX_PLUS ? tr('已經強化到最高', 'Max upgrade') : (EN ? `Upgrade +${it.plus + 1} (🪙 ${fmt(cost)}${chance < 1 ? ` · ${Math.round(chance * 100)}% chance` : ''})` : `強化 +${it.plus + 1}（🪙 ${fmt(cost)}${chance < 1 ? ` · 成功率 ${Math.round(chance * 100)}%` : ''}）`)}</button>
           ${it.fails ? `<small class="note" style="margin:-4px 0 0">${EN ? `Failed ${it.fails} in a row: next try +${it.fails * 10}% chance` : `已連續失敗 ${it.fails} 次，下次成功率 +${it.fails * 10}%`}</small>` : ''}
           <button data-act="lock">${it.locked ? `🔓 ${tr('解除鎖定', 'Unlock')}` : `🔒 ${tr('鎖定（唔會俾分解 / 交換）', 'Lock (no Salvage / Trade)')}`}</button>
-          ${canStash(save, it) ? `<button data-act="stash">🏦 ${tr('放入倉庫', 'Move to Storage')} (${save.stash.length}/${stashMax(save)})</button>` : ''}
+          ${canStash(save, it) ? `<button data-act="stash">🏦 ${tr('放入倉庫', 'Move to Storage')}${stashTargetTab(save) ? ` → ${esc(save.stashTabs.find((t) => t.id === stashTargetTab(save))!.name)}` : ''} (${save.stash.length}/${stashMax(save)})</button>` : ''}
           ${isProtected(save, it) ? '' : `<button data-act="salvage" class="danger">${EN ? `Salvage (🪙 ${fmt(salvageValue(it))})` : `分解（得 🪙 ${fmt(salvageValue(it))}）`}</button>`}
           <button data-act="close" class="ghost">${tr('關閉', 'Close')}</button>
         </div>
@@ -868,7 +868,7 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
     if (b.dataset.reroll !== undefined) { reroll(save, it, Number(b.dataset.reroll)); reopen = true; msg = `✅ ${tr('詞綴已重抽', 'Affix rerolled')}`; }
     if (act === 'salvage') salvage(save, [it.id]);
     if (act === 'stash') {
-      const res = toStash(save, it.id);
+      const res = toStash(save, it.id, stashTargetTab(save));
       if (res === 'full') { reopen = true; msg = `❌ ${tr('倉庫滿咗，去倉庫擴充先', 'Storage is full. Expand it first')}`; }
       else if (res === 'ok') ctx.banner(`🏦 ${tr('已放入倉庫', 'Moved to Storage')}`);
     }
@@ -882,35 +882,85 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
 
 // ---------- 交換 ----------
 const CAT_NAMES: Record<TradeCat, string> = { weapon: tr('武器', 'Weapons'), armour: tr('防具', 'Armour'), accessory: tr('飾品', 'Accessories') };
+// 倉庫 view: 'all' | 'none' (未分類) | 'tab:<id>' (player tab) | 'cls:<class>' (weapons that class can hold) | 'gen' (armour & accessories)
+let stashView = 'all';
+let stashPick: string | null = null;
+/** Bag → 倉庫 goes into the player tab you last looked at. */
+function stashTargetTab(save: SaveData): string | null {
+  const id = stashView.startsWith('tab:') ? stashView.slice(4) : null;
+  return id && save.stashTabs.some((t) => t.id === id) ? id : null;
+}
+function stashFilter(save: SaveData, it: Item): boolean {
+  if (stashView === 'all') return true;
+  if (stashView === 'none') return !stashTabOfItem(save, it.id);
+  if (stashView.startsWith('tab:')) return stashTabOfItem(save, it.id) === stashView.slice(4);
+  if (stashView === 'gen') return !it.weapon;
+  if (stashView.startsWith('cls:')) { if (!it.weapon) return false; const u = weaponUsers(it.weapon), c = stashView.slice(4) as ClassId; return u.main.includes(c) || u.off.includes(c); }
+  return true;
+}
+
 function showStash(ctx: HomeCtx, note = ''): void {
   const save = ctx.getSave();
-  const order: Record<string, number> = { legendary: 0, epic: 1, rare: 2, uncommon: 3, common: 4 };
-  const list = [...save.stash].sort((a, b) => (order[a.rarity] ?? 9) - (order[b.rarity] ?? 9) || b.tier - a.tier);
+  if (stashView.startsWith('tab:') && !stashTargetTab(save)) stashView = 'all';
+  const order: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
+  const list = save.stash.filter((it) => stashFilter(save, it)).sort((a, b) => (order[a.rarity] ?? 9) - (order[b.rarity] ?? 9) || b.tier - a.tier);
+  const count = (v: string) => { const keep = stashView; stashView = v; const n = save.stash.filter((it) => stashFilter(save, it)).length; stashView = keep; return n; };
+  const chip = (v: string, label: string) => `<button data-view="${esc(v)}" class="${stashView === v ? 'on' : ''}">${label} <small>${count(v)}</small></button>`;
   const cost = stashCost(save);
   const bagFull = save.items.length >= bagMax(save);
+  const curTab = stashTargetTab(save);
+  const tabName = (id: string | null) => (id ? esc(save.stashTabs.find((t) => t.id === id)?.name ?? '') : tr('未分類', 'Unsorted'));
+  const pickPanel = (it: Item) => {
+    const at = stashTabOfItem(save, it.id);
+    return `<div class="stashpick">
+      <button class="primary" data-out="${esc(it.id)}" ${bagFull ? 'disabled' : ''}>${bagFull ? tr('背包滿咗，取唔出', 'Bag is full') : tr('📤 取出返背包', '📤 Take out to bag')}</button>
+      <small>${tr('移去分頁：', 'Move to tab:')}</small>
+      <div class="chips">${[null, ...save.stashTabs.map((t) => t.id)].map((id) => `<button data-move="${id ?? ''}" class="${at === id ? 'on' : ''}" ${at === id ? 'disabled' : ''}>${id ? '📁 ' : ''}${tabName(id)}</button>`).join('')}</div>
+    </div>`;
+  };
   const el = h(`
     <div class="screen dim modal">
-      <div class="card" style="max-height:86vh;overflow:auto;width:min(94vw,520px)">
+      <div class="card stashcard">
         <div class="statline"><h3 style="margin:0">🏦 ${tr('倉庫', 'Storage')} ${save.stash.length}/${stashMax(save)}</h3><small>${tr('背包', 'Bag')} ${save.items.length}/${bagMax(save)}</small></div>
-        <small class="note" style="display:block;text-align:left;margin:4px 0 8px">${tr('倉庫入面嘅裝備唔會俾分解 / 交換，所有職業共用，雲端存檔一齊保存。要著就先取出返背包。撳一件就取出。', 'Gear in Storage is never salvaged or traded, is shared by all classes, and is part of your cloud save. Take it back to the bag to wear it. Tap an item to take it out.')}</small>
+        <small class="note" style="display:block;text-align:left;margin:4px 0 6px">${tr('倉庫入面嘅裝備唔會俾分解 / 交換，所有職業共用。撳一件裝備：取出，或者移去另一個分頁。', 'Gear in Storage is never salvaged or traded and is shared by all classes. Tap an item to take it out or move it to another tab.')}</small>
         ${note ? `<p class="cmp ${note.startsWith('✅') ? 'up' : 'down'}">${note}</p>` : ''}
-        ${cost !== null ? `<button data-act="expand" ${save.coins < cost ? 'disabled' : ''} style="width:100%;margin-bottom:8px">🏦 +${STASH_STEP} ${tr('格', 'slots')}（🪙 ${fmt(cost)}）</button>` : `<small class="note" style="display:block">${tr('倉庫已經擴充到最大', 'Storage is at max size')}</small>`}
-        ${bagFull && list.length ? `<p class="cmp down">${tr('背包滿咗，取唔出', 'Bag is full; nothing can be taken out')}</p>` : ''}
-        <div class="bag">${list.length ? list.map((it) => itemRow(save, it, { showSlot: true }).replace('data-item=', 'data-out=')).join('') : `<p class="note">${tr('倉庫係空嘅。喺背包撳一件裝備 → 「放入倉庫」。', 'Storage is empty. Tap an item in your bag → "Move to Storage".')}</p>`}</div>
+        <small class="chiplabel">${tr('📁 我嘅分頁', '📁 My tabs')}</small>
+        <div class="chips">${chip('all', tr('全部', 'All'))}${save.stashTabs.length ? chip('none', tr('未分類', 'Unsorted')) : ''}${save.stashTabs.map((t) => chip('tab:' + t.id, '📁 ' + esc(t.name))).join('')}</div>
+        <small class="chiplabel">${tr('🔎 自動分類', '🔎 Auto sort')}</small>
+        <div class="chips">${CLASS_IDS.map((c) => chip('cls:' + c, `${CLASSES[c].icon} ${CLASSES[c].name}`)).join('')}${chip('gen', tr('🛡 防具 / 飾品', '🛡 Armour / jewellery'))}</div>
+        <details class="stashmgr" ${save.stashTabs.length ? '' : 'open'}><summary>${tr('⚙️ 管理分頁', '⚙️ Manage tabs')}（${save.stashTabs.length}/${STASH_TABS_MAX}）</summary>
+          ${save.stashTabs.length < STASH_TABS_MAX ? `<div class="row"><input id="stab-new" maxlength="${STASH_TAB_NAME}" placeholder="${tr('新分頁名，例如「弓手畢業」', 'New tab name, e.g. "Archer BiS"')}"><button data-act="tab-add">＋ ${tr('新分頁', 'New tab')}</button></div>` : ''}
+          ${curTab ? `<div class="row"><input id="stab-name" maxlength="${STASH_TAB_NAME}" value="${tabName(curTab)}"><button data-act="tab-rename">${tr('改名', 'Rename')}</button><button data-act="tab-del" class="danger">${tr('刪除', 'Delete')}</button></div><small class="note">${tr('刪除分頁唔會刪裝備，入面嘅嘢會返去「未分類」', 'Deleting a tab keeps its gear (it goes back to Unsorted)')}</small>` : `<small class="note">${tr('揀咗一個自己嘅分頁先改得名 / 刪除。喺背包放入倉庫時，會放入你最後睇緊嘅分頁。', 'Pick one of your tabs to rename or delete it. Gear moved from the bag goes into the tab you last opened.')}</small>`}
+        </details>
+        ${cost !== null ? `<button data-act="expand" ${save.coins < cost ? 'disabled' : ''} style="width:100%;margin:8px 0">🏦 +${STASH_STEP} ${tr('格', 'slots')}（🪙 ${fmt(cost)}）</button>` : `<small class="note" style="display:block">${tr('倉庫已經擴充到最大', 'Storage is at max size')}</small>`}
+        <div class="bag">${list.length ? list.map((it) => itemRow(save, it, { showSlot: true, selected: stashPick === it.id }).replace('data-item=', 'data-pick=') + (stashPick === it.id ? pickPanel(it) : '')).join('') : `<p class="note">${save.stash.length ? tr('呢個分類冇裝備', 'Nothing here') : tr('倉庫係空嘅。喺背包撳一件裝備 → 「放入倉庫」。', 'Storage is empty. Tap an item in your bag → "Move to Storage".')}</p>`}</div>
         <button class="ghost" data-act="close" style="width:100%;margin-top:8px">${tr('關閉', 'Close')}</button>
       </div>
     </div>`);
   el.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b) { if (ev.target === el) el.remove(); return; }
-    if (b.dataset.act === 'close') { el.remove(); return; }
+    const act = b.dataset.act;
+    if (act === 'close') { el.remove(); return; }
     let msg = '';
-    if (b.dataset.act === 'expand') { if (buyStash(save)) msg = `✅ ${tr('倉庫擴充咗', 'Storage expanded')}`; }
-    if (b.dataset.out) msg = fromStash(save, b.dataset.out) === 'full' ? `❌ ${tr('背包滿咗', 'Bag is full')}` : `✅ ${tr('已取出返背包', 'Moved to bag')}`;
+    const val = (id: string) => (el.querySelector('#' + id) as HTMLInputElement | null)?.value ?? '';
+    if (act === 'expand') { if (buyStash(save)) msg = `✅ ${tr('倉庫擴充咗', 'Storage expanded')}`; }
+    else if (act === 'tab-add') { const id = addStashTab(save, val('stab-new')); if (id) { stashView = 'tab:' + id; msg = `✅ ${tr('開咗新分頁', 'Tab added')}`; } else msg = `❌ ${tr('打個名先', 'Type a name first')}`; }
+    else if (act === 'tab-rename' && curTab) renameStashTab(save, curTab, val('stab-name'));
+    else if (act === 'tab-del' && curTab) {
+      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳確認', 'Tap again'); return; }
+      deleteStashTab(save, curTab); stashView = 'all';
+    }
+    else if (b.dataset.view !== undefined) { stashView = b.dataset.view; stashPick = null; }
+    else if (b.dataset.pick) stashPick = stashPick === b.dataset.pick ? null : b.dataset.pick;
+    else if (b.dataset.move !== undefined && stashPick) { setStashTab(save, stashPick, b.dataset.move || null); msg = `✅ ${tr('已移去', 'Moved to ')}${tabName(b.dataset.move || null)}`; stashPick = null; }
+    else if (b.dataset.out) { msg = fromStash(save, b.dataset.out) === 'full' ? `❌ ${tr('背包滿咗', 'Bag is full')}` : `✅ ${tr('已取出返背包', 'Moved to bag')}`; stashPick = null; }
     writeSave(save);
+    const sc = el.querySelector('.stashcard')?.scrollTop ?? 0;
     el.remove();
     showHome(ctx);
     showStash(ctx, msg);
+    const nc = ctx.ui.querySelector('.stashcard'); if (nc) nc.scrollTop = sc;
   });
   ctx.ui.appendChild(el);
 }

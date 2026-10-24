@@ -30,6 +30,8 @@ export interface SaveData {
   items: Item[]; // everything you own, equipped or not
   stash: Item[]; // 倉庫: kept safe, out of the bag (can't be worn or salvaged from here)
   stashBuys: number; // extra 倉庫 space bought with coins
+  stashTabs: StashTab[]; // player-made 倉庫 tabs
+  stashTabOf: Record<string, string>; // item id → tab id (missing = 未分類)
   equipped: Record<string, string | null>; // slot key -> item id (weapons are kept per class, see slotKey)
   nextItemId: number;
   lastSeen: number; // ms timestamp, for offline income
@@ -75,7 +77,7 @@ export const slotKey = (slot: EquipSlot, classId: ClassId) => (slot === 'mainWea
 export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
-  classId: 'archer', items: [], stash: [], stashBuys: 0, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
+  classId: 'archer', items: [], stash: [], stashBuys: 0, stashTabs: [], stashTabOf: {}, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
   subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
@@ -158,6 +160,8 @@ function sanitize(raw: unknown): SaveData {
     nextItemId: Math.max(Math.floor(num(r.nextItemId, 1)), items.length + (Array.isArray(r.stash) ? r.stash.length : 0) + 1),
     stash: Array.isArray(r.stash) ? r.stash.map(sanitizeItem).filter((i): i is Item => !!i).filter((i) => !items.some((o) => o.id === i.id)) : [],
     stashBuys: Math.min(STASH_BUYS_MAX, Math.max(0, Math.floor(num(r.stashBuys, 0)))),
+    stashTabs: Array.isArray(r.stashTabs) ? r.stashTabs.filter((t: any) => t && typeof t.id === 'string' && typeof t.name === 'string').slice(0, STASH_TABS_MAX).map((t: any) => ({ id: t.id.slice(0, 12), name: t.name.slice(0, STASH_TAB_NAME) })) : [],
+    stashTabOf: r.stashTabOf && typeof r.stashTabOf === 'object' ? Object.fromEntries(Object.entries(r.stashTabOf).filter(([k, v]) => typeof k === 'string' && typeof v === 'string')) as Record<string, string> : {},
     lastSeen: num(r.lastSeen, Date.now()),
     updatedAt: num(r.updatedAt, 0),
     ...sanitizeSkills(r),
@@ -696,6 +700,29 @@ export const ENDLESS_UNLOCK = 50; // clear tier 50 first
 export const endlessStart = (s: SaveData) => Math.max(40, s.highestCleared - 10);
 
 // ---------- 倉庫 (storage) ----------
+export interface StashTab { id: string; name: string }
+export const STASH_TABS_MAX = 10, STASH_TAB_NAME = 10;
+/** Which player tab an item in the 倉庫 sits in (null = 未分類). */
+export const stashTabOfItem = (s: SaveData, id: string) => { const t = s.stashTabOf[id]; return t && s.stashTabs.some((x) => x.id === t) ? t : null; };
+export function addStashTab(s: SaveData, name: string): string | null {
+  const n = name.trim().slice(0, STASH_TAB_NAME);
+  if (!n || s.stashTabs.length >= STASH_TABS_MAX) return null;
+  let k = 1; while (s.stashTabs.some((t) => t.id === 't' + k)) k++;
+  s.stashTabs.push({ id: 't' + k, name: n });
+  return 't' + k;
+}
+export function renameStashTab(s: SaveData, id: string, name: string): void {
+  const t = s.stashTabs.find((x) => x.id === id), n = name.trim().slice(0, STASH_TAB_NAME);
+  if (t && n) t.name = n;
+}
+/** Removing a tab keeps its items (they go back to 未分類). */
+export function deleteStashTab(s: SaveData, id: string): void {
+  s.stashTabs = s.stashTabs.filter((t) => t.id !== id);
+  for (const k of Object.keys(s.stashTabOf)) if (s.stashTabOf[k] === id) delete s.stashTabOf[k];
+}
+export function setStashTab(s: SaveData, itemId: string, tab: string | null): void {
+  if (tab && s.stashTabs.some((t) => t.id === tab)) s.stashTabOf[itemId] = tab; else delete s.stashTabOf[itemId];
+}
 export const STASH_BASE = 50, STASH_STEP = 25, STASH_BUYS_MAX = 8;
 export const stashMax = (s: SaveData) => STASH_BASE + STASH_STEP * s.stashBuys;
 export const stashCost = (s: SaveData): number | null => (s.stashBuys >= STASH_BUYS_MAX ? null : Math.round(3000 * Math.pow(1.6, s.stashBuys)));
@@ -707,13 +734,14 @@ export function buyStash(s: SaveData): boolean {
 }
 /** Can this item go into the 倉庫? (not worn by any class, not in a saved build) */
 export const canStash = (s: SaveData, it: Item) => !isEquippedAny(s, it) && !inLoadout(s, it);
-export function toStash(s: SaveData, id: string): 'ok' | 'full' | 'worn' {
+export function toStash(s: SaveData, id: string, tab: string | null = null): 'ok' | 'full' | 'worn' {
   const it = s.items.find((i) => i.id === id);
   if (!it) return 'worn';
   if (!canStash(s, it)) return 'worn';
   if (s.stash.length >= stashMax(s)) return 'full';
   s.items = s.items.filter((i) => i !== it);
   s.stash.push(it);
+  setStashTab(s, it.id, tab);
   return 'ok';
 }
 export function fromStash(s: SaveData, id: string): 'ok' | 'full' {
@@ -721,6 +749,7 @@ export function fromStash(s: SaveData, id: string): 'ok' | 'full' {
   if (!it) return 'ok';
   if (s.items.length >= bagMax(s)) return 'full';
   s.stash = s.stash.filter((i) => i !== it);
+  delete s.stashTabOf[it.id];
   s.items.push(it);
   return 'ok';
 }
