@@ -10,10 +10,10 @@ import {
 import { buildStats } from '../sim/sim';
 import { value } from '../sim/stats';
 import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO, PURE_SIGNATURE } from '../sim/awakening';
-import { ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
+import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, isEquippedAny, inLoadout,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, isEquippedAny, inLoadout,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -596,6 +596,67 @@ function newFoe(t: number): string {
 /** Gear tab: what your undead are, from the traits on your worn gear (only if you have any undead). */
 /** 骨弓 + 骨弓 + 骨弓 → 骨弓 ×3 */
 const needText = (needs: SpecialId[]) => [...new Set(needs)].map((n) => { const k = needs.filter((x) => x === n).length; return SPECIALS[n].name + (k > 1 ? ` ×${k}` : ''); }).join(' + ');
+// ---------- 元素反應 list + 極 checklist ----------
+type El = 'fire' | 'frost' | 'shock' | 'poison';
+const EL_ICON: Record<El, string> = { fire: '🔥', frost: '❄️', shock: '⚡', poison: '🧪' };
+const EL_NAME: Record<El, string> = { fire: tr('火', 'Fire'), frost: tr('冰', 'Frost'), shock: tr('雷', 'Lightning'), poison: tr('毒', 'Poison') };
+const REACTIONS: { a: El; b: El; name: string; desc: string }[] = [
+  { a: 'fire', b: 'frost', name: tr('蒸發爆炸', 'Steam Blast'), desc: tr('大爆炸 300%', 'Big blast 300%') },
+  { a: 'fire', b: 'shock', name: tr('超載', 'Overload'), desc: tr('爆炸 220% + 擊退', 'Blast 220% + knockback') },
+  { a: 'frost', b: 'shock', name: tr('超導', 'Superconduct'), desc: tr('120% + 減速；範圍內敵人 5 秒受傷 +40%', '120% + slow; enemies around take +40% damage for 5 s') },
+  { a: 'poison', b: 'fire', name: tr('毒爆', 'Toxic Blaze'), desc: tr('爆炸 260% + 留低火池', 'Blast 260% + a burning pool') },
+  { a: 'poison', b: 'frost', name: tr('冰蝕', 'Frostrot'), desc: tr('160% + 凍住附近小怪 1.5 秒', '160% + freezes small enemies around for 1.5 s') },
+  { a: 'poison', b: 'shock', name: tr('麻痺毒', 'Neurotoxin'), desc: tr('跳去最多 6 隻敵人，每隻 140% + 麻痺', 'Jumps to up to 6 enemies, 140% each + stun') },
+];
+/** Where this build gets each element from. */
+function elemSources(save: SaveData, atkKind: string): Partial<Record<El, string[]>> {
+  const out: Partial<Record<El, string[]>> = {};
+  const add = (e: El, from: string) => { (out[e] ??= []).includes(from) || out[e]!.push(from); };
+  const m = mixOf(save);
+  if (atkKind === 'fireball') for (const sp of spellsInUse(save)) add(sp === 'frost' ? 'frost' : sp === 'lightning' ? 'shock' : 'fire', `${SPELLS[sp].icon}${SPELLS[sp].name}`);
+  if (atkKind === 'arrow') {
+    if (m?.id === 'archer_mage' || m?.base === 'archer_mage') for (const e of ['fire', 'frost', 'shock'] as El[]) add(e, tr('魔法箭', 'Magic arrows'));
+    for (const a of arrowsInUse(save)) { if (a === 'frost') add('frost', `${ARROWS[a].icon}${ARROWS[a].name}`); if (a === 'blast') add('fire', `${ARROWS[a].icon}${ARROWS[a].name}`); }
+  }
+  for (const u of save.ultEquip) { const e = ULT_ELEM[u]; if (e) add(e, `${tr("終極技", "Ult ")}${ULT[u].name}`); }
+  if ((runSetup(save).specials ?? []).includes('utPoison')) add('poison', tr('💀屍毒亡靈', '💀Corpse Poison'));
+  return out;
+}
+function jiCheck(label: string, rows: [boolean, string][]): string {
+  const ok = rows.every(([b]) => b);
+  return `<small>${ok ? '🌟' : '🔒'} <b>${label}</b>${ok ? tr('：已經開咗', ': active') : ''}</small>${ok ? '' : rows.map(([b, t]) => `<small>${b ? '✅' : '❌'} ${t}</small>`).join('')}`;
+}
+function elemLine(save: SaveData, atkKind: string): string {
+  const parts: string[] = [];
+  const bestPlus = (sp: SpecialId) => { const its = equippedItems(save).filter((i) => i.special === sp || i.special2 === sp); return its.length ? Math.max(...its.map((i) => i.plus)) : -1; };
+  const m = mixOf(save);
+  if (atkKind === 'fireball') {
+    const p = bestPlus('multiSpell');
+    parts.push(jiCheck(tr('極·大魔導（多重施法極）', 'Max Archmage (Spell Mix max)'), [
+      [m?.id === 'mage_mage' || m?.base === 'mage_mage', tr('職業係大法師（法師覺醒時再揀法師）', 'Class is Archmage (Mage awakened as Mage)')],
+      [p >= MAX_PLUS, p < 0 ? tr('著住一件 +10 多重法典（而家冇著）', 'Wear a +10 Spell Mix item (none worn)') : (EN ? `Wear a +10 Spell Mix item (best now +${p})` : `著住一件 +10 多重法典（而家最高 +${p}）`)],
+    ]));
+  }
+  if (atkKind === 'arrow') {
+    const p = bestPlus('multiArrow');
+    parts.push(jiCheck(tr('極·神射（多重箭極）', 'Max Sharpshooter (Arrow Mix max)'), [
+      [m?.id === 'archer_archer' || m?.base === 'archer_archer', tr('職業係神射手（弓手覺醒時再揀弓手）', 'Class is Sharpshooter (Archer awakened as Archer)')],
+      [p >= MAX_PLUS, p < 0 ? tr('著住一件 +10 多重箭袋（而家冇著）', 'Wear a +10 Arrow Mix item (none worn)') : (EN ? `Wear a +10 Arrow Mix item (best now +${p})` : `著住一件 +10 多重箭袋（而家最高 +${p}）`)],
+    ]));
+  }
+  const src = elemSources(save, atkKind);
+  const have = Object.keys(src) as El[];
+  if (atkKind === 'fireball' || have.length) {
+    const on = REACTIONS.filter((x) => src[x.a] && src[x.b]);
+    const off = REACTIONS.filter((x) => !(src[x.a] && src[x.b]));
+    const row = (x: (typeof REACTIONS)[number], live: boolean) => `<small class="${live ? 'combo' : ''}" style="${live ? '' : 'opacity:.6'}">${live ? '✅' : '▫️'} ${EL_ICON[x.a]}+${EL_ICON[x.b]} <b>${x.name}</b>${tr('：', ': ')}${x.desc}${live ? '' : (EN ? ` (needs ${[x.a, x.b].filter((e) => !src[e]).map((e) => EL_NAME[e]).join(' + ')})` : `（欠${[x.a, x.b].filter((e) => !src[e]).map((e) => EL_NAME[e]).join(' + ')}）`)}</small>`;
+    parts.push(`<small>🧪 ${tr('你嘅元素：', 'Your elements: ')}${have.length ? have.map((e) => `${EL_ICON[e]}${EL_NAME[e]}（${src[e]!.join(tr('、', ', '))}）`).join(' ') : tr('未有', 'none yet')}</small>`);
+    parts.push(on.length ? on.map((x) => row(x, true)).join('') : `<small>${tr('而家一個人觸發唔到反應：要有兩種唔同元素', 'You can\'t set off reactions alone yet: you need two different elements')}</small>`);
+    if (off.length) parts.push(`<details class="combolist"><summary>${EN ? `All reactions (${REACTIONS.length})` : `全部元素反應（${REACTIONS.length} 種）`}</summary>${off.map((x) => row(x, false)).join('')}<small>${tr('同一隻敵人身上有一種元素，再中另一種就會反應。組隊時隊友嘅元素都計。法師反應 ×1.5、大法師 ×3。', 'An enemy carrying one element reacts when hit by another. Teammates\' elements count too. Mage reactions ×1.5, Archmage ×3.')}</small></details>`);
+  }
+  return parts.length ? `<div class="undeadline elemline">${parts.join('')}</div>` : '';
+}
+
 function undeadLine(save: SaveData): string {
   const r = runSetup(save);
   const sp = new Set(r.specials ?? []);
@@ -729,6 +790,7 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
           ${atkKind === 'arrow' ? `${arrowMax > 1 ? `<small>🏹 ${arrowJi ? tr(`<b>極·神射</b>：所有箭種可以同時用（已揀 ${arrowUse.length}）。每多一種全部箭傷害只係 ×0.88`, `<b>Max Sharpshooter</b>: every arrow type at once (${arrowUse.length} picked). Each extra type only costs ×0.88 damage`) : tr(`可以同時用 ${arrowMax} 種箭（已揀 ${arrowUse.length}）。撳一下揀／取消；效果疊埋，每多一種全部箭傷害 ×0.75`, `Use up to ${arrowMax} arrow types at once (${arrowUse.length} picked). Tap to add / remove; effects combine, each extra type: all arrows ×0.75 damage`)}</small>` : ''}<div class="arrowpick">${ARROW_TYPES.map((a) => `<button data-arrow="${a}" class="${arrowUse.includes(a) ? 'on' : ''}">${ARROWS[a].icon} ${ARROWS[a].name}</button>`).join('')}</div>${arrowUse.map((a) => `<small>${ARROWS[a].icon} <b>${ARROWS[a].name}</b>${tr('：', ': ')}${ARROWS[a].desc}</small>`).join('')}` : ''}
           ${atkKind === 'shadow' ? `<div class="arrowpick">${(['bolt', 'summon'] as NecroMode[]).map((a) => `<button data-necro="${a}" class="${save.necroMode === a ? 'on' : ''}">${NECRO_MODES[a].icon} ${NECRO_MODES[a].name}</button>`).join('')}</div><small>${NECRO_MODES[save.necroMode].icon} <b>${NECRO_MODES[save.necroMode].name}</b>${tr('：', ': ')}${NECRO_MODES[save.necroMode].desc}</small>` : ''}
           ${atkKind === 'fireball' ? `${spellMaxN > 1 ? `<small>📖 ${spellJi ? tr(`<b>極·大魔導</b>：四種法術同時放（已揀 ${spellUse.length}），每多一種只係 ×0.88，反應會連鎖去附近敵人`, `<b>Max Archmage</b>: all four spells at once (${spellUse.length} picked), each extra only ×0.88; reactions chain to nearby enemies`) : tr(`可以同時放 ${spellMaxN} 種法術（已揀 ${spellUse.length}）。撳一下揀／取消；每多一種全部傷害 ×0.75`, `Cast up to ${spellMaxN} spells at once (${spellUse.length} picked). Tap to add / remove; each extra: all damage ×0.75`)}</small>` : ''}<div class="arrowpick">${SPELL_TYPES.map((a) => `<button data-spell="${a}" class="${spellUse.includes(a) ? 'on' : ''}">${SPELLS[a].icon} ${SPELLS[a].name}</button>`).join('')}</div>${spellUse.map((a) => `<small>${SPELLS[a].icon} <b>${SPELLS[a].name}</b>${tr('：', ': ')}${SPELLS[a].desc}</small>`).join('')}` : ''}</div>
+        ${elemLine(save, atkKind)}
         ${undeadLine(save)}
         <div class="slots">
           ${EQUIP_SLOTS.map((slot) => {
