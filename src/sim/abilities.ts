@@ -131,7 +131,6 @@ export function updateAbilities(sim: Sim, dt: number): void {
   }
 
   // ---------- zones (附魔領域) ----------
-  if (sim.zoneHits.size > 2000) sim.zoneHits.clear();
   sim.zones = sim.zones.filter((z) => {
     z.timer -= dt;
     z.tick -= dt;
@@ -141,10 +140,6 @@ export function updateAbilities(sim: Sim, dt: number): void {
         if (Math.hypot(e.x - z.x, e.z - z.z) < z.r + e.radius) {
           e.slowTimer = 0.7;
           e.slowMult = Math.min(e.slowMult, z.slow ?? 0.5);
-          // standing in several fires (or pools) of the same source only burns once per tick
-          const key = `${e.id}|${z.kind ?? 'zone'}|${z.src ?? 'skill'}`, last = sim.zoneHits.get(key);
-          if (last !== undefined && sim.time >= last && sim.time - last < 0.45) continue;
-          sim.zoneHits.set(key, sim.time);
           sim.withSrc(z.src ?? 'skill', () => sim.damageEnemy(e, z.dmg, false, true));
           if ((z.kind === 'poison' || z.kind === 'fire') && e.hp > 0) sim.applyElem(e, z.kind); // 元素: poison / fire on the ground
         }
