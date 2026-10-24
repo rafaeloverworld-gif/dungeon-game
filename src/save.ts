@@ -319,7 +319,7 @@ export function addClassXp(s: SaveData, xp: number): void {
 /** 專精 counts while you stay one class: no second class, or the same class picked again. */
 export const isPure = (s: SaveData) => !subOf(s);
 /** 專精: board numbers ×2 while you have no second class, ×2.5 once you could have ascended (Tier 25 + Lv 40). */
-export const pureBoardScale = (s: SaveData) => (!isPure(s) ? 1 : (s.highestCleared >= ASCEND_TIER && s.level >= ASCEND_LEVEL ? 2.5 : 2) + (s.classId === 'warrior' ? 0.5 : 0)); // 戰士 +0.5 (its own board is the weakest)
+export const pureBoardScale = (s: SaveData) => (!isPure(s) ? 1 : (s.highestCleared >= ASCEND_TIER && s.level >= ASCEND_LEVEL ? 1.75 : 1.5) + (s.classId === 'warrior' ? 0.25 : 0)); // 戰士 +0.5 (its own board is the weakest)
 /** Run XP goes to the character and to the classes in use. */
 export function addRunXp(s: SaveData, xp: number): number { addClassXp(s, xp); return addAccountXp(s, xp); }
 /** Can this class be picked as the second (or third) class? */
@@ -1053,7 +1053,7 @@ function sanitizePure(raw: unknown): SaveData['pure'] {
 }
 export const pureOf = (s: SaveData, c: ClassId) => (s.pure[c] ??= { ranks: {}, spent: 0 });
 export const pureRank = (s: SaveData, c: ClassId, id: PureStat) => s.pure[c]?.ranks[id] ?? 0;
-export const pureCanBuy = (s: SaveData, id: PureStat) => isPure(s) && pureRank(s, s.classId, id) < PURE_MAX && s.souls >= pureCost(pureRank(s, s.classId, id));
+export const pureCanBuy = (s: SaveData, id: PureStat) => pureRank(s, s.classId, id) < PURE_MAX && s.souls >= pureCost(pureRank(s, s.classId, id));
 export function pureBuy(s: SaveData, id: PureStat): boolean {
   if (!pureCanBuy(s, id)) return false;
   const p = pureOf(s, s.classId), cost = pureCost(p.ranks[id] ?? 0);
@@ -1065,7 +1065,6 @@ export function pureReset(s: SaveData, c: ClassId): void { const p = s.pure[c]; 
 /** What the 專精層 gives (only while single class). */
 export function pureBonus(s: SaveData): StatBonus {
   const b: StatBonus = {};
-  if (!isPure(s)) return b;
   for (const p of PURE_STATS) { const n = pureRank(s, s.classId, p.id); if (n) addBonus(b, p.id, p.flat ? { flat: p.step * n } : { pct: p.step * n }); }
   return b;
 }

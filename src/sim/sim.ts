@@ -518,6 +518,7 @@ export class Sim {
         else if (sk.pass === 'thorns') this.sp.thorns = true;
         else if (sk.pass === 'rage') this.cg.rage += 0.12 * r;
         else if (sk.pass === 'lastStand') this.lastStand = { level: (r >= 2 ? 2 : 1), used: false };
+        else if (sk.pass === 'mixPow') this.mixPow += (sk.pow ?? 0) * r;
       }
       this.basic = this.attack.kind === 'arc' || this.attack.kind === 'reap' ? setup.tree?.basic ?? null : null;
       this.treeSkills = (setup.tree?.actives ?? []).map((a) => ({ ...a, timer: (treeSkillAny(a.id)?.cd ?? 5) * 0.4 * this.sp.cdMult }));
@@ -898,6 +899,7 @@ export class Sim {
   /** Ask for the signature skill (HUD button). It fires on the next step if it's ready. */
   requestSignature(): void { this.sigRequested = true; }
 
+  mixPow = 0; // 技能樹 混合層 奧義: all damage +
   critBonus = 0; // extra crit chance for the hit being rolled (技能樹 致命突刺)
   forceCrit = false; // 技能樹 重錘
   rollDamage(): { dmg: number; crit: boolean } {
@@ -1827,6 +1829,7 @@ export class Sim {
     if (this.cg.rage && this.player.hp < this.maxHp * 0.5) dmg *= 1 + this.cg.rage; // 狂怒
     if (this.cg.firstShot && e.hp > e.maxHp * 0.7) dmg *= 1 + this.cg.firstShot; // 先發制人
     if (this.warGod) dmg *= 1.5; // 戰神
+    if (this.mixPow) dmg *= 1 + this.mixPow; // 混合層 奧義
     if (this.src !== 'undead' && this.src !== 'thorns') { if (this.tb.dmgT > 0) dmg *= 1 + this.tb.dmg; if (this.tb.avatarT > 0) dmg *= this.tb.avatarMult; } // 技能樹 戰吼 / 戰神降臨
     if (this.proc.lifesteal && this.proc.lifestealCd <= 0 && this.rand() < this.proc.lifesteal) {
       this.proc.lifestealCd = 0.2; // at most 5 heals a second
