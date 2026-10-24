@@ -16,8 +16,8 @@ export interface TreeSkill {
   id: string;
   name: string;
   icon: string;
-  kind: 'active' | 'passive';
-  tier: number; // 1..5
+  kind: 'active' | 'passive' | 'basic'; // basic = your normal attack (pick one)
+  tier: number; // 0 = basic attacks (always open), 1..5
   max: number; // max rank
   cd?: number; // actives: cooldown (s)
   desc: (rank: number) => string; // what it does at this rank
@@ -34,6 +34,27 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 const dmgTxt = (base: number, rank: number) => pct(base * rankMult(rank));
 
 const WARRIOR: TreeSkill[] = [
+  // ---------- 基本攻擊 (pick one: it replaces your normal swing) ----------
+  { id: 'wb_slash', name: tr('斬擊', 'Slash'), icon: '🗡️', kind: 'basic', tier: 0, max: ACTIVE_MAX,
+    desc: (r) => tr(`普通扇形斬擊，傷害 ${pct(1 + 0.1 * (r - 1))}`, `Normal arc slash, ${pct(1 + 0.1 * (r - 1))} damage`),
+    enh: { name: tr('斬擊強化', 'Slash+'), desc: tr('斬擊角度 +30%', '+30% arc') },
+    mods: [{ name: tr('迴旋斬', 'Spin Slash'), desc: tr('每第 4 下變成一整圈', 'Every 4th swing hits all around') },
+      { name: tr('吸血斬', 'Leech Slash'), desc: tr('每斬中一隻回 0.3% HP（每下最多 2%）', 'Heal 0.3% HP per enemy hit (up to 2% a swing)') }] },
+  { id: 'wb_thrust', name: tr('突刺', 'Thrust'), icon: '🔱', kind: 'basic', tier: 0, max: ACTIVE_MAX,
+    desc: (r) => tr(`窄而長嘅直刺（射程 +60%），傷害 ${pct(1.4 * (1 + 0.1 * (r - 1)))}`, `A long, narrow thrust (+60% reach), ${pct(1.4 * (1 + 0.1 * (r - 1)))} damage`),
+    enh: { name: tr('突刺強化', 'Thrust+'), desc: tr('再長 30%，傷害 +20%', '30% longer, +20% damage') },
+    mods: [{ name: tr('致命突刺', 'Lethal Thrust'), desc: tr('暴擊率 +20%（只限突刺）', '+20% crit chance on thrusts') },
+      { name: tr('破綻', 'Opening'), desc: tr('刺中嘅敵人 2 秒受傷 +50%', 'Enemies hit take +50% damage for 2s') }] },
+  { id: 'wb_bash', name: tr('猛擊', 'Bash'), icon: '🔨', kind: 'basic', tier: 0, max: ACTIVE_MAX,
+    desc: (r) => tr(`慢啲（攻速 ×0.67）但重好多，傷害 ${pct(2 * (1 + 0.1 * (r - 1)))}`, `Slower (×0.67 attack speed) but much heavier: ${pct(2 * (1 + 0.1 * (r - 1)))} damage`),
+    enh: { name: tr('猛擊強化', 'Bash+'), desc: tr('細怪定身 0.5 秒', 'Stuns small enemies for 0.5s') },
+    mods: [{ name: tr('震波', 'Shockwave'), desc: tr('每下喺目標位置再爆一圈（60%）', 'Each hit also blasts around the target (60%)') },
+      { name: tr('重錘', 'Crusher'), desc: tr('每第 3 下必定暴擊', 'Every 3rd hit is a guaranteed crit') }] },
+  { id: 'wb_flurry', name: tr('連斬', 'Flurry'), icon: '⚡', kind: 'basic', tier: 0, max: ACTIVE_MAX,
+    desc: (r) => tr(`快好多（攻速 ×1.6）但輕啲，傷害 ${pct(0.6 * (1 + 0.1 * (r - 1)))}`, `Much faster (×1.6 attack speed) but lighter: ${pct(0.6 * (1 + 0.1 * (r - 1)))} damage`),
+    enh: { name: tr('連斬強化', 'Flurry+'), desc: tr('傷害 +20%', '+20% damage') },
+    mods: [{ name: tr('終結斬', 'Finisher'), desc: tr('每第 5 下再加一記重斬（150%）', 'Every 5th hit adds a heavy slash (150%)') },
+      { name: tr('疾風', 'Swift'), desc: tr('移速 +15%', '+15% move speed') }] },
   // ---------- tier 1 ----------
   { id: 'w_cleave', name: tr('重斬', 'Cleave'), icon: '🪓', kind: 'active', tier: 1, max: ACTIVE_MAX, cd: 3.5,
     desc: (r) => tr(`向前大範圍重斬，傷害 ${dmgTxt(2.2, r)}`, `A wide heavy cleave in front: ${dmgTxt(2.2, r)} damage`),
@@ -103,21 +124,22 @@ export const TREES: Partial<Record<ClassId, TreeSkill[]>> = { warrior: WARRIOR }
 export const treeSkill = (c: ClassId, id: string) => TREES[c]?.find((s) => s.id === id);
 
 /** One class's tree in the save. */
-export interface TreeState { ranks: Record<string, number>; enh: string[]; mods: Record<string, 0 | 1>; equip: string[] }
+export interface TreeState { ranks: Record<string, number>; enh: string[]; mods: Record<string, 0 | 1>; equip: string[]; basic?: string }
 export const emptyTree = (): TreeState => ({ ranks: {}, enh: [], mods: {}, equip: [] });
 
 export function treeSpent(t: TreeState): number {
   return Object.values(t.ranks).reduce((a, b) => a + b, 0) + t.enh.length + Object.keys(t.mods).length;
 }
 /** Points spent in tiers below this one (opens the tier). */
-export const tierOpen = (t: TreeState, tier: number) => treeSpent(t) >= TREE_TIERS[tier - 1];
+export const tierOpen = (t: TreeState, tier: number) => tier <= 0 || treeSpent(t) >= TREE_TIERS[tier - 1];
 
 /** What a run gets from the tree. */
 export interface TreeActive { id: string; rank: number; enh: boolean; mod: -1 | 0 | 1 }
-export interface TreeRun { actives: TreeActive[]; passives: Record<string, number> }
+export interface TreeRun { actives: TreeActive[]; passives: Record<string, number>; basic: TreeActive | null }
 export function treeRun(c: ClassId, t: TreeState): TreeRun {
   const passives: Record<string, number> = {};
   for (const s of TREES[c] ?? []) if (s.kind === 'passive' && t.ranks[s.id]) passives[s.id] = t.ranks[s.id];
   const actives = t.equip.filter((id) => (t.ranks[id] ?? 0) > 0).slice(0, TREE_EQUIP).map((id) => ({ id, rank: t.ranks[id], enh: t.enh.includes(id), mod: (t.mods[id] ?? -1) as -1 | 0 | 1 }));
-  return { actives, passives };
+  const b = t.basic && (t.ranks[t.basic] ?? 0) > 0 ? t.basic : null;
+  return { actives, passives, basic: b ? { id: b, rank: t.ranks[b], enh: t.enh.includes(b), mod: (t.mods[b] ?? -1) as -1 | 0 | 1 } : null };
 }

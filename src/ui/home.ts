@@ -464,7 +464,7 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
     const r = t.ranks[sk.id] ?? 0, open = tierOpen(t, sk.tier), sel = treeSel === sk.id;
     const enh = t.enh.includes(sk.id), mod = t.mods[sk.id];
     const pips = Array.from({ length: sk.max }, (_, i) => `<i class="${i < r ? 'on' : ''}"></i>`).join('');
-    const tags = [sk.kind === 'active' ? `⏱ ${sk.cd}s` : tr('被動', 'Passive'), enh ? `✨ ${tr('強化', 'Enhanced')}` : '', mod !== undefined && sk.mods ? `🔀 ${sk.mods[mod].name}` : '', t.equip.includes(sk.id) ? `✅ ${tr('已裝備', 'Equipped')}` : ''].filter(Boolean).join(' · ');
+    const tags = [sk.kind === 'active' ? `⏱ ${sk.cd}s` : sk.kind === 'basic' ? tr('基本攻擊', 'Basic attack') : tr('被動', 'Passive'), t.basic === sk.id ? `⚔️ ${tr('用緊', 'In use')}` : '', enh ? `✨ ${tr('強化', 'Enhanced')}` : '', mod !== undefined && sk.mods ? `🔀 ${sk.mods[mod].name}` : '', t.equip.includes(sk.id) ? `✅ ${tr('已裝備', 'Equipped')}` : ''].filter(Boolean).join(' · ');
     let detail = '';
     if (sel) {
       const btn = (act: TreeAct, label: string, primary = false) => `<button class="${primary ? 'primary' : ''}" data-tact="${act}" data-tid="${sk.id}" ${treeCan(save, c, sk.id, act) ? '' : 'disabled'}>${label}</button>`;
@@ -476,6 +476,7 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
           ${r < sk.max ? btn('rank', `＋1 ${tr('級', 'rank')}（${r}/${sk.max}）`, true) : ''}
           ${sk.enh && r >= sk.max && !enh ? btn('enh', `✨ ${tr('強化', 'Enhance')}`, true) : ''}
           ${sk.mods && enh && mod === undefined ? btn('mod0', `🔀 ${sk.mods[0].name}`) + btn('mod1', `🔀 ${sk.mods[1].name}`) : ''}
+          ${sk.kind === 'basic' && r > 0 ? btn('equip', t.basic === sk.id ? `⚔️ ${tr('用緊', 'In use')}` : tr('改用呢個', 'Use this')) : ''}
           ${sk.kind === 'active' && r > 0 ? btn('equip', t.equip.includes(sk.id) ? tr('卸下', 'Unequip') : `${tr('裝備', 'Equip')}（${t.equip.length}/${TREE_EQUIP}）`) : ''}
         </div>
         ${!open ? `<small class="note">🔒 ${EN ? `Spend ${TREE_TIERS[sk.tier - 1]} points in this tree to open tier ${sk.tier}` : `呢棵樹用夠 ${TREE_TIERS[sk.tier - 1]} 點先開第 ${sk.tier} 層`}</small>` : ''}
@@ -490,7 +491,7 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
         <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點。主動技能升滿 5 級開「✨ 強化」，強化之後喺兩個「🔀 變化」揀一個。最多同時裝備 ${TREE_EQUIP} 個主動技能（會自動放）。用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。`, `1 point per class level. Max an active skill (rank 5) to unlock ✨ Enhance, then pick one of two 🔀 modifiers. Up to ${TREE_EQUIP} actives equipped (cast automatically). Tiers open at ${TREE_TIERS.join(' / ')} points spent.`)}</small>
         <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button>${others.map((k) => `<button data-board="${k}">${tr('其他技能盤：', 'Other board: ')}${k}</button>`).join('')}</div>
       </div>
-      ${[1, 2, 3, 4, 5].map((tier) => `<div class="card ttier ${tierOpen(t, tier) ? '' : 'locked'}"><div class="statline"><b>${tr(`第 ${tier} 層`, `Tier ${tier}`)}</b><small>${tierOpen(t, tier) ? tr('已開', 'Open') : `🔒 ${EN ? `${TREE_TIERS[tier - 1]} points` : `要 ${TREE_TIERS[tier - 1]} 點`}（${spent}）`}</small></div>${skills.filter((x) => x.tier === tier).map(card).join('')}</div>`).join('')}
+      ${[0, 1, 2, 3, 4, 5].map((tier) => `<div class="card ttier ${tierOpen(t, tier) ? '' : 'locked'}"><div class="statline"><b>${tier === 0 ? tr('⚔️ 基本攻擊（揀一個用）', '⚔️ Basic attack (pick one)') : tr(`第 ${tier} 層`, `Tier ${tier}`)}</b><small>${tier === 0 ? tr('取代普通攻擊', 'Replaces your normal attack') : tierOpen(t, tier) ? tr('已開', 'Open') : `🔒 ${EN ? `${TREE_TIERS[tier - 1]} points` : `要 ${TREE_TIERS[tier - 1]} 點`}（${spent}）`}</small></div>${skills.filter((x) => x.tier === tier).map(card).join('')}</div>`).join('')}
     </div>`));
   body.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');

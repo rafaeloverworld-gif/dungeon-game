@@ -342,6 +342,8 @@ export class Sim {
   treeSkills: (TreeActive & { timer: number })[] = [];
   tb = { dmg: 0, dmgT: 0, avatarT: 0, avatarMult: 1.5, undyingT: 0, spinGuard: false };
   treeLater: { t: number; fn: () => void }[] = [];
+  basic: TreeActive | null = null; // 技能樹 基本攻擊
+  private basicCount = 0;
   spinTick = 0;
   zones: Zone[] = [];
   minions: Minion[] = [];
@@ -475,6 +477,7 @@ export class Sim {
       if (sk?.stat) addBonus(bonus, sk.stat.stat, { pct: sk.stat.pct ? sk.stat.pct * r : undefined, flat: sk.stat.flat ? sk.stat.flat * r : undefined });
       if (sk?.pass === 'overlord') { addBonus(bonus, 'atk', { pct: 0.1 * r }); addBonus(bonus, 'critDmg', { flat: 0.2 * r }); }
     }
+    if (setup.tree?.basic?.id === 'wb_flurry' && setup.tree.basic.mod === 1) addBonus(bonus, 'moveSpeed', { pct: 0.15 }); // 技能樹 疾風
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
     if (this.mastery > 0) { const k = 1 + MASTERY_STAT * Math.min(50, this.mastery); this.stats.maxHp.base *= k; this.stats.atk.base *= k; } // 專精: HP and ATK +1.5% per class level (up to Lv 50)
@@ -511,6 +514,7 @@ export class Sim {
         else if (sk.pass === 'rage') this.cg.rage += 0.12 * r;
         else if (sk.pass === 'lastStand') this.lastStand = { level: (r >= 2 ? 2 : 1), used: false };
       }
+      this.basic = this.attack.kind === 'arc' || this.attack.kind === 'reap' ? setup.tree?.basic ?? null : null;
       this.treeSkills = (setup.tree?.actives ?? []).map((a) => ({ ...a, timer: (treeSkill(setup.classId, a.id)?.cd ?? 5) * 0.4 * this.sp.cdMult }));
     }
     for (const sk of fx?.autoSkills ?? []) {
@@ -730,7 +734,7 @@ export class Sim {
       const target = this.nearestEnemy(p.x, p.z, reach);
       if (target) {
         const frenzy = this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1; // 狂風
-        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy * (this.warGod || this.tb.avatarT > 0 ? 1.5 : 1)); // 戰神 / 技能樹 戰神降臨
+        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy * (this.warGod || this.tb.avatarT > 0 ? 1.5 : 1)) / (this.basic?.id === 'wb_bash' ? 0.67 : this.basic?.id === 'wb_flurry' ? 1.6 : 1); // 戰神 / 技能樹 戰神降臨 / 基本攻擊
         const base = Math.atan2(target.x - p.x, target.z - p.z);
         p.facing = base;
         const once = (mult: number) => (melee ? this.swing(base, reach, mult) : this.attack.kind === 'summon' ? this.summonAttack(base, mult) : this.shoot(base, mult));
@@ -889,16 +893,44 @@ export class Sim {
   /** Ask for the signature skill (HUD button). It fires on the next step if it's ready. */
   requestSignature(): void { this.sigRequested = true; }
 
+  critBonus = 0; // extra crit chance for the hit being rolled (技能樹 致命突刺)
+  forceCrit = false; // 技能樹 重錘
   rollDamage(): { dmg: number; crit: boolean } {
-    const crit = this.rand() < value(this.stats.crit);
+    const crit = this.forceCrit || this.rand() < value(this.stats.crit) + this.critBonus;
     return { dmg: value(this.stats.atk) * (crit ? value(this.stats.critDmg) : 1), crit };
   }
 
   /** Warrior: hit every enemy inside a cone in front. Extra swings from 連斬 add 60% each. */
   private swing(angle: number, reach: number, mult = 1): void {
-    const arc = Math.min(Math.PI * 2, ((this.attack.arcDegrees ?? 140) * Math.PI) / 180 * Math.min(1.6, Math.sqrt(value(this.stats.area))));
+    let arc = Math.min(Math.PI * 2, ((this.attack.arcDegrees ?? 140) * Math.PI) / 180 * Math.min(1.6, Math.sqrt(value(this.stats.area))));
     const comboMult = 1 + 0.6 * (this.stats.multishot - 1);
-    this.arcHit(angle, reach, arc, comboMult * mult, this.attack.kind === 'reap' ? 'shadow' : undefined);
+    const fx = this.attack.kind === 'reap' ? 'shadow' : undefined;
+    const b = this.basic;
+    if (b) { // 技能樹 基本攻擊
+      const n = ++this.basicCount, rm = 1 + 0.1 * (b.rank - 1), p = this.player;
+      const inArc = (rch: number, a: number) => this.enemies.filter((e) => { if (e.hp <= 0) return false; const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz); if (d - e.radius > rch) return false; let df = Math.atan2(dx, dz) - angle; df = Math.atan2(Math.sin(df), Math.cos(df)); return d <= e.radius + 0.6 || Math.abs(df) <= a / 2; });
+      if (b.id === 'wb_slash') {
+        if (b.enh) arc = Math.min(Math.PI * 2, arc * 1.3);
+        if (b.mod === 0 && n % 4 === 0) arc = Math.PI * 2;
+        const hits = this.arcHit(angle, reach, arc, comboMult * mult * rm, fx);
+        if (b.mod === 1 && hits) p.hp = Math.min(this.maxHp, p.hp + this.maxHp * Math.min(0.02, 0.003 * hits));
+      } else if (b.id === 'wb_thrust') {
+        const rch = reach * 1.6 * (b.enh ? 1.3 : 1), a = (40 * Math.PI) / 180;
+        if (b.mod === 1) for (const e of inArc(rch, a)) e.markTimer = Math.max(e.markTimer, 2);
+        this.critBonus = b.mod === 0 ? 0.2 : 0;
+        this.arcHit(angle, rch, a, comboMult * mult * 1.4 * rm * (b.enh ? 1.2 : 1), fx);
+        this.critBonus = 0;
+      } else if (b.id === 'wb_bash') {
+        if (b.enh) for (const e of inArc(reach, arc)) if (!isBigKind(e.kind)) { e.slowTimer = Math.max(e.slowTimer, 0.5); e.slowMult = 0.05; }
+        this.forceCrit = b.mod === 1 && n % 3 === 0;
+        this.arcHit(angle, reach, arc, comboMult * mult * 2 * rm, fx);
+        this.forceCrit = false;
+        if (b.mod === 0) { const t = this.nearestEnemy(p.x, p.z, reach + 1); if (t) { const { dmg, crit } = this.rollDamage(); this.explode(t.x, t.z, 2.2 * Math.sqrt(value(this.stats.area)), dmg * 0.6 * mult * rm, crit, 'physical', { noProc: true }); } }
+      } else { // wb_flurry
+        this.arcHit(angle, reach, arc, comboMult * mult * 0.6 * rm * (b.enh ? 1.2 : 1), fx);
+        if (b.mod === 0 && n % 5 === 0) this.arcHit(angle, reach, arc, comboMult * mult * 1.5 * rm, fx);
+      }
+    } else this.arcHit(angle, reach, arc, comboMult * mult, fx);
     if (this.cls.id === 'warrior' && this.mastery >= 50) { // 戰士 劍氣 (專精 Lv 50): every swing also sends a piercing sword wave
       const p = this.player, sp = 16, { dmg, crit } = this.rollDamage();
       this.projectiles.push({ x: p.x, z: p.z, vx: Math.sin(angle) * sp, vz: Math.cos(angle) * sp, dmg: dmg * mult * 1.0, crit, fromPlayer: true, life: 0.55, pierce: 99, radius: 0.7, hit: [], javelin: true, src: 'skill' });

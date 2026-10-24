@@ -516,3 +516,4 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .tdetail small.on { color: var(--gold); }
 .tbtns { display: flex; flex-wrap: wrap; gap: 6px; }
 .tbtns button { font-size: 13px; padding: 6px 10px; }
+.tskill.basic { border-left: 3px solid #ff6b5a; }

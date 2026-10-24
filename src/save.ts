@@ -974,7 +974,8 @@ function sanitizeTrees(raw: unknown): SaveData['trees'] {
       ranks,
       enh: Array.isArray(v.enh) ? v.enh.filter((id) => sk(id) && ranks[id] >= ACTIVE_MAX) : [],
       mods: Object.fromEntries(Object.entries(v.mods ?? {}).filter(([id, m]) => sk(id) && (m === 0 || m === 1) && (v.enh ?? []).includes(id))) as TreeState['mods'],
-      equip: Array.isArray(v.equip) ? v.equip.filter((id) => sk(id) && ranks[id] > 0).slice(0, TREE_EQUIP) : [],
+      equip: Array.isArray(v.equip) ? v.equip.filter((id) => sk(id) && ranks[id] > 0 && treeSkill(c as ClassId, id)!.kind === 'active').slice(0, TREE_EQUIP) : [],
+      basic: typeof v.basic === 'string' && sk(v.basic) && ranks[v.basic] > 0 ? v.basic : undefined,
     };
   }
   return out;
@@ -989,18 +990,20 @@ export function treeCan(s: SaveData, c: ClassId, id: string, act: TreeAct): bool
   const sk = treeSkill(c, id), t = treeOf(s, c);
   if (!sk) return false;
   const r = t.ranks[id] ?? 0;
-  if (act === 'equip') return sk.kind === 'active' && r > 0 && (t.equip.includes(id) || t.equip.length < TREE_EQUIP);
+  if (act === 'equip') return sk.kind === 'basic' ? r > 0 && t.basic !== id : sk.kind === 'active' && r > 0 && (t.equip.includes(id) || t.equip.length < TREE_EQUIP);
   if (treeLeft(s, c) <= 0) return false;
   if (act === 'rank') return r < sk.max && tierOpen(t, sk.tier);
-  if (act === 'enh') return sk.kind === 'active' && r >= sk.max && !t.enh.includes(id);
-  return sk.kind === 'active' && t.enh.includes(id) && t.mods[id] === undefined;
+  if (act === 'enh') return sk.kind !== 'passive' && r >= sk.max && !t.enh.includes(id);
+  return sk.kind !== 'passive' && t.enh.includes(id) && t.mods[id] === undefined;
 }
 export function treeDo(s: SaveData, c: ClassId, id: string, act: TreeAct): boolean {
   if (!treeCan(s, c, id, act)) return false;
   const t = treeOf(s, c);
-  if (act === 'rank') { t.ranks[id] = (t.ranks[id] ?? 0) + 1; if (treeSkill(c, id)!.kind === 'active' && t.ranks[id] === 1 && t.equip.length < TREE_EQUIP) t.equip.push(id); }
+  const kind = treeSkill(c, id)!.kind;
+  if (act === 'rank') { t.ranks[id] = (t.ranks[id] ?? 0) + 1; if (kind === 'active' && t.ranks[id] === 1 && t.equip.length < TREE_EQUIP) t.equip.push(id); if (kind === 'basic' && !t.basic) t.basic = id; }
   else if (act === 'enh') t.enh.push(id);
   else if (act === 'mod0' || act === 'mod1') t.mods[id] = act === 'mod0' ? 0 : 1;
+  else if (kind === 'basic') t.basic = id;
   else t.equip = t.equip.includes(id) ? t.equip.filter((x) => x !== id) : [...t.equip, id];
   return true;
 }
