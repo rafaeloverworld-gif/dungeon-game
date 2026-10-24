@@ -133,10 +133,11 @@ function sanitize(raw: unknown): SaveData {
   if (!raw || typeof raw !== 'object') return base;
   const r = raw as Partial<SaveData>;
   const items = Array.isArray(r.items) ? r.items.map(sanitizeItem).filter((i): i is Item => !!i) : [];
+  const stash = Array.isArray(r.stash) ? r.stash.map(sanitizeItem).filter((i): i is Item => !!i).filter((i) => !items.some((o) => o.id === i.id)) : [];
   const equipped = emptyEquipped();
   if (r.equipped && typeof r.equipped === 'object') {
     for (const [key, id] of Object.entries(r.equipped)) {
-      const it = typeof id === 'string' ? items.find((i) => i.id === id) : undefined;
+      const it = typeof id === 'string' ? items.find((i) => i.id === id) ?? stash.find((i) => i.id === id) : undefined;
       const [slot] = key.split(':');
       if (it && (it.weapon ? isWeaponSlot(slot as Slot) : EQUIP_SLOTS.includes(slot as EquipSlot) && it.slot === itemSlotOf(slot as EquipSlot))) equipped[key] = it.id;
     }
@@ -158,7 +159,7 @@ function sanitize(raw: unknown): SaveData {
     classId: CLASS_IDS.includes(r.classId as ClassId) ? (r.classId as ClassId) : 'archer',
     items, equipped,
     nextItemId: Math.max(Math.floor(num(r.nextItemId, 1)), items.length + (Array.isArray(r.stash) ? r.stash.length : 0) + 1),
-    stash: Array.isArray(r.stash) ? r.stash.map(sanitizeItem).filter((i): i is Item => !!i).filter((i) => !items.some((o) => o.id === i.id)) : [],
+    stash,
     stashBuys: Math.min(STASH_BUYS_MAX, Math.max(0, Math.floor(num(r.stashBuys, 0)))),
     stashTabs: Array.isArray(r.stashTabs) ? r.stashTabs.filter((t: any) => t && typeof t.id === 'string' && typeof t.name === 'string').slice(0, STASH_TABS_MAX).map((t: any) => ({ id: t.id.slice(0, 12), name: t.name.slice(0, STASH_TAB_NAME) })) : [],
     stashTabOf: r.stashTabOf && typeof r.stashTabOf === 'object' ? Object.fromEntries(Object.entries(r.stashTabOf).filter(([k, v]) => typeof k === 'string' && typeof v === 'string')) as Record<string, string> : {},
@@ -318,7 +319,18 @@ export function addAccountXp(s: SaveData, xp: number): number {
 export const shopCost = (s: SaveData, k: ShopKey) => Math.round(SHOP[k].base * Math.pow(SHOP[k].growth, s.shop[k]));
 
 // ---------- gear ----------
-export const itemById = (s: SaveData, id: string | null | undefined) => (id ? s.items.find((i) => i.id === id) : undefined);
+/** Looks in the bag first, then the 倉庫 (gear in a 配裝 can be worn straight from the 倉庫). */
+export const itemById = (s: SaveData, id: string | null | undefined) => (id ? s.items.find((i) => i.id === id) ?? s.stash.find((i) => i.id === id) : undefined);
+export const inStash = (s: SaveData, it: Item) => s.stash.includes(it);
+/** Gear taken off (swapped out) that was being worn from the 倉庫 drops into the bag (stays in the 倉庫 if the bag is full). */
+function bounceToBag(s: SaveData, id: string | null | undefined): void {
+  if (!id || Object.values(s.equipped).includes(id)) return;
+  const it = s.stash.find((i) => i.id === id);
+  if (!it || s.items.length >= bagMax(s)) return;
+  s.stash = s.stash.filter((i) => i !== it);
+  delete s.stashTabOf[it.id];
+  s.items.push(it);
+}
 const optsOf = (s: SaveData) => weaponOptions(s.classId, subOf(s), sub2Of(s));
 
 /** Can the current character put this item in this slot? */
@@ -355,14 +367,16 @@ export function equip(s: SaveData, it: Item, slot?: EquipSlot): void {
   const options = slotsFor(s, it);
   const target = slot ?? options.find((sl) => !equippedIn(s, sl)) ?? options[0]; // prefer an empty slot (second ring)
   if (!target || !fits(s, it, target)) return;
+  const before = EQUIP_SLOTS.map((sl) => s.equipped[slotKey(sl, s.classId)]);
   // the same item can't be in both hands
   for (const sl of EQUIP_SLOTS) if (s.equipped[slotKey(sl, s.classId)] === it.id) s.equipped[slotKey(sl, s.classId)] = null;
   s.equipped[slotKey(target, s.classId)] = it.id;
   // a two-handed weapon empties the off hand; an off-hand weapon takes the place of a two-handed one
   if (target === 'mainWeapon' && it.weapon && WEAPONS[it.weapon].twoHanded) s.equipped[slotKey('subWeapon', s.classId)] = null;
   if (target === 'subWeapon') { const m = itemById(s, s.equipped[slotKey('mainWeapon', s.classId)]); if (m?.weapon && WEAPONS[m.weapon].twoHanded) s.equipped[slotKey('mainWeapon', s.classId)] = null; }
+  before.forEach((id) => bounceToBag(s, id));
 }
-export function unequip(s: SaveData, slot: EquipSlot): void { s.equipped[slotKey(slot, s.classId)] = null; }
+export function unequip(s: SaveData, slot: EquipSlot): void { const id = s.equipped[slotKey(slot, s.classId)]; s.equipped[slotKey(slot, s.classId)] = null; bounceToBag(s, id); }
 
 export function salvage(s: SaveData, ids: string[]): number {
   let total = 0;
@@ -732,8 +746,9 @@ export function buyStash(s: SaveData): boolean {
   s.coins -= c; s.stashBuys++;
   return true;
 }
-/** Can this item go into the 倉庫? (not worn by any class, not in a saved build) */
-export const canStash = (s: SaveData, it: Item) => !isEquippedAny(s, it) && !inLoadout(s, it);
+/** Can this item go into the 倉庫? Anything but what this character is wearing right now: gear of other 配裝 / classes
+ *  can wait in the 倉庫 and is worn straight from there when that set is used. */
+export const canStash = (s: SaveData, it: Item) => s.items.includes(it) && !EQUIP_SLOTS.some((sl) => s.equipped[slotKey(sl, s.classId)] === it.id);
 export function toStash(s: SaveData, id: string, tab: string | null = null): 'ok' | 'full' | 'worn' {
   const it = s.items.find((i) => i.id === id);
   if (!it) return 'worn';
