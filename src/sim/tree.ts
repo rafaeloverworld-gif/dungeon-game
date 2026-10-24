@@ -6,6 +6,7 @@ import type { ClassId } from './classes';
 import type { StatKey } from './stats';
 import type { AutoSkillId, UniqueId } from './skills';
 import { UNIQUE_DESC } from './skills';
+import { MIX_MECH, mechDesc } from './mixmech';
 
 export const TREE_TIERS = [0, 5, 12, 20, 30]; // points spent in this tree to open tiers 1..5
 export const TREE_EQUIP = 4; // active skills cast at once
@@ -281,8 +282,8 @@ function mixLayer(key: string): TreeSkill[] {
       desc: (r) => tr(`${STAT_LABEL[s1][0]} +${pctOrFlat(v1, r)}、${STAT_LABEL[s2][0]} +${pctOrFlat(v2, r)}`, `${STAT_LABEL[s1][1]} +${pctOrFlat(v1, r)}, ${STAT_LABEL[s2][1]} +${pctOrFlat(v2, r)}`) },
     A(`x_${key}_3`, n2, i2, 3, cd2, { sig }, w2, 'echo', 'buff'),
     { id: `x_${key}_4`, name: tr(un[0], un[1]), icon: ui, kind: 'passive', tier: 3, max: 1, uniq: uq, desc: () => UNIQUE_DESC[uq] },
-    { id: `x_${key}_5`, name: tr('奧義', 'Mastery of the Pair'), icon: '🌟', kind: 'passive', tier: 5, max: 3, pass: 'mixPow', pow: m.pow,
-      desc: (r) => tr(`呢個組合嘅奧義：你所有傷害（包括亡靈）+${Math.round(m.pow * 100 * r)}%`, `This pair's mastery: all your damage (undead too) +${Math.round(m.pow * 100 * r)}%`) },
+    { id: `x_${key}_5`, name: tr(`奧義・${MIX_MECH[key].name[0]}`, `Secret Art: ${MIX_MECH[key].name[1]}`), icon: '🌟', kind: 'passive', tier: 5, max: 3, pass: 'mixPow', pow: m.pow,
+      desc: (r) => `${mechDesc(key, r)}${tr(`；所有傷害（包括亡靈）+${Math.round(m.pow * 100 * r)}%`, `; all your damage (undead too) +${Math.round(m.pow * 100 * r)}%`)}` },
   ];
 }
 const STAT_LABEL: Record<string, [string, string]> = {

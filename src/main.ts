@@ -343,7 +343,7 @@ function toast(text: string, icon?: string): void {
 }
 
 let hitStop = 0; // seconds the action freezes for impact (boss kills)
-const PARTNER_FX = new Set<SimEvent['type']>(['hit', 'kill', 'swing', 'explode', 'dash', 'wave', 'lightning']);
+const PARTNER_FX = new Set<SimEvent['type']>(['hit', 'kill', 'swing', 'explode', 'dash', 'wave', 'lightning', 'vfx']);
 
 function handleEvents(events: SimEvent[]): void {
   for (const ev of events) {

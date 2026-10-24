@@ -10,6 +10,7 @@ import { autopilotDirection } from './autopilot';
 import { mixFor, PURE_SIGNATURE, type AwakenedDef, type SignatureDef } from './awakening';
 import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { addBonus, mergeBonus } from './stats';
+import { mixOnAttack, mixOnKill, mixTick } from './mixmech';
 import { treeSkillAny, type BasicSpec, type ModCode, type TreeActive, type TreeRun } from './tree';
 import { updateAbilities } from './abilities';
 import { oneShotAbsorb, ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, PROC_ULTS, type UltId, type UltRun } from './ultimates';
@@ -146,6 +147,7 @@ export type SimEvent =
   | { type: 'lastStand' }
   | { type: 'wave'; x: number; z: number; r: number }
   | { type: 'lightning'; pts: number[] }
+  | { type: 'vfx'; kind: 'pillar' | 'ring' | 'beam' | 'rune' | 'shards'; x: number; z: number; r: number; fx: FxKind; x2?: number; z2?: number } // extra skill visuals
   | { type: 'react'; x: number; z: number; name: string; fx: FxKind }
   | { type: 'chest'; kind: 'silver' | 'gold' }
   | { type: 'levelup' }
@@ -518,7 +520,7 @@ export class Sim {
         else if (sk.pass === 'thorns') this.sp.thorns = true;
         else if (sk.pass === 'rage') this.cg.rage += 0.12 * r;
         else if (sk.pass === 'lastStand') this.lastStand = { level: (r >= 2 ? 2 : 1), used: false };
-        else if (sk.pass === 'mixPow') this.mixPow += (sk.pow ?? 0) * r;
+        else if (sk.pass === 'mixPow') { this.mixPow += (sk.pow ?? 0) * r; this.mixKey = id.slice(2, -2); this.mixRank = r; }
       }
       this.basic = this.attack.kind === 'arc' || this.attack.kind === 'reap' ? setup.tree?.basic ?? null : null;
       this.treeSkills = (setup.tree?.actives ?? []).map((a) => ({ ...a, timer: (treeSkillAny(a.id)?.cd ?? 5) * 0.4 * this.sp.cdMult }));
@@ -745,6 +747,7 @@ export class Sim {
         p.facing = base;
         const once = (mult: number, a = base) => (melee ? this.swing(a, reach, mult) : this.attack.kind === 'summon' ? this.summonAttack(a, mult) : this.shoot(a, mult));
         if (this.gbasic) this.basicAttack(target, once); else once(1);
+        if (this.mixKey) mixOnAttack(this, target); // 混合層 奧義
         if (this.cls.id === 'archer' && this.mastery >= 25 && !melee && ++this.volleyCount % 3 === 0) once(1); // 弓手 連射: every 3rd attack fires twice
         if (this.proc.double && this.rand() < this.proc.double) once(1); // 連擊
         if (this.sp.echo && this.rand() < this.sp.echo) once(0.6); // 回響
@@ -753,6 +756,7 @@ export class Sim {
       }
     }
     this.withSrc('skill', () => updateAbilities(this, dt));
+    if (this.mixKey) mixTick(this, dt);
     if (this.mastery >= 50) this.withSrc('skill', () => this.masteryTick(dt));
     this.withSrc('undead', () => this.updateMinions(dt));
     this.withSrc('ult', () => updateUltimates(this, dt));
@@ -900,6 +904,7 @@ export class Sim {
   requestSignature(): void { this.sigRequested = true; }
 
   mixPow = 0; // 技能樹 混合層 奧義: all damage +
+  mixKey = ''; mixRank = 0; mixN = 0; mixT = 0; mixDepth = 0; // 奧義 mechanic (mixmech.ts)
   critBonus = 0; // extra crit chance for the hit being rolled (技能樹 致命突刺)
   forceCrit = false; // 技能樹 重錘
   rollDamage(): { dmg: number; crit: boolean } {
@@ -1878,6 +1883,7 @@ export class Sim {
       const kind: MinionKind = e.kind === 'grunt' || e.kind === 'shooter' || e.kind === 'swarm' ? e.kind : 'grunt';
       this.summon(e.x, e.z, { kind, big: e.kind === 'miniboss' });
     }
+    if (this.mixKey) mixOnKill(this, e); // 混合層 奧義
     if (this.uq.sigOnKill && this.signature) this.signature.timer = Math.max(0, this.signature.timer - 0.25); // 劍舞不息
     if (this.uq.killBlast && this.blastDepth < 2) { // 魔爆箭: a dead enemy explodes (chains at most twice)
       this.blastDepth++;

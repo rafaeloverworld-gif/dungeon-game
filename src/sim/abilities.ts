@@ -3,7 +3,7 @@ import { ARENA_HALF } from './config';
 import { AUTO_SKILLS, type AutoSkillId } from './skills';
 import { rankMult, treeSkillAny, type TreeActive, type TreeSkill } from './tree';
 import { value } from './stats';
-import type { Enemy, Sim } from './sim';
+import type { Enemy, FxKind, Sim } from './sim';
 
 const nearestWithin = (sim: Sim, r: number) => sim.nearestEnemy(sim.player.x, sim.player.z, r);
 
@@ -252,7 +252,7 @@ function shouldAutoCast(sim: Sim): boolean {
   return enemiesNear(sim, kind === 'charge' || kind === 'spellSlash' ? 6 : 9) >= 4;
 }
 
-function shootArrow(sim: Sim, angle: number, dmg: number, crit: boolean, o: { pierce: number; speed: number; range: number; radius?: number; shadow?: boolean; slow?: number }): void {
+export function shootArrow(sim: Sim, angle: number, dmg: number, crit: boolean, o: { pierce: number; speed: number; range: number; radius?: number; shadow?: boolean; slow?: number }): void {
   const p = sim.player;
   sim.projectiles.push({
     x: p.x, z: p.z, vx: Math.sin(angle) * o.speed, vz: Math.cos(angle) * o.speed,
@@ -450,6 +450,7 @@ function updateTree(sim: Sim, dt: number): void {
     const m = rankMult(sk.rank);
     const ar = area(sim);
     const aim = Math.atan2(target.x - p.x, target.z - p.z);
+    castVfx(sim, sk, target);
     switch (sk.id) {
       case 'w_cleave': {
         const reach = (value(sim.stats.range) + 1.6) * ar, mult = 2.2 * m * (sk.enh ? 1.4 : 1);
@@ -531,7 +532,7 @@ function castTree(sim: Sim, sk: TreeActive, def: TreeSkill, target: Enemy, scale
   if ('auto' in c) castAuto(sim, c.auto, sk.enh, target, k);
   else if ('autos' in c) { castAuto(sim, c.autos[0], sk.enh, target, k * 0.75); castAuto(sim, c.autos[1], sk.enh, target.hp > 0 ? target : sim.nearestEnemy(p.x, p.z, 11), k * 0.75); } // 混合層 合技: two skills at 75% each
   else castSignature(sim, c.sig, k, sk.enh);
-  if (scale === 1) sim.events.push({ type: 'skill', name: def.name, icon: def.icon, signature: false });
+  if (scale === 1) { sim.events.push({ type: 'skill', name: def.name, icon: def.icon, signature: false }); castVfx(sim, sk, target); }
   if (scale !== 1 || !code) return;
   const near = (r: number) => sim.enemies.filter((e) => e.hp > 0 && Math.hypot(e.x - target.x, e.z - target.z) < r + e.radius);
   switch (code) {
@@ -545,4 +546,12 @@ function castTree(sim: Sim, sk: TreeActive, def: TreeSkill, target: Enemy, scale
     case 'nova': sim.explode(p.x, p.z, 3.5 * area(sim), atk(sim) * 1.2 * k, false, 'arcane'); break;
     default: break;
   }
+}
+
+/** Every 技能樹 cast: a rune circle under you in the class colour; an enhanced skill also drops a light pillar on the target. */
+const TREE_FX: Record<string, FxKind> = { w: 'physical', a: 'holy', m: 'arcane', n: 'shadow', x: 'fire' };
+function castVfx(sim: Sim, sk: TreeActive, target: Enemy): void {
+  const p = sim.player, fx = TREE_FX[sk.id[0]] ?? 'arcane';
+  sim.events.push({ type: 'vfx', kind: 'rune', x: p.x, z: p.z, r: 1.6, fx });
+  if (sk.enh) sim.events.push({ type: 'vfx', kind: 'pillar', x: target.x, z: target.z, r: 0.9, fx });
 }

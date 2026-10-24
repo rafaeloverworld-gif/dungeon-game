@@ -127,7 +127,7 @@ export class Renderer {
   private aura: THREE.Mesh | null = null;
   private playerBody: THREE.Mesh;
   private weaponGroup = new THREE.Group();
-  private fx: { mesh: THREE.Mesh; life: number; max: number; grow: number }[] = [];
+  private fx: { mesh: THREE.Mesh; life: number; max: number; grow: number; spin?: number; rise?: number; op?: number }[] = [];
   private fireballs!: THREE.InstancedMesh;
   private zoneMeshes: THREE.Mesh[] = [];
   private autoRing: THREE.Mesh;
@@ -468,6 +468,7 @@ export class Renderer {
       else if (ev.type === 'dash') this.addDash(ev.x1, ev.z1, ev.x2, ev.z2);
       else if (ev.type === 'wave') this.addWave(ev.x, ev.z, ev.r);
       else if (ev.type === 'lightning') this.addLightning(ev.pts);
+      else if (ev.type === 'vfx') this.addVfx(ev);
       else if (ev.type === 'lastStand') { this.burst(this.player.position.x, this.player.position.z, 0xfff2a8, 30); this.shake = 0.4; }
     }
   }
@@ -901,8 +902,10 @@ export class Renderer {
     this.fx = this.fx.filter((f) => {
       f.life -= dt;
       const k = Math.max(0, f.life / f.max);
-      (f.mesh.material as THREE.MeshBasicMaterial).opacity = 0.75 * k;
+      (f.mesh.material as THREE.MeshBasicMaterial).opacity = (f.op ?? 0.75) * k;
       if (f.grow) f.mesh.scale.setScalar(1 + (1 - k) * f.grow);
+      if (f.spin) f.mesh.rotation.y += f.spin * dt;
+      if (f.rise) f.mesh.position.y += f.rise * dt;
       if (f.life <= 0) { this.scene.remove(f.mesh); f.mesh.geometry.dispose(); (f.mesh.material as THREE.Material).dispose(); return false; }
       return true;
     });
@@ -1262,6 +1265,48 @@ export class Renderer {
       this.scene.add(m);
       this.fx.push({ mesh: m, life: 0.18, max: 0.18, grow: 0 });
       this.burst(x2, z2, 0xbfe8ff, 3);
+    }
+  }
+
+  /** Skill-tree / 奧義 visuals: light pillars, coloured rings, beams, spinning rune circles, shard bursts. */
+  private addVfx(ev: Extract<SimEvent, { type: 'vfx' }>): void {
+    const color = FX_COLORS[ev.fx], add = (mesh: THREE.Mesh, life: number, o: { grow?: number; spin?: number; rise?: number; op?: number } = {}) => { this.scene.add(mesh); this.fx.push({ mesh, life, max: life, grow: o.grow ?? 0, spin: o.spin, rise: o.rise, op: o.op }); };
+    const mat = (op = 0.8) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    if (ev.kind === 'pillar') {
+      const h = 7, col = new THREE.Mesh(new THREE.CylinderGeometry(ev.r * 0.55, ev.r, h, 16, 1, true), mat(0.7));
+      col.position.set(ev.x, h / 2, ev.z); add(col, 0.45, { op: 0.7 });
+      const core = new THREE.Mesh(new THREE.CylinderGeometry(ev.r * 0.18, ev.r * 0.3, h, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+      core.position.set(ev.x, h / 2, ev.z); add(core, 0.3, { op: 0.9 });
+      const g = new THREE.CircleGeometry(ev.r * 1.3, 24); g.rotateX(-Math.PI / 2);
+      const pool = new THREE.Mesh(g, mat(0.6)); pool.position.set(ev.x, 0.16, ev.z); add(pool, 0.5, { grow: 0.4, op: 0.6 });
+      this.burst(ev.x, ev.z, color, 10);
+      this.shake = Math.max(this.shake, 0.12);
+    } else if (ev.kind === 'ring') {
+      const g = new THREE.RingGeometry(0.82, 1, 48); g.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(g, mat(0.9)); m.position.set(ev.x, 0.2, ev.z); m.scale.setScalar(0.3); add(m, 0.4, { grow: ev.r * 1.1, op: 0.9 });
+      const g2 = new THREE.RingGeometry(0.9, 1, 48); g2.rotateX(-Math.PI / 2);
+      const m2 = new THREE.Mesh(g2, mat(0.6)); m2.position.set(ev.x, 0.6, ev.z); m2.scale.setScalar(0.3); add(m2, 0.55, { grow: ev.r * 0.9, op: 0.6, rise: 1.2 });
+      this.burst(ev.x, ev.z, color, 12);
+    } else if (ev.kind === 'beam') {
+      const x2 = ev.x2 ?? ev.x, z2 = ev.z2 ?? ev.z, len = Math.hypot(x2 - ev.x, z2 - ev.z) || 0.1;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(ev.r, ev.r, len), mat(0.95));
+      m.position.set((ev.x + x2) / 2, 0.9, (ev.z + z2) / 2); m.rotation.y = Math.atan2(x2 - ev.x, z2 - ev.z); add(m, 0.2, { op: 0.95 });
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(ev.r * 3, ev.r * 0.4, len), mat(0.35));
+      glow.position.copy(m.position); glow.rotation.y = m.rotation.y; add(glow, 0.25, { op: 0.35 });
+      this.burst(x2, z2, color, 5);
+    } else if (ev.kind === 'rune') {
+      const g = new THREE.RingGeometry(ev.r * 0.8, ev.r, 6, 1); g.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(g, mat(0.85)); m.position.set(ev.x, 0.18, ev.z); add(m, 0.9, { spin: 3, op: 0.85 });
+      const g2 = new THREE.RingGeometry(ev.r * 0.45, ev.r * 0.55, 3, 1); g2.rotateX(-Math.PI / 2);
+      const m2 = new THREE.Mesh(g2, mat(0.85)); m2.position.set(ev.x, 0.19, ev.z); add(m2, 0.9, { spin: -5, op: 0.85 });
+    } else { // shards
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + Math.random() * 0.4, d = ev.r * (0.4 + Math.random() * 0.6);
+        const m = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.9, 4), mat(0.9));
+        m.position.set(ev.x + Math.sin(a) * d, 0.4, ev.z + Math.cos(a) * d); m.rotation.set(Math.random() * 0.6, a, Math.random() * 0.6);
+        add(m, 0.35, { rise: 2.5, op: 0.9 });
+      }
+      this.burst(ev.x, ev.z, color, 14);
     }
   }
 
