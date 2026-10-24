@@ -59,6 +59,8 @@ export const MIX_PENALTY_MAX = 0.88;
 /** Every 多重箭袋 / 多重法典 item beyond what fills all the slots: each extra type or spell costs 3% less (up to ×0.94). */
 /** 一擊流 (蓄力) tuning: attack speed, hit multiplier, crit-bonus multiplier, and how much of the on-hit ultimates' average goes into a hit. */
 export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 20, absorbSpell: 24, absorbMelee: 10 };
+/** 骨爆: every blast hits this much harder (on top of max HP × 150% × copies). */
+export const BONE_BURST_MULT = 1.5;
 export const MIX_OVER = 0.03, MIX_PENALTY_CAP = 0.94;
 export const mixPenalty = (max: boolean, over: number) => Math.min(MIX_PENALTY_CAP, (max ? MIX_PENALTY_MAX : MIX_PENALTY) + MIX_OVER * over);
 
@@ -797,8 +799,11 @@ export class Sim {
         const r = (m.big ? 3.8 : 3) * Math.sqrt(value(this.stats.area));
         m.hp = 0;
         if (this.combo.has('endless') && this.rand() < 0.3) this.summon(m.x, m.z, { force: true, life: 12 }); // 不滅骨爆
+        // 骨爆 refills fast: a summoner raises the next one at once; otherwise 25% chance one rises by your side
+        if (this.attack.kind === 'summon') p.attackTimer = Math.min(p.attackTimer, 0.15);
+        else if (this.rand() < 0.25) { const a = this.rand() * Math.PI * 2; this.summon(p.x + Math.sin(a) * 1.5, p.z + Math.cos(a) * 1.5, { life: 12 }); }
         // 骨爆: the blast is as big as the undead's max HP (tanky undead hit harder)
-        this.explode(m.x, m.z, r * (this.combo.has('chainBurst') ? 1.5 : 1), m.maxHp * (1 + 0.5 * this.n('boneBurst')) * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true }); // no ultimate procs, so the blast itself is big
+        this.explode(m.x, m.z, r * (this.combo.has('chainBurst') ? 1.5 : 1), m.maxHp * BONE_BURST_MULT * (1 + 0.5 * this.n('boneBurst')) * m.power * buff * value(this.stats.summon), false, 'shadow', { noProc: true }); // no ultimate procs, so the blast itself is big
         continue;
       }
       if (target && d <= reach + 0.15 && m.atkTimer <= 0) {

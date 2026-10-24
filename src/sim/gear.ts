@@ -189,7 +189,7 @@ export const SPECIALS = {
   utPoison: { family: 'death', name: tr('屍毒', 'Corpse Poison'), desc: tr('亡靈特性：亡靈攻擊會留低毒池（3 秒，每隻亡靈 3 秒一次）。毒係元素：遇到火、冰、雷會起反應（組隊時隊友嘅元素都得）', 'Undead trait: Undead attacks leave a poison pool (3 s; each Undead every 3 s). Poison is an element: it reacts with fire, frost and lightning (a teammate\'s too)') },
   utCrown: { family: 'death', name: tr('骨王冠', 'Bone Crown'), desc: tr('亡靈特性：最大嗰隻亡靈戴上王冠：傷害 ×2，受到傷害減半', 'Undead trait: Your biggest Undead wears a crown: ×2 damage, takes half damage') },
   // rings and necromancer weapons: it changes how the class plays
-  boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 150% × 亡靈強度（骨甲令佢更痛；自爆唔會觸發終極技）', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × 150% × Undead Power (Ironbone makes it hurt more; blasts don\'t trigger Ultimates)') },
+  boneBurst: { family: 'ring', name: tr('骨爆', 'Bone Burst'), desc: tr('你嘅亡靈會直接衝去敵人度自爆，大範圍傷害 = 亡靈最大 HP × 225% × 亡靈強度（骨甲令佢更痛；自爆唔會觸發終極技）；召喚死靈自爆後即刻召下一隻，其他時候 25% 機會喺你身邊起返一隻', 'Your Undead rush enemies and explode: area damage = the Undead\'s max HP × 225% × Undead Power (Ironbone makes it hurt more; blasts don\'t trigger Ultimates); a Summoner raises the next one at once, otherwise 25% chance one rises by your side') },
 } as const;
 export type SpecialId = keyof typeof SPECIALS;
 export const UNDEAD_TRAITS = ['utTank', 'utRanged', 'utCaster', 'utWraith', 'utFrenzy', 'utLasting', 'utEdge', 'utLeech', 'utShield', 'utPoison', 'utCrown'] as const satisfies readonly SpecialId[];
