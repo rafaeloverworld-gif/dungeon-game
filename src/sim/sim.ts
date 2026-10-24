@@ -342,6 +342,8 @@ export class Sim {
   comboPower = 1;
   /** How many copies of each bone trait you wear (the same trait twice or three times is stronger, like the class system). */
   utn: Partial<Record<SpecialId, number>> = {};
+  /** Class gear (戰士 / 弓手 / 法師 armour and accessory lines), already counted per item. */
+  cg = { taken: 1, rage: 0, firstShot: 0, elemAmp: 0, elemLinger: 0, shieldCap: 0 };
   private leechCd = 0; // 噬魂: at most 5 heals a second
   private soulCd = 0; // 魂王: the uncrowned undead heal at most 10 times a second
 
@@ -416,6 +418,26 @@ export class Sim {
       else if (sp === 'utCrown') this.ut.crown = true;
     }
     for (const sp of setup.specials ?? []) this.utn[sp] = Math.min(MAX_STACK, (this.utn[sp] ?? 0) + 1); // at most 4 copies count
+    { // class gear: only works when you are that class (main or awakened class)
+      const has = (c: ClassId) => this.cls.id === c || this.awk?.sub === c || this.awk?.sub2 === c;
+      const n = (sp: SpecialId) => this.utn[sp] ?? 0;
+      if (has('warrior')) {
+        this.cg.taken *= 1 - 0.08 * n('ironHide');
+        this.cg.rage = 0.15 * n('berserkRage');
+        if (n('wideSwing')) mergeBonus(bonus, { area: { pct: 0.12 * n('wideSwing') }, atk: { pct: 0.04 * n('wideSwing') } });
+      }
+      if (has('archer')) {
+        if (n('eagleEye')) mergeBonus(bonus, { crit: { flat: 0.04 * n('eagleEye') }, critDmg: { flat: 0.15 * n('eagleEye') } });
+        if (n('galeStep')) mergeBonus(bonus, { atkSpeed: { pct: 0.06 * n('galeStep') }, moveSpeed: { pct: 0.04 * n('galeStep') } });
+        this.cg.firstShot = 0.15 * n('firstShot');
+      }
+      if (has('mage')) {
+        this.cg.elemAmp = 0.2 * n('elemAmp');
+        this.cg.elemLinger = 0.3 * n('elemLinger');
+        this.cg.taken *= 1 - 0.05 * n('manaWard');
+        this.cg.shieldCap = 0.05 * n('manaWard');
+      }
+    }
     // combos: the strongest one's undead damage counts, each other combo adds +20% (they don't multiply); ×4 = 極 form
     const powers = activeCombos(setup.specials ?? []).map((c) => { this.combo.add(c.id); return (c.power ?? 1) * (isMax(c, setup.specials ?? []) ? MAX_POWER : 1); }).sort((a, b) => b - a);
     if (powers.length) this.comboPower = powers[0] * (1 + COMBO_EXTRA * (powers.length - 1));
@@ -931,12 +953,12 @@ export class Sim {
    *  frost + lightning = 超導 (enemies nearby take +40% damage for 5 s). Mages' reactions hit 50% harder. */
   applyElem(e: Enemy, el: Elem): void {
     if (e.hp <= 0) return;
-    if (!e.elem || e.elem === el || !e.elemT) { e.elem = el; e.elemT = ELEM_TIME; return; }
+    if (!e.elem || e.elem === el || !e.elemT) { e.elem = el; e.elemT = ELEM_TIME * (1 + this.cg.elemLinger); return; }
     if (e.reactCd) return;
     const a = e.elem;
     const arch = this.awk?.id === 'mage_mage' || this.awk?.base === 'mage_mage'; // 大法師
     e.elem = undefined; e.elemT = 0; e.reactCd = arch ? 0.2 : 0.4;
-    if (this.cls.id === 'mage') { const big = this.mastery >= 25; this.elemShield = Math.min(this.maxHp * (big ? 0.4 : 0.15), this.elemShield + this.maxHp * (big ? 0.05 : 0.03)); } // 元素護盾 (專精 法力護盾: up to 40%)
+    if (this.cls.id === 'mage') { const big = this.mastery >= 25; this.elemShield = Math.min(this.maxHp * ((big ? 0.4 : 0.15) + this.cg.shieldCap), this.elemShield + this.maxHp * (big ? 0.05 : 0.03)); } // 元素護盾 (專精 法力護盾: up to 40%)
     if (this.spellMax && this.chainDepth < 2) { // 極·大魔導: the reaction spreads the new element to 3 enemies nearby (they can react too)
       this.chainDepth++;
       const near = this.enemies.filter((o) => o !== e && o.hp > 0 && Math.hypot(o.x - e.x, o.z - e.z) < 3.5).slice(0, 3);
@@ -944,7 +966,7 @@ export class Sim {
       this.chainDepth--;
     }
     const has = (x: Elem) => a === x || el === x;
-    const k = value(this.stats.atk) * (arch ? 3 : this.cls.id === 'mage' ? 1.5 : this.awk?.sub === 'mage' || this.awk?.sub2 === 'mage' ? 1.2 : 1); // 大法師 reactions ×2 more
+    const k = (1 + this.cg.elemAmp) * value(this.stats.atk) * (arch ? 3 : this.cls.id === 'mage' ? 1.5 : this.awk?.sub === 'mage' || this.awk?.sub2 === 'mage' ? 1.2 : 1); // 大法師 reactions ×2 more
     const area = Math.sqrt(value(this.stats.area));
     this.reactions++;
     const prevSrc = this.src; this.src = 'react';
@@ -1213,6 +1235,7 @@ export class Sim {
     if (this.cls.bossGuard && this.boss) dmg *= 1 - this.cls.bossGuard; // 弓手 / 法師: keep their distance from bosses
     if (this.cls.id === 'warrior' && this.mastery >= 10 && this.boss) dmg *= 0.65; // 戰士 不屈: 35% less while a boss is in the fight (melee has to stand next to it)
     if (this.cls.id === 'warrior' && this.mastery >= 10 && src !== 'boss' && src !== 'miniboss' && src !== 'slam' && src !== 'charge') dmg *= 0.8; // 戰士 不屈: small enemies hit 20% softer
+    dmg *= this.cg.taken; // 鋼骨 / 法力屏障
     dmg = ultOnHurt(this, dmg); // 聖光壁壘 / 復仇之魂
     if (dmg <= 0) { p.invuln = PLAYER.hurtInvuln * 0.5; return false; }
     if (this.elemShield > 0) { // 元素護盾 takes the hit first
@@ -1660,6 +1683,8 @@ export class Sim {
     if (bossDmg && isBigKind(e.kind)) dmg *= 1 + bossDmg;
     if (this.proc.execute && e.hp < e.maxHp * 0.3) dmg *= 1 + this.proc.execute; // 斬殺
     if (this.uq.berserk && this.player.hp < this.maxHp * 0.5) dmg *= 1.3; // 狂戰之魂
+    if (this.cg.rage && this.player.hp < this.maxHp * 0.5) dmg *= 1 + this.cg.rage; // 狂怒
+    if (this.cg.firstShot && e.hp > e.maxHp * 0.7) dmg *= 1 + this.cg.firstShot; // 先發制人
     if (this.warGod) dmg *= 1.5; // 戰神
     if (this.proc.lifesteal && this.proc.lifestealCd <= 0 && this.rand() < this.proc.lifesteal) {
       this.proc.lifestealCd = 0.2; // at most 5 heals a second

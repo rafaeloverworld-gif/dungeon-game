@@ -5,7 +5,7 @@ import { ARROW_TYPES, ARROWS, ATTACK_NAMES, CLASSES, CLASS_IDS, SPELL_TYPES, SPE
 import {
   ACCESSORY_SLOTS, ARMOUR_SLOTS, canReroll, procText, PROC_SKILLS, isWeaponSlot, itemIcon, itemName, itemScore, lineText, MAX_PLUS, RARITIES, RARITY_COLORS,
   RARITY_NAMES, rerollCost, salvageValue, SLOT_ICONS, SLOT_NAMES, EQUIP_SLOTS, EQUIP_NAMES, itemSlotOf, type EquipSlot, SPECIALS, TRADE_COUNT, undeadName, UNDEAD_TRAITS, activeCombos, BONE_COMBOS, doubleChance, STACK_TEXT, isMax, MAX_STACK, MAX_POWER, COMBO_EXTRA, type SpecialId, tradeRarityWeights, upgradeChance,
-  upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, weaponUsers, type Item, type ItemKind, type Rarity, type Slot,
+  upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, weaponUsers, specialClass, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
 import { buildStats } from '../sim/sim';
 import { value } from '../sim/stats';
@@ -829,6 +829,13 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
   });
 }
 
+/** A class-only gear line on a character without that class. */
+function classGearOff(save: SaveData, sp: SpecialId): boolean {
+  if (SPECIALS[sp].family !== 'classGear') return false;
+  const c = specialClass(sp);
+  return !!c && ![save.classId, subOf(save), sub2Of(save)].includes(c);
+}
+
 function showItem(ctx: HomeCtx, it: Item, note = ''): void {
   const save = ctx.getSave();
   const slots = slotsFor(save, it);
@@ -857,8 +864,7 @@ function showItem(ctx: HomeCtx, it: Item, note = ''): void {
           <li class="main">${lineText(upgradedMain(it))}${it.plus ? ` <small>${EN ? `(+${it.plus} upgrade)` : `（+${it.plus} 強化）`}</small>` : ''}</li>
           ${it.affixes.map((a, i) => `<li>${lineText(a)}${canReroll(it) ? ` <button class="mini" data-reroll="${i}" ${save.coins < rcost ? 'disabled' : ''}>🎲 🪙${fmt(rcost)}</button>` : ''}</li>`).join('')}
           ${it.proc ? `<li class="proc">${procText(it.proc)}</li>` : ''}
-          ${it.special ? `<li class="special">✨ ${SPECIALS[it.special].name}${tr('：', ': ')}${SPECIALS[it.special].desc}</li>` : ''}
-          ${it.special2 ? `<li class="special">✨ ${SPECIALS[it.special2].name}${tr('：', ': ')}${SPECIALS[it.special2].desc}</li>` : ''}
+          ${[it.special, it.special2].filter((x): x is SpecialId => !!x).map((sp) => `<li class="special">✨ ${SPECIALS[sp].name}${tr('：', ': ')}${SPECIALS[sp].desc}${classGearOff(save, sp) ? `<br><small style="color:var(--muted)">${EN ? `(No effect now: you are not a ${CLASSES[specialClass(sp)!].name})` : `（而家冇效：你唔係${CLASSES[specialClass(sp)!].name}）`}</small>` : ''}</li>`).join('')}
         </ul>
         ${it.weapon ? `<p class="note" style="text-align:left;margin:6px 0">🧭 ${tr('邊個用得：', 'Who can use it: ')}${weaponUseText(it.weapon)}${WEAPONS[it.weapon].twoHanded ? tr('（雙手，會佔用副手）', ' (two-handed: takes the off hand)') : ''}<br><small>${tr('混合職業：入面任何一個職業用得就用得；攻擊方式跟主職業計', 'Mixed classes: usable if any of your classes can use it; the attack follows your main class')}</small></p>` : ''}
         ${note ? `<p class="cmp ${note.startsWith('✅') ? 'up' : 'down'}">${note}</p>` : ''}

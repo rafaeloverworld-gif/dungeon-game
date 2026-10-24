@@ -162,6 +162,16 @@ export const SPECIALS = {
   frostGuard: { family: 'armour', name: tr('霜護', 'Frostguard'), desc: tr('受傷時 15% 機會放冰霜新星（150%，減速）', 'When hit, 15% chance to cast Frost Nova (150%, slow)') },
   thorns: { family: 'armour', name: tr('荊棘', 'Thorns'), desc: tr('敵人撞到你時受到 150% 攻擊力反傷', 'Enemies touching you take 150% ATK as damage') },
   secondWind: { family: 'armour', name: tr('再起', 'Second Wind'), desc: tr('每張地圖一次：HP 跌到 30% 以下即刻回復 40%', 'Once per map: heal 40% when HP drops below 30%') },
+  // class gear: armour and accessories, only work for that class (main or awakened class); each copy stacks (up to 4)
+  ironHide: { family: 'classGear', name: tr('鋼骨', 'Ironhide'), desc: tr('戰士專屬：受到傷害 -8%（每件疊，最多 4 件）', 'Warrior only: take 8% less damage (stacks per item, up to 4)') },
+  berserkRage: { family: 'classGear', name: tr('狂怒', 'Rage'), desc: tr('戰士專屬：HP 低過 50% 時傷害 +15%（每件疊，最多 4 件）', 'Warrior only: +15% damage while below 50% HP (stacks per item, up to 4)') },
+  wideSwing: { family: 'classGear', name: tr('橫掃', 'Sweep'), desc: tr('戰士專屬：範圍 +12%、攻擊 +4%（每件疊，最多 4 件）', 'Warrior only: +12% area and +4% ATK (stacks per item, up to 4)') },
+  eagleEye: { family: 'classGear', name: tr('鷹眼', 'Eagle Eye'), desc: tr('弓手專屬：暴擊率 +4%、暴擊傷害 +15%（每件疊，最多 4 件）', 'Archer only: +4% crit chance and +15% crit damage (stacks per item, up to 4)') },
+  galeStep: { family: 'classGear', name: tr('疾風', 'Gale'), desc: tr('弓手專屬：攻速 +6%、移速 +4%（每件疊，最多 4 件）', 'Archer only: +6% attack speed and +4% move speed (stacks per item, up to 4)') },
+  firstShot: { family: 'classGear', name: tr('先發制人', 'First Strike'), desc: tr('弓手專屬：對 HP 高過 70% 嘅敵人傷害 +15%（每件疊，最多 4 件）', 'Archer only: +15% damage to enemies above 70% HP (stacks per item, up to 4)') },
+  elemAmp: { family: 'classGear', name: tr('元素增幅', 'Amplify'), desc: tr('法師專屬：元素反應傷害 +20%（每件疊，最多 4 件）', 'Mage only: +20% elemental reaction damage (stacks per item, up to 4)') },
+  elemLinger: { family: 'classGear', name: tr('元素延續', 'Linger'), desc: tr('法師專屬：元素喺敵人身上留耐 30%，反應更易觸發（每件疊，最多 4 件）', 'Mage only: elements stay on enemies 30% longer, so reactions happen more (stacks per item, up to 4)') },
+  manaWard: { family: 'classGear', name: tr('法力屏障', 'Mana Ward'), desc: tr('法師專屬：受到傷害 -5%，元素護盾上限 +5% HP（每件疊，最多 4 件）', 'Mage only: take 5% less damage and +5% HP Elemental Shield cap (stacks per item, up to 4)') },
   // rings (legendary rings: 50% chance)
   // necromancer weapons, armour (30% of legendary armour), rings and amulets: undead traits — they stack into combos
   utTank: { family: 'death', name: tr('骨甲', 'Ironbone'), desc: tr('亡靈特性：亡靈 HP ×2，敵人會優先打佢（可以同其他特性疊）', 'Undead trait: Undead HP ×2 and enemies go for them first (stacks with other traits)') },
@@ -239,6 +249,43 @@ export function undeadName(t: { tank?: boolean; ranged?: boolean; caster?: boole
 }
 export const SPECIAL_IDS = Object.keys(SPECIALS) as SpecialId[];
 
+// ---------- class gear and class-weighted loot ----------
+/** Armour / accessory lines that belong to one class (they only work for that class). */
+export const CLASS_GEAR: Record<'warrior' | 'archer' | 'mage', SpecialId[]> = {
+  warrior: ['ironHide', 'berserkRage', 'wideSwing'],
+  archer: ['eagleEye', 'galeStep', 'firstShot'],
+  mage: ['elemAmp', 'elemLinger', 'manaWard'],
+};
+const ALL_CLASS_GEAR: SpecialId[] = [...CLASS_GEAR.warrior, ...CLASS_GEAR.archer, ...CLASS_GEAR.mage];
+const GENERIC_ARMOUR: SpecialId[] = ['frostGuard', 'thorns', 'secondWind'];
+/** Which class a legendary line is for (undefined = any class). */
+export function specialClass(sp: SpecialId): ClassId | undefined {
+  for (const c of ['warrior', 'archer', 'mage'] as const) if (CLASS_GEAR[c].includes(sp)) return c;
+  const f = SPECIALS[sp].family;
+  if (f === 'death' || f === 'ring') return 'necro';
+  if (f === 'blade') return 'warrior';
+  if (f === 'bow' || sp === 'multiArrow') return 'archer';
+  if (f === 'magic' || sp === 'multiSpell') return 'mage';
+  return undefined;
+}
+/** Loot leans towards the classes you are playing: half the legendary lines (and weapon types) come from them. */
+export const LOOT_FAVOUR = 0.5;
+let lootPref: ClassId[] | null = null;
+/** Set the classes loot should favour (null = fully random). */
+export function setLootClasses(c: ClassId[] | null): void { lootPref = c && c.length ? [...new Set(c)] : null; }
+/** The lines one class can find on an armour piece / accessory. */
+function classLines(c: ClassId, slot: Slot): SpecialId[] {
+  const acc = isAccessorySlot(slot);
+  if (c === 'necro') return acc ? [...UNDEAD_TRAITS, ...(slot === 'ring' ? (['boneBurst'] as SpecialId[]) : [])] : [...ARMOUR_TRAITS];
+  return [...CLASS_GEAR[c], ...(acc ? [c === 'archer' ? 'multiArrow' : c === 'mage' ? 'multiSpell' : null].filter((x): x is SpecialId => !!x) : [])];
+}
+/** A weapon type one of your classes can hold. */
+function favouredWeapon(rand: () => number): WeaponType | null {
+  if (!lootPref) return null;
+  const ok = WEAPON_TYPES.filter((w) => { const u = weaponUsers(w); return lootPref!.some((c) => u.main.includes(c) || u.off.includes(c)); });
+  return ok.length ? ok[Math.floor(rand() * ok.length)] : null;
+}
+
 // ---------- items ----------
 export interface StatLine { stat: StatKey; flat?: number; pct?: number }
 
@@ -263,7 +310,7 @@ export interface Item {
 
 export const MAX_PLUS = 10;
 /** Legendary armour: chance its special is an undead trait instead of an armour special. */
-export const ARMOUR_TRAIT_CHANCE = 0.3;
+export const ARMOUR_TRAIT_CHANCE = 0.15;
 export const INVENTORY_MAX = 60;
 export const TRADE_COUNT = 5;
 
@@ -320,27 +367,33 @@ export function makeItem(id: string, kind: ItemKind, rarity: Rarity, tier: numbe
     if (a) affixes.push(a);
   }
   let special: SpecialId | undefined;
+  const accessory = !weapon && isAccessorySlot(slot);
+  const pick = <T,>(a: readonly T[]) => a[Math.floor(rand() * a.length)];
   if (rarity === 'legendary') {
-    const family = weapon ? WEAPONS[weapon].family : 'armour';
-    // a weapon can carry anything of its family, including the ones that change how the class plays;
-    // necromancer weapons can also roll 骨爆 (otherwise a ring special)
-    const pool = SPECIAL_IDS.filter((s) => SPECIALS[s].family === family || (family === 'death' && s === 'boneBurst'));
-    special = pool[Math.floor(rand() * pool.length)];
-    // armour can carry an undead trait too (30%), but not the ones that change how the class plays (骨爆, 骨弓, 骨法: weapons and accessories only)
-    if (!weapon && !isAccessorySlot(slot) && rand() < ARMOUR_TRAIT_CHANCE) special = ARMOUR_TRAITS[Math.floor(rand() * ARMOUR_TRAITS.length)];
+    if (weapon) {
+      // a weapon can carry anything of its family, including the ones that change how the class plays;
+      // necromancer weapons can also roll 骨爆 (otherwise a ring special)
+      const family = WEAPONS[weapon].family;
+      special = pick(SPECIAL_IDS.filter((s) => SPECIALS[s].family === family || (family === 'death' && s === 'boneBurst')));
+    } else if (lootPref && rand() < LOOT_FAVOUR) {
+      // half the time: a line for one of the classes you play (each class equally likely)
+      special = pick(classLines(pick(lootPref), slot));
+    } else if (accessory) {
+      // rings: 20% 骨爆, 15% an undead trait, 10% 多重箭袋, 10% 多重法典, 35% a class line; amulets: 25% trait, 10% / 10%, 45% class line
+      const r = rand();
+      special = slot === 'ring'
+        ? (r < 0.2 ? 'boneBurst' : r < 0.35 ? pick(UNDEAD_TRAITS) : r < 0.45 ? 'multiArrow' : r < 0.55 ? 'multiSpell' : r < 0.9 ? pick(ALL_CLASS_GEAR) : undefined)
+        : (r < 0.25 ? pick(UNDEAD_TRAITS) : r < 0.35 ? 'multiArrow' : r < 0.45 ? 'multiSpell' : r < 0.9 ? pick(ALL_CLASS_GEAR) : undefined);
+    } else {
+      // armour: 15% an undead trait (not the ones that change how the class plays), otherwise any-class lines or a class line
+      special = rand() < ARMOUR_TRAIT_CHANCE ? pick(ARMOUR_TRAITS) : pick([...GENERIC_ARMOUR, ...ALL_CLASS_GEAR]);
+    }
   }
   let proc: Item['proc'];
-  const accessory = !weapon && isAccessorySlot(slot);
   if (accessory || (weapon && rand() < WEAPON_PROC_CHANCE[rarity])) {
     const id = PROC_IDS[Math.floor(rand() * PROC_IDS.length)];
     const [lo, hi] = PROC_SKILLS[id].range;
     proc = { id, value: Math.round((lo + rand() * (hi - lo)) * PROC_MULT[rarity]) };
-  }
-  if (rarity === 'legendary' && accessory) {
-    const r = rand();
-    const trait = () => UNDEAD_TRAITS[Math.floor(rand() * UNDEAD_TRAITS.length)];
-    // rings: 40% 骨爆, 25% an undead trait, 10% 多重箭袋, 10% 多重法典; amulets: 45% an undead trait, 10% each
-    special = slot === 'ring' ? (r < 0.4 ? 'boneBurst' : r < 0.65 ? trait() : r < 0.75 ? 'multiArrow' : r < 0.85 ? 'multiSpell' : undefined) : r < 0.45 ? trait() : r < 0.55 ? 'multiArrow' : r < 0.65 ? 'multiSpell' : undefined;
   }
   return { id, slot, weapon, rarity, tier, main, affixes, special, proc, plus: 0, spent: 0, fails: 0, rerolls: 0, locked: false };
 }
@@ -434,7 +487,7 @@ export function openChest(kind: ChestKind, tier: number, nextId: () => string, r
   for (let i = 0; i < n; i++) {
     const slot = SLOTS[Math.floor(rand() * SLOTS.length)];
     let k: ItemKind;
-    if (isWeaponSlot(slot)) k = { weapon: WEAPON_TYPES[Math.floor(rand() * WEAPON_TYPES.length)] };
+    if (isWeaponSlot(slot)) k = { weapon: (rand() < LOOT_FAVOUR ? favouredWeapon(rand) : null) ?? WEAPON_TYPES[Math.floor(rand() * WEAPON_TYPES.length)] };
     else k = { armour: slot };
     out.push(makeItem(nextId(), k, rollRarity(kind, tier, rand), tier, rand));
   }
@@ -448,7 +501,7 @@ export const doubleChance = (level: number) => Math.min(0.5, Math.max(0, level -
 export function makeDoubleLegendary(id: string, tier: number, rand: () => number = Math.random): Item {
   for (let guard = 0; guard < 200; guard++) {
     const slot = SLOTS[Math.floor(rand() * SLOTS.length)];
-    const k: ItemKind = isWeaponSlot(slot) ? { weapon: WEAPON_TYPES[Math.floor(rand() * WEAPON_TYPES.length)] } : { armour: slot };
+    const k: ItemKind = isWeaponSlot(slot) ? { weapon: (rand() < LOOT_FAVOUR ? favouredWeapon(rand) : null) ?? WEAPON_TYPES[Math.floor(rand() * WEAPON_TYPES.length)] } : { armour: slot };
     const it = makeItem(id, k, 'legendary', tier, rand);
     if (!it.special) continue;
     for (let j = 0; j < 60; j++) {

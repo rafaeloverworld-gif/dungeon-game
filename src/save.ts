@@ -5,6 +5,7 @@ import {
   addItemBonus, canReroll, doubleChance, makeDoubleLegendary, isAccessorySlot, INVENTORY_MAX, isWeaponSlot, MAX_PLUS, openChest, RARITIES, rerollAffix, rerollCost, salvageValue,
   EQUIP_SLOTS, itemSlotOf, type EquipSlot, PROC_IDS, SLOTS, SPECIAL_IDS, TRADE_COUNT, tradeResult, upgradeChance, upgradeCost, WEAPON_TYPES, weaponOptions, WEAPONS,
   type ChestKind, type Item, type ItemKind, type Rarity, type Slot, type SpecialId, type StatLine, type WeaponSlot, type WeaponType,
+  setLootClasses,
 } from './sim/gear';
 import { addBonus, mergeBonus, STAT_KEYS, type StatBonus, type StatKey } from './sim/stats';
 import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, mixFor } from './sim/awakening';
@@ -414,9 +415,12 @@ export type TradeCat = 'weapon' | 'armour' | 'accessory';
 export const tradeCat = (it: Item): TradeCat => (it.weapon ? 'weapon' : isAccessorySlot(it.slot) ? 'accessory' : 'armour');
 const kindCat = (k: ItemKind): TradeCat => ('weapon' in k ? 'weapon' : isAccessorySlot(k.armour) ? 'accessory' : 'armour');
 
+/** Loot leans towards the classes this character plays (main + awakened classes). */
+function lootFor(s: SaveData): void { setLootClasses([s.classId, subOf(s), sub2Of(s)].filter((c): c is ClassId => !!c)); }
 export function trade(s: SaveData, ids: string[], target: ItemKind): Item | null {
   const inputs = ids.map((id) => itemById(s, id)).filter((i): i is Item => !!i && !isProtected(s, i));
   if (inputs.length !== TRADE_COUNT || inputs.some((i) => tradeCat(i) !== kindCat(target))) return null;
+  lootFor(s);
   const out = tradeResult(inputs, target, `i${s.nextItemId++}`);
   const set = new Set(inputs.map((i) => i.id));
   s.items = s.items.filter((i) => !set.has(i.id));
@@ -430,6 +434,7 @@ const AUTO_SALVAGE_MAX: Record<SaveData['autoSalvage'], number> = { off: -1, com
 export function openChests(s: SaveData, chests: Record<ChestKind, number>, tier: number): { items: Item[]; autoSalvaged: number; kept: Item[] } {
   const items: Item[] = [];
   const nextId = () => `i${s.nextItemId++}`;
+  lootFor(s);
   for (const kind of ['gold', 'silver'] as ChestKind[]) {
     for (let i = 0; i < chests[kind]; i++) items.push(...openChest(kind, tier, nextId));
   }
