@@ -8,12 +8,13 @@ import {
   upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, weaponUsers, specialClass, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
 import { buildStats, mixPenalty } from '../sim/sim';
+import { TREE_CLASSES, TREE_EQUIP, TREE_TIERS, tierOpen, treeSpent, type TreeSkill } from '../sim/tree';
 import { value } from '../sim/stats';
 import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO, PURE_SIGNATURE } from '../sim/awakening';
 import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS_MAX, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, spellOver, arrowOver, isEquippedAny, inLoadout,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, ultSlots, ultSlotCost, buyUltSlot, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -450,8 +451,60 @@ function loadoutBar(ctx: HomeCtx, body: HTMLElement): void {
   body.prepend(el);
 }
 
+// ---------- 技能樹 (Diablo-style) ----------
+let treeSel: string | null = null;
+function renderTree(ctx: HomeCtx, body: HTMLElement): void {
+  const save = ctx.getSave();
+  const c = save.classId;
+  const t = treeOf(save, c);
+  const skills = TREES[c] ?? [];
+  const left = treeLeft(save, c), total = treePoints(save, c), spent = treeSpent(t);
+  const others = activeBoards(save).filter((k) => k !== c);
+  const card = (sk: TreeSkill) => {
+    const r = t.ranks[sk.id] ?? 0, open = tierOpen(t, sk.tier), sel = treeSel === sk.id;
+    const enh = t.enh.includes(sk.id), mod = t.mods[sk.id];
+    const pips = Array.from({ length: sk.max }, (_, i) => `<i class="${i < r ? 'on' : ''}"></i>`).join('');
+    const tags = [sk.kind === 'active' ? `⏱ ${sk.cd}s` : tr('被動', 'Passive'), enh ? `✨ ${tr('強化', 'Enhanced')}` : '', mod !== undefined && sk.mods ? `🔀 ${sk.mods[mod].name}` : '', t.equip.includes(sk.id) ? `✅ ${tr('已裝備', 'Equipped')}` : ''].filter(Boolean).join(' · ');
+    let detail = '';
+    if (sel) {
+      const btn = (act: TreeAct, label: string, primary = false) => `<button class="${primary ? 'primary' : ''}" data-tact="${act}" data-tid="${sk.id}" ${treeCan(save, c, sk.id, act) ? '' : 'disabled'}>${label}</button>`;
+      detail = `<div class="tdetail">
+        <small>${r ? `${tr('而家：', 'Now: ')}${sk.desc(r)}` : ''}${r < sk.max ? `${r ? '<br>' : ''}${tr('下一級：', 'Next: ')}${sk.desc(r + 1)}` : ''}</small>
+        ${sk.enh ? `<small class="${enh ? 'on' : ''}">✨ <b>${sk.enh.name}</b>${tr('：', ': ')}${sk.enh.desc}${enh ? '' : tr('（滿級先開到）', ' (needs max rank)')}</small>` : ''}
+        ${sk.mods ? sk.mods.map((md, i) => `<small class="${mod === i ? 'on' : ''}">🔀 <b>${md.name}</b>${tr('：', ': ')}${md.desc}</small>`).join('') : ''}
+        <div class="tbtns">
+          ${r < sk.max ? btn('rank', `＋1 ${tr('級', 'rank')}（${r}/${sk.max}）`, true) : ''}
+          ${sk.enh && r >= sk.max && !enh ? btn('enh', `✨ ${tr('強化', 'Enhance')}`, true) : ''}
+          ${sk.mods && enh && mod === undefined ? btn('mod0', `🔀 ${sk.mods[0].name}`) + btn('mod1', `🔀 ${sk.mods[1].name}`) : ''}
+          ${sk.kind === 'active' && r > 0 ? btn('equip', t.equip.includes(sk.id) ? tr('卸下', 'Unequip') : `${tr('裝備', 'Equip')}（${t.equip.length}/${TREE_EQUIP}）`) : ''}
+        </div>
+        ${!open ? `<small class="note">🔒 ${EN ? `Spend ${TREE_TIERS[sk.tier - 1]} points in this tree to open tier ${sk.tier}` : `呢棵樹用夠 ${TREE_TIERS[sk.tier - 1]} 點先開第 ${sk.tier} 層`}</small>` : ''}
+      </div>`;
+    }
+    return `<button class="tskill ${sk.kind} ${r ? 'has' : ''} ${open ? '' : 'locked'} ${sel ? 'sel' : ''}" data-tsel="${sk.id}"><span class="ic">${sk.icon}</span><span class="nm"><b>${sk.name}</b><small>${tags}</small><span class="pips">${pips}</span></span></button>${detail}`;
+  };
+  body.appendChild(h(`
+    <div class="col">
+      <div class="card">
+        <div class="statline"><h3 style="margin:0">🌳 ${CLASSES[c].icon} ${CLASSES[c].name}${tr('技能樹', ' skill tree')}</h3><small>${tr('技能點', 'Points')} <b style="color:var(--gold)">${left}</b> / ${total}</small></div>
+        <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點。主動技能升滿 5 級開「✨ 強化」，強化之後喺兩個「🔀 變化」揀一個。最多同時裝備 ${TREE_EQUIP} 個主動技能（會自動放）。用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。`, `1 point per class level. Max an active skill (rank 5) to unlock ✨ Enhance, then pick one of two 🔀 modifiers. Up to ${TREE_EQUIP} actives equipped (cast automatically). Tiers open at ${TREE_TIERS.join(' / ')} points spent.`)}</small>
+        <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button>${others.map((k) => `<button data-board="${k}">${tr('其他技能盤：', 'Other board: ')}${k}</button>`).join('')}</div>
+      </div>
+      ${[1, 2, 3, 4, 5].map((tier) => `<div class="card ttier ${tierOpen(t, tier) ? '' : 'locked'}"><div class="statline"><b>${tr(`第 ${tier} 層`, `Tier ${tier}`)}</b><small>${tierOpen(t, tier) ? tr('已開', 'Open') : `🔒 ${EN ? `${TREE_TIERS[tier - 1]} points` : `要 ${TREE_TIERS[tier - 1]} 點`}（${spent}）`}</small></div>${skills.filter((x) => x.tier === tier).map(card).join('')}</div>`).join('')}
+    </div>`));
+  body.addEventListener('click', (ev) => {
+    const b = (ev.target as HTMLElement).closest('button');
+    if (!b) return;
+    if (b.dataset.board) { boardTab = b.dataset.board as BoardKey; showHome(ctx); return; }
+    if (b.dataset.tsel) { treeSel = treeSel === b.dataset.tsel ? null : b.dataset.tsel; showHome(ctx); return; }
+    if (b.dataset.tact === 'reset') { if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳確認重置', 'Tap again to reset'); return; } treeReset(save, c); writeSave(save); showHome(ctx); return; }
+    if (b.dataset.tact && b.dataset.tid && treeDo(save, c, b.dataset.tid, b.dataset.tact as TreeAct)) { writeSave(save); showHome(ctx); }
+  });
+}
+
 function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
   const save = ctx.getSave();
+  if (TREE_CLASSES.includes(save.classId) && (!boardTab || boardTab === save.classId || !activeBoards(save).includes(boardTab))) { renderTree(ctx, body); return; }
   queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   const boards = activeBoards(save);
   const board: BoardKey = boardTab && boards.includes(boardTab) ? boardTab : save.classId;

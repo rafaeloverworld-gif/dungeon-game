@@ -14,6 +14,7 @@ import { ALL_NODES, MIX_BOARD_NODES, baseId, copyPrefix, BOARD_NODES, boardNodes
 /** A skill board: a class's board, or "2:<class>" for the second copy a same-class awakening gets. */
 export type BoardKey = string;
 import type { RunSetup } from './sim/sim';
+import { ACTIVE_MAX, TREE_CLASSES, TREE_EQUIP, TREES, emptyTree, tierOpen, treeRun, treeSkill, treeSpent, type TreeState } from './sim/tree';
 import { ULT_IDS, ULT_MAX_LEVEL, ULT_SLOTS, ULT_SLOTS_MAX, ULT_SLOT_COSTS, ULT_UNLOCK_COST, ultUpgradeCost, type UltId } from './sim/ultimates';
 import { dayKey, makeNamed, NAMED, namedById, namedChance, todaysBoss, WB_MIN_LEVEL, WB_TICKETS, wbRewards, type WbReward } from './sim/worldboss';
 
@@ -50,6 +51,7 @@ export interface SaveData {
   spellMix: Partial<Record<ClassId, SpellType[]>>; // 多重法典: extra spells cast in turn
   necroMode: NecroMode; // necromancer: shadow bolts or summoner
   bloodMode: boolean; // 戰士 血戰: ATK comes from max HP
+  trees: Partial<Record<ClassId, TreeState>>; // Diablo-style skill trees (per class)
   board: string[]; // unlocked skill-board panels (all three boards, shared by the character)
   souls: number; // 👻 unlock stat panels
   runes: number; // 🔷 unlock skill panels
@@ -88,7 +90,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], stash: [], stashBuys: 0, stashTabs: [], stashTabOf: {}, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', bloodMode: false, board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', bloodMode: false, trees: {}, board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], ultSlotBuys: 0, wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -182,6 +184,7 @@ function sanitize(raw: unknown): SaveData {
     autoRepeat: r.autoRepeat === true,
     necroMode: r.necroMode === 'summon' ? 'summon' : 'bolt',
     bloodMode: r.bloodMode === true,
+    trees: sanitizeTrees(r.trees),
     spellType: Object.fromEntries(Object.entries(r.spellType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && SPELL_TYPES.includes(a as SpellType))) as SaveData['spellType'],
     arrowType: Object.fromEntries(Object.entries(r.arrowType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && ARROW_TYPES.includes(a as ArrowType))) as SaveData['arrowType'],
     arrowMix: Object.fromEntries(Object.entries(r.arrowMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => ARROW_TYPES.includes(x as ArrowType)))]])) as SaveData['arrowMix'],
@@ -855,11 +858,14 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   const worn = equippedItems(s);
   const specials = worn.flatMap((i) => [i.special, i.special2]).filter((x): x is SpecialId => !!x);
   const procs = worn.map((i) => i.proc).filter((p): p is NonNullable<Item['proc']> => !!p);
-  const skills = boardEffects(activeBoard(s), pureBoardScale(s));
+  const treeOn = TREE_CLASSES.includes(s.classId);
+  // the main class's old board is replaced by its skill tree (other boards of a mix still count)
+  const skills = boardEffects(treeOn ? activeBoard(s).filter((id) => boardKeyOf(id) !== s.classId) : activeBoard(s), pureBoardScale(s));
+  const tree = treeOn ? treeRun(s.classId, treeOf(s, s.classId)) : undefined;
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
-  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), arrowOver: arrowOver(s), mastery: isPure(s) ? classLevel(s, s.classId) : 0, spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), spellOver: spellOver(s), necroMode: s.necroMode, bloodMode: s.classId === 'warrior' && s.bloodMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
+  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), arrowOver: arrowOver(s), mastery: isPure(s) ? classLevel(s, s.classId) : 0, spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), spellOver: spellOver(s), necroMode: s.necroMode, bloodMode: s.classId === 'warrior' && s.bloodMode, tree, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
 }
 
 /** Stats preview including skills and awakening (for the home screen). */
@@ -955,3 +961,49 @@ export function ultToggle(s: SaveData, id: UltId): boolean {
   s.ultEquip.push(id);
   return true;
 }
+
+// ---------- 技能樹 (Diablo-style, per class) ----------
+function sanitizeTrees(raw: unknown): SaveData['trees'] {
+  const out: SaveData['trees'] = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [c, v] of Object.entries(raw as Record<string, Partial<TreeState>>)) {
+    if (!CLASS_IDS.includes(c as ClassId) || !v || typeof v !== 'object') continue;
+    const sk = (id: string) => !!treeSkill(c as ClassId, id);
+    const ranks = Object.fromEntries(Object.entries(v.ranks ?? {}).filter(([id, r]) => sk(id) && typeof r === 'number' && r > 0).map(([id, r]) => [id, Math.min(treeSkill(c as ClassId, id)!.max, Math.floor(r as number))]));
+    out[c as ClassId] = {
+      ranks,
+      enh: Array.isArray(v.enh) ? v.enh.filter((id) => sk(id) && ranks[id] >= ACTIVE_MAX) : [],
+      mods: Object.fromEntries(Object.entries(v.mods ?? {}).filter(([id, m]) => sk(id) && (m === 0 || m === 1) && (v.enh ?? []).includes(id))) as TreeState['mods'],
+      equip: Array.isArray(v.equip) ? v.equip.filter((id) => sk(id) && ranks[id] > 0).slice(0, TREE_EQUIP) : [],
+    };
+  }
+  return out;
+}
+export const treeOf = (s: SaveData, c: ClassId): TreeState => (s.trees[c] ??= emptyTree());
+/** Skill points: one per class level. */
+export const treePoints = (s: SaveData, c: ClassId) => classLevel(s, c);
+export const treeLeft = (s: SaveData, c: ClassId) => treePoints(s, c) - treeSpent(treeOf(s, c));
+export type TreeAct = 'rank' | 'enh' | 'mod0' | 'mod1' | 'equip';
+/** Can this be done to this skill right now? */
+export function treeCan(s: SaveData, c: ClassId, id: string, act: TreeAct): boolean {
+  const sk = treeSkill(c, id), t = treeOf(s, c);
+  if (!sk) return false;
+  const r = t.ranks[id] ?? 0;
+  if (act === 'equip') return sk.kind === 'active' && r > 0 && (t.equip.includes(id) || t.equip.length < TREE_EQUIP);
+  if (treeLeft(s, c) <= 0) return false;
+  if (act === 'rank') return r < sk.max && tierOpen(t, sk.tier);
+  if (act === 'enh') return sk.kind === 'active' && r >= sk.max && !t.enh.includes(id);
+  return sk.kind === 'active' && t.enh.includes(id) && t.mods[id] === undefined;
+}
+export function treeDo(s: SaveData, c: ClassId, id: string, act: TreeAct): boolean {
+  if (!treeCan(s, c, id, act)) return false;
+  const t = treeOf(s, c);
+  if (act === 'rank') { t.ranks[id] = (t.ranks[id] ?? 0) + 1; if (treeSkill(c, id)!.kind === 'active' && t.ranks[id] === 1 && t.equip.length < TREE_EQUIP) t.equip.push(id); }
+  else if (act === 'enh') t.enh.push(id);
+  else if (act === 'mod0' || act === 'mod1') t.mods[id] = act === 'mod0' ? 0 : 1;
+  else t.equip = t.equip.includes(id) ? t.equip.filter((x) => x !== id) : [...t.equip, id];
+  return true;
+}
+/** Take every point back (free). */
+export function treeReset(s: SaveData, c: ClassId): void { s.trees[c] = emptyTree(); }
+export { TREES };

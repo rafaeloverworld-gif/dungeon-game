@@ -1,6 +1,7 @@
 // Skill-tree auto skills and awakened signature skills.
 import { ARENA_HALF } from './config';
 import { AUTO_SKILLS } from './skills';
+import { rankMult, treeSkill } from './tree';
 import { value } from './stats';
 import type { Enemy, Sim } from './sim';
 
@@ -18,6 +19,7 @@ const atk = (sim: Sim) => value(sim.stats.atk);
 
 export function updateAbilities(sim: Sim, dt: number): void {
   const p = sim.player;
+  updateTree(sim, dt);
 
   // ---------- auto skills from the trees ----------
   for (const sk of sim.autoSkills) {
@@ -156,7 +158,7 @@ export function updateAbilities(sim: Sim, dt: number): void {
     if (sim.spinTick <= 0) {
       sim.spinTick = 0.25;
       const reach = (value(sim.stats.range) + 0.6) * area(sim);
-      sim.arcHit(sim.clock * 12, reach, Math.PI * 2, 0.7 * (sim.signature?.dmgMult ?? 1), 'physical');
+      sim.arcHit(sim.clock * 12, reach, Math.PI * 2, 0.7 * (sim.signature?.dmgMult ?? 1) * sim.spinMult, 'physical');
     }
   }
 
@@ -394,6 +396,104 @@ function castSignature(sim: Sim): boolean {
       if (!near.length) return false;
       for (const e of near) sim.explode(e.x, e.z, 3 * area(sim), baseDmg * 3 * m, crit, 'arcane');
       return true;
+    }
+  }
+}
+
+// ---------- 技能樹 actives (Diablo-style): rank → 強化 → one of two 變化 ----------
+function heal(sim: Sim, frac: number): void { sim.player.hp = Math.min(sim.maxHp, sim.player.hp + sim.maxHp * frac); }
+function updateTree(sim: Sim, dt: number): void {
+  const tb = sim.tb;
+  tb.dmgT = Math.max(0, tb.dmgT - dt); tb.avatarT = Math.max(0, tb.avatarT - dt); tb.undyingT = Math.max(0, tb.undyingT - dt);
+  if (sim.treeLater.length) {
+    for (const l of sim.treeLater) l.t -= dt;
+    const due = sim.treeLater.filter((l) => l.t <= 0);
+    sim.treeLater = sim.treeLater.filter((l) => l.t > 0);
+    for (const l of due) l.fn();
+  }
+  const p = sim.player;
+  for (const sk of sim.treeSkills) {
+    sk.timer -= dt;
+    if (sk.timer > 0) continue;
+    const def = treeSkill(sim.cls.id, sk.id);
+    if (!def) continue;
+    const target = sim.nearestEnemy(p.x, p.z, 9);
+    // self buffs wait for a fight; the rest wait for a target in reach
+    if (!target) { sk.timer = 0.3; continue; }
+    if (sk.id === 'w_wall' && p.hp > sim.maxHp * 0.9 && sim.elemShield > sim.maxHp * 0.05) { sk.timer = 0.5; continue; }
+    sk.timer = (def.cd ?? 5) * sim.sp.cdMult;
+    const m = rankMult(sk.rank) * (sk.enh ? 1 : 1);
+    const ar = area(sim);
+    const aim = Math.atan2(target.x - p.x, target.z - p.z);
+    switch (sk.id) {
+      case 'w_cleave': {
+        const reach = (value(sim.stats.range) + 1.6) * ar, mult = 2.2 * m * (sk.enh ? 1.4 : 1);
+        const hits = sim.arcHit(aim, reach, Math.PI * 0.8, mult, 'physical');
+        if (sk.enh) for (const e of sim.enemies) if (Math.hypot(e.x - p.x, e.z - p.z) < reach && e.kind !== 'boss' && e.kind !== 'miniboss') { const d = Math.hypot(e.x - p.x, e.z - p.z) || 1; e.x += ((e.x - p.x) / d) * 1.2; e.z += ((e.z - p.z) / d) * 1.2; }
+        if (sk.mod === 0) heal(sim, Math.min(0.08, 0.01 * hits));
+        if (sk.mod === 1) sim.treeLater.push({ t: 0.3, fn: () => sim.withSrc('skill', () => sim.arcHit(aim, reach, Math.PI * 0.8, mult * 0.6, 'physical')) });
+        break;
+      }
+      case 'w_warcry': {
+        const r = 5 * ar * (sk.enh ? 1.3 : 1);
+        sim.explode(p.x, p.z, r, atk(sim) * m, false, 'holy', { slow: 0.5, slowTime: 3 });
+        tb.dmg = 0.15 + 0.05 * sk.rank; tb.dmgT = sk.enh ? 8 : 5;
+        if (sk.mod === 0) heal(sim, 0.1);
+        if (sk.mod === 1) for (const e of sim.enemies) if (Math.hypot(e.x - p.x, e.z - p.z) < r + e.radius) e.markTimer = Math.max(e.markTimer, 5);
+        break;
+      }
+      case 'w_whirl': {
+        const r = 3 * ar * (sk.enh ? 1.25 : 1), mult = 1.8 * m * (sk.enh ? 1.3 : 1);
+        if (sk.mod === 0) { for (let i = 0; i < 3; i++) sim.treeLater.push({ t: i * 0.33 + 0.01, fn: () => sim.withSrc('skill', () => sim.arcHit(0, r, Math.PI * 2, mult * 0.7, 'physical')) }); }
+        else { const hits = sim.arcHit(0, r, Math.PI * 2, mult, 'physical'); if (sk.mod === 1) heal(sim, Math.min(0.1, 0.006 * hits)); }
+        break;
+      }
+      case 'w_charge': {
+        const len = sk.enh ? 9 : 7, mult = 2.5 * m * (sk.enh ? 1.4 : 1);
+        const lim = ARENA_HALF - 1, x1 = p.x, z1 = p.z;
+        const x2 = Math.max(-lim, Math.min(lim, x1 + Math.sin(aim) * len)), z2 = Math.max(-lim, Math.min(lim, z1 + Math.cos(aim) * len));
+        const dx = x2 - x1, dz = z2 - z1, L2 = dx * dx + dz * dz || 1;
+        for (const e of sim.enemies) {
+          const t = Math.max(0, Math.min(1, ((e.x - x1) * dx + (e.z - z1) * dz) / L2));
+          if (Math.hypot(e.x - (x1 + dx * t), e.z - (z1 + dz * t)) < 1.3 + e.radius) { const { dmg, crit } = sim.rollDamage(); sim.damageEnemy(e, dmg * mult, crit); }
+        }
+        sim.enemies = sim.enemies.filter((e) => e.hp > 0);
+        p.x = x2; p.z = z2;
+        sim.events.push({ type: 'swing', x: x1, z: z1, angle: aim, reach: len, arc: 0.3, fx: 'physical' });
+        if (sk.mod === 0) sim.explode(x2, z2, 3 * ar, atk(sim) * 2 * m, false, 'physical', { knock: 1.5 });
+        if (sk.mod === 1) p.invuln = Math.max(p.invuln, 1.4);
+        break;
+      }
+      case 'w_slam': {
+        const r = 4 * ar * (sk.enh ? 1.35 : 1), dmg = atk(sim) * 2.4 * m * (sk.enh ? 1.5 : 1);
+        const { crit } = sim.rollDamage(); const cm = crit ? value(sim.stats.critDmg) : 1;
+        sim.explode(p.x, p.z, r, dmg * cm, crit, 'physical', { knock: 2.5 });
+        if (sk.mod === 0) { const x = p.x, z = p.z; sim.treeLater.push({ t: 0.6, fn: () => sim.withSrc('skill', () => sim.explode(x, z, r, dmg * 0.6, false, 'physical', { knock: 1.5 })) }); }
+        if (sk.mod === 1) for (const e of sim.enemies) if (e.kind !== 'boss' && e.kind !== 'miniboss' && e.kind !== 'worldboss' && Math.hypot(e.x - p.x, e.z - p.z) < r + e.radius) { e.slowTimer = Math.max(e.slowTimer, 1.5); e.slowMult = 0.05; }
+        break;
+      }
+      case 'w_wall': {
+        const frac = (0.2 + 0.03 * sk.rank) + (sk.enh ? 0.1 : 0);
+        sim.elemShield = Math.max(sim.elemShield, sim.maxHp * frac);
+        sim.events.push({ type: 'explode', x: p.x, z: p.z, r: 1.6, fx: 'holy' });
+        if (sk.mod === 0) sim.explode(p.x, p.z, 3.5 * ar, atk(sim) * 1.5 * m, false, 'physical', { knock: 1.5 });
+        if (sk.mod === 1) heal(sim, 0.12);
+        break;
+      }
+      case 'w_storm': {
+        sim.spinTimer = 2.5 + 0.25 * sk.rank + (sk.enh ? 1.5 : 0); sim.spinTick = 0;
+        sim.spinMult = m * (sk.mod === 0 ? 1.6 : 1);
+        tb.spinGuard = sk.mod === 1;
+        break;
+      }
+      case 'w_avatar': {
+        tb.avatarT = 6 + sk.rank + (sk.enh ? 3 : 0);
+        tb.avatarMult = sk.mod === 0 ? 1.8 : 1.5;
+        if (sk.enh) heal(sim, 0.2);
+        if (sk.mod === 1) tb.undyingT = tb.avatarT;
+        sim.events.push({ type: 'skill', name: def.name, icon: def.icon, signature: false });
+        break;
+      }
     }
   }
 }

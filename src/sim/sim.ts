@@ -9,7 +9,8 @@ import { tr } from '../i18n';
 import { autopilotDirection } from './autopilot';
 import { mixFor, PURE_SIGNATURE, type AwakenedDef, type SignatureDef } from './awakening';
 import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
-import { mergeBonus } from './stats';
+import { addBonus, mergeBonus } from './stats';
+import { treeSkill, type TreeActive, type TreeRun } from './tree';
 import { updateAbilities } from './abilities';
 import { oneShotAbsorb, ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, PROC_ULTS, type UltId, type UltRun } from './ultimates';
 import { activeCombos, COMBO_EXTRA, isMax, MAX_POWER, MAX_STACK, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
@@ -178,6 +179,7 @@ export interface RunSetup {
   spellMax?: boolean; // 極·大魔導: reactions chain to nearby enemies
   necroMode?: NecroMode; // necromancer with a staff / no weapon: shadow bolts or summoner
   bloodMode?: boolean; // 戰士 血戰: your ATK is your max HP × BLOOD_ATK
+  tree?: TreeRun; // Diablo-style skill tree: equipped actives and passive ranks
   skills?: SkillEffects | null; // from the skill trees
   specials?: SpecialId[]; // legendary special affixes on worn gear
   procs?: { id: ProcId; value: number }[]; // weapon / accessory skills on worn gear
@@ -335,6 +337,11 @@ export class Sim {
   private blastDepth = 0;
   sigRequested = false;
   spinTimer = 0; // 劍刃風暴 time left
+  spinMult = 1; // 劍刃風暴 damage (技能樹 鋒刃)
+  /** 技能樹: equipped actives (cast automatically) and timed effects. */
+  treeSkills: (TreeActive & { timer: number })[] = [];
+  tb = { dmg: 0, dmgT: 0, avatarT: 0, avatarMult: 1.5, undyingT: 0, spinGuard: false };
+  treeLater: { t: number; fn: () => void }[] = [];
   spinTick = 0;
   zones: Zone[] = [];
   minions: Minion[] = [];
@@ -463,6 +470,11 @@ export class Sim {
     // combos: the strongest one's undead damage counts, each other combo adds +20% (they don't multiply); ×4 = 極 form
     const powers = activeCombos(setup.specials ?? []).map((c) => { this.combo.add(c.id); return (c.power ?? 1) * (isMax(c, setup.specials ?? []) ? MAX_POWER : 1); }).sort((a, b) => b - a);
     if (powers.length) this.comboPower = powers[0] * (1 + COMBO_EXTRA * (powers.length - 1));
+    for (const [id, r] of Object.entries(setup.tree?.passives ?? {})) { // 技能樹 stat passives
+      const sk = treeSkill(setup.classId, id);
+      if (sk?.stat) addBonus(bonus, sk.stat.stat, { pct: sk.stat.pct ? sk.stat.pct * r : undefined, flat: sk.stat.flat ? sk.stat.flat * r : undefined });
+      if (sk?.pass === 'overlord') { addBonus(bonus, 'atk', { pct: 0.1 * r }); addBonus(bonus, 'critDmg', { flat: 0.2 * r }); }
+    }
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
     if (this.mastery > 0) { const k = 1 + MASTERY_STAT * Math.min(50, this.mastery); this.stats.maxHp.base *= k; this.stats.atk.base *= k; } // 專精: HP and ATK +1.5% per class level (up to Lv 50)
@@ -488,6 +500,19 @@ export class Sim {
     this.dodge = 1 - (1 - (fx?.dodge ?? 0)) * (1 - (this.cls.dodge ?? 0)); // gear / skills and the class's own 迴避 (弓手)
     for (const u of fx?.uniques ?? []) this.uq[u] = true;
     this.healOnKill += (this.cls.healOnKill ?? 0) + (fx?.healOnKill ?? 0);
+    { // 技能樹 passives (stat ones were added to the bonus before the stats were built)
+      const tp = setup.tree?.passives ?? {};
+      for (const [id, r] of Object.entries(tp)) {
+        const sk = treeSkill(setup.classId, id);
+        if (!sk?.pass) continue;
+        if (sk.pass === 'healOnKill') this.healOnKill += 0.004 * r;
+        else if (sk.pass === 'cdr') this.sp.cdMult *= 1 - 0.06 * r;
+        else if (sk.pass === 'thorns') this.sp.thorns = true;
+        else if (sk.pass === 'rage') this.cg.rage += 0.12 * r;
+        else if (sk.pass === 'lastStand') this.lastStand = { level: (r >= 2 ? 2 : 1), used: false };
+      }
+      this.treeSkills = (setup.tree?.actives ?? []).map((a) => ({ ...a, timer: (treeSkill(setup.classId, a.id)?.cd ?? 5) * 0.4 * this.sp.cdMult }));
+    }
     for (const sk of fx?.autoSkills ?? []) {
       if (sk.id === 'lastStand') this.lastStand = { level: sk.level, used: false };
       else if (sk.id === 'resonance') this.resonance += sk.level === 2 ? 0.35 : 0.2;
@@ -705,7 +730,7 @@ export class Sim {
       const target = this.nearestEnemy(p.x, p.z, reach);
       if (target) {
         const frenzy = this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1; // 狂風
-        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy * (this.warGod ? 1.5 : 1));
+        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy * (this.warGod || this.tb.avatarT > 0 ? 1.5 : 1)); // 戰神 / 技能樹 戰神降臨
         const base = Math.atan2(target.x - p.x, target.z - p.z);
         p.facing = base;
         const once = (mult: number) => (melee ? this.swing(base, reach, mult) : this.attack.kind === 'summon' ? this.summonAttack(base, mult) : this.shoot(base, mult));
@@ -881,7 +906,7 @@ export class Sim {
   }
 
   /** 戰士 戰神 (專精 Lv 25): below half HP, attacks and attack speed ×1.5. */
-  get warGod(): boolean { return this.cls.id === 'warrior' && this.mastery >= 25 && this.player.hp < this.maxHp * 0.5; } // 專精 Lv 25
+  get warGod(): boolean { return (this.cls.id === 'warrior' && this.mastery >= 25 && this.player.hp < this.maxHp * 0.5) ; } // 專精 Lv 25
 
   /** 專精 Lv 50 abilities on a timer: 弓手 千箭 (every 8 s, 24 arrows all around), 法師 天災 (every 10 s, 6 meteors). */
   private masteryTick(dt: number): void {
@@ -904,9 +929,9 @@ export class Sim {
   }
 
   /** Hit every enemy inside a cone (arc = 2π for a full circle). */
-  arcHit(angle: number, reach: number, arc: number, mult: number, fx?: FxKind): void {
+  arcHit(angle: number, reach: number, arc: number, mult: number, fx?: FxKind): number {
     const p = this.player;
-    let hitAny = false;
+    let hitAny = false, hits = 0;
     for (const e of this.enemies) {
       if (e.hp <= 0) continue;
       const dx = e.x - p.x, dz = e.z - p.z;
@@ -917,12 +942,13 @@ export class Sim {
       if (d > e.radius + 0.6 && Math.abs(diff) > arc / 2) continue;
       const { dmg, crit } = this.rollDamage();
       this.damageEnemy(e, dmg * mult, crit);
-      hitAny = true;
+      hitAny = true; hits++;
     }
     // 戰士 不屈 (專精 Lv 10): a swing that connects heals 1% max HP (at most 3 times a second)
     if (hitAny && this.cls.id === 'warrior' && this.mastery >= 10 && this.time - this.swingHealT >= 0.33) { this.swingHealT = this.time; p.hp = Math.min(this.maxHp, p.hp + this.maxHp * 0.01); }
     this.enemies = this.enemies.filter((e) => e.hp > 0);
     this.events.push({ type: 'swing', x: p.x, z: p.z, angle, reach, arc, fx });
+    return hits;
   }
 
   /** Archer arrows and mage fireballs. */
@@ -1280,6 +1306,7 @@ export class Sim {
     if (this.cls.id === 'warrior' && this.mastery >= 10 && this.boss) dmg *= 0.65; // 戰士 不屈: 35% less while a boss is in the fight (melee has to stand next to it)
     if (this.cls.id === 'warrior' && this.mastery >= 10 && src !== 'boss' && src !== 'miniboss' && src !== 'slam' && src !== 'charge') dmg *= 0.8; // 戰士 不屈: small enemies hit 20% softer
     dmg *= this.cg.taken; // 鋼骨 / 法力屏障
+    if (this.tb.spinGuard && this.spinTimer > 0) dmg *= 0.4; // 技能樹 不動如山
     if (this.cls.hitCap) dmg = Math.min(dmg, this.maxHp * this.cls.hitCap); // 弓手 / 法師: no single hit takes more than this
     dmg = ultOnHurt(this, dmg); // 聖光壁壘 / 復仇之魂
     if (dmg <= 0) { p.invuln = PLAYER.hurtInvuln * 0.5; return false; }
@@ -1291,6 +1318,7 @@ export class Sim {
     this.recentHits.push({ t: this.time, src, dmg });
     while (this.recentHits.length && this.recentHits[0].t < this.time - 5) this.recentHits.shift();
     p.hp -= dmg;
+    if (this.tb.undyingT > 0 && p.hp < 1) p.hp = 1; // 技能樹 不死戰神
     p.invuln = PLAYER.hurtInvuln;
     if (p.hp <= 0 && this.cls.id === 'warrior' && this.mastery >= 10 && !this.unyieldUsed) { // 戰士 不屈: once per map, a killing blow leaves 1 HP
       this.unyieldUsed = true; p.hp = 1; p.invuln = 1.5;
@@ -1741,6 +1769,7 @@ export class Sim {
     if (this.cg.rage && this.player.hp < this.maxHp * 0.5) dmg *= 1 + this.cg.rage; // 狂怒
     if (this.cg.firstShot && e.hp > e.maxHp * 0.7) dmg *= 1 + this.cg.firstShot; // 先發制人
     if (this.warGod) dmg *= 1.5; // 戰神
+    if (this.src !== 'undead' && this.src !== 'thorns') { if (this.tb.dmgT > 0) dmg *= 1 + this.tb.dmg; if (this.tb.avatarT > 0) dmg *= this.tb.avatarMult; } // 技能樹 戰吼 / 戰神降臨
     if (this.proc.lifesteal && this.proc.lifestealCd <= 0 && this.rand() < this.proc.lifesteal) {
       this.proc.lifestealCd = 0.2; // at most 5 heals a second
       this.player.hp = Math.min(this.maxHp, this.player.hp + this.maxHp * 0.01);

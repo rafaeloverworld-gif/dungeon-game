@@ -498,3 +498,21 @@ button.mini { padding: 2px 6px; font-size: 11px; border-radius: 6px; margin-left
 .volrow input[type=range] { width: 100%; accent-color: var(--gold); }
 .volrow b { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
 .soundbtn { margin-left: 8px; font-size: 16px; padding: 2px 8px; vertical-align: middle; }
+.ttier { display: flex; flex-direction: column; gap: 6px; }
+.ttier.locked { opacity: .6; }
+.tskill { display: flex; align-items: center; gap: 10px; text-align: left; padding: 8px 10px; width: 100%; }
+.tskill .ic { font-size: 22px; width: 32px; text-align: center; }
+.tskill .nm { display: flex; flex-direction: column; flex: 1; gap: 2px; }
+.tskill .nm small { color: var(--muted); font-size: 11px; }
+.tskill.active { border-left: 3px solid var(--gold); }
+.tskill.passive { border-left: 3px solid #5aa9ff; }
+.tskill.has b { color: var(--gold); }
+.tskill.sel { outline: 1px solid var(--gold); }
+.tskill .pips { display: flex; gap: 3px; }
+.tskill .pips i { width: 14px; height: 5px; border-radius: 3px; background: #2a3044; }
+.tskill .pips i.on { background: var(--gold); }
+.tdetail { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 8px 12px; border-left: 2px solid var(--gold); text-align: left; }
+.tdetail small { color: var(--muted); font-size: 12px; }
+.tdetail small.on { color: var(--gold); }
+.tbtns { display: flex; flex-wrap: wrap; gap: 6px; }
+.tbtns button { font-size: 13px; padding: 6px 10px; }
