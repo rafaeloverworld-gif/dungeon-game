@@ -326,6 +326,8 @@ export class Sim {
   spinTimer = 0; // 劍刃風暴 time left
   spinTick = 0;
   zones: Zone[] = [];
+  /** Overlapping ground zones of the same kind and source don't stack: enemy id + kind + source → last hit time. */
+  zoneHits = new Map<string, number>();
   minions: Minion[] = [];
   minionBuff = 0; // seconds of +50% skeleton damage (骸骨大軍)
   minionBuffMult = 1.5;
