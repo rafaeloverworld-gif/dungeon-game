@@ -58,7 +58,7 @@ export const MASTERY_STAT = 0.015;
 export const MIX_PENALTY_MAX = 0.88;
 /** Every 多重箭袋 / 多重法典 item beyond what fills all the slots: each extra type or spell costs 3% less (up to ×0.94). */
 /** 一擊流 (蓄力) tuning: attack speed, hit multiplier, crit-bonus multiplier, and how much of the on-hit ultimates' average goes into a hit. */
-export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 13, absorbSpell: 24, absorbMelee: 10 };
+export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 20, absorbSpell: 24, absorbMelee: 10 };
 export const MIX_OVER = 0.03, MIX_PENALTY_CAP = 0.94;
 export const mixPenalty = (max: boolean, over: number) => Math.min(MIX_PENALTY_CAP, (max ? MIX_PENALTY_MAX : MIX_PENALTY) + MIX_OVER * over);
 
@@ -463,7 +463,7 @@ export class Sim {
     this.stats.pierce += extraPierce + (fx?.pierce ?? 0);
     if (this.sp.oneShot && this.attack.kind === 'summon') this.sp.oneShot = false; // a summoner has no hit to charge
     if (this.sp.oneShot) { // 一擊流 (蓄力): one slow, huge hit — extras and on-hit triggers turn into damage
-      const extra = this.stats.multishot - 1;
+      const extra = this.stats.multishot - 1 + (this.cls.id === 'archer' && this.arrowTypes[0] === 'spread' ? 2 : 0); // 散射's 2 extra arrows become damage too
       this.oneShotMult = ONE_SHOT.mult * (1 + 0.5 * Math.max(0, extra)) * (1 + this.proc.double) * (1 + 0.6 * this.sp.echo);
       this.stats.multishot = 1;
       this.stats.atkSpeed.mult *= ONE_SHOT.speed;
@@ -1029,7 +1029,7 @@ export class Sim {
   /** Bows: the arrow type changes damage, piercing, blasts, slows or adds arrows. */
   private shootArrows(base: number, mult: number, type: ArrowType): void {
     const p = this.player;
-    const n = this.stats.multishot + (type === 'spread' ? 2 : 0);
+    const n = this.stats.multishot + (type === 'spread' && !this.sp.oneShot ? 2 : 0);
     const spread = type === 'spread' ? 0.2 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
     const sharp = this.awk?.id === 'archer_archer' || this.awk?.base === 'archer_archer'; // 神射手
@@ -1057,7 +1057,7 @@ export class Sim {
     const p = this.player, t = new Set(types);
     const sharp = this.awk?.id === 'archer_archer' || this.awk?.base === 'archer_archer';
     const homing = t.has('homing') || (sharp && t.has('spread'));
-    const n = this.stats.multishot + (t.has('spread') ? 2 : 0);
+    const n = this.stats.multishot + (t.has('spread') && !this.sp.oneShot ? 2 : 0);
     const spread = t.has('spread') ? 0.2 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
     let dm = 1.15 * mixPenalty(this.arrowMax, this.arrowOver) ** (types.length - 1);
@@ -1189,7 +1189,7 @@ export class Sim {
   private throwJavelins(base: number, mult: number): void {
     const p = this.player;
     const t = new Set(this.cls.id === 'archer' ? this.arrowTypes : []);
-    const n = this.stats.multishot + (t.has('spread') ? 2 : 0);
+    const n = this.stats.multishot + (t.has('spread') && !this.sp.oneShot ? 2 : 0);
     const speed = this.attack.projectileSpeed ?? 22;
     let dm = 1.3 * (t.size > 1 ? mixPenalty(this.arrowMax, this.arrowOver) ** (t.size - 1) : 1);
     if (t.has('normal')) dm *= 1.25;
