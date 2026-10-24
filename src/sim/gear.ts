@@ -63,7 +63,7 @@ export const WEAPONS: Record<WeaponType, { name: string; icon: string; family: F
   greatstaff: { name: tr('大法杖', 'Greatstaff'), icon: '🪄', family: 'magic', twoHanded: true, stat: (t) => ({ stat: 'atk', flat: (2 + 1.2 * t) * 1.65 }) },
   dagger: { name: tr('短刀', 'Dagger'), icon: '🔪', family: 'blade', stat: (t) => ({ stat: 'crit', flat: Math.min(0.08, 0.02 + 0.004 * t) }) },
   shortbow: { name: tr('短弓', 'Shortbow'), icon: '🏹', family: 'bow', stat: (t) => ({ stat: 'atkSpeed', pct: Math.min(0.22, 0.045 + 0.009 * t) }) },
-  scythe: { name: tr('鐮刀', 'Scythe'), icon: '🪦', family: 'death', twoHanded: true, stat: (t) => ({ stat: 'atk', flat: (2 + 1.2 * t) * 1.6 }) },
+  scythe: { name: tr('鐮刀', 'Scythe'), icon: '🪦', family: 'death', stat: (t) => ({ stat: 'atk', flat: (2 + 1.2 * t) * 1.15 }) }, // one-handed: a 骷髏頭 fits in the off hand
   skull: { name: tr('骷髏頭', 'Skull'), icon: '💀', family: 'death', stat: (t) => ({ stat: 'summon', pct: Math.min(0.5, 0.12 + 0.025 * t) }) },
   greatscythe: { name: tr('巨鐮', 'Great Scythe'), icon: '🪦', family: 'death', twoHanded: true, stat: (t) => ({ stat: 'atk', flat: (2 + 1.2 * t) * 1.85 }) },
 };
@@ -278,7 +278,7 @@ export function setLootClasses(c: ClassId[] | null): void { lootPref = c && c.le
 /** The lines one class can find on an armour piece / accessory. */
 function classLines(c: ClassId, slot: Slot): SpecialId[] {
   const acc = isAccessorySlot(slot);
-  if (c === 'necro') return acc ? [...UNDEAD_TRAITS, ...(slot === 'ring' ? (['boneBurst'] as SpecialId[]) : [])] : [...ARMOUR_TRAITS];
+  if (c === 'necro') return acc ? [...UNDEAD_TRAITS, 'boneBurst', ...(slot === 'ring' ? (['boneBurst'] as SpecialId[]) : [])] : [...ARMOUR_TRAITS];
   return [...CLASS_GEAR[c], ...(acc ? [c === 'archer' ? 'multiArrow' : c === 'mage' ? 'multiSpell' : null].filter((x): x is SpecialId => !!x) : [])];
 }
 /** A weapon type one of your classes can hold. */
@@ -381,11 +381,11 @@ export function makeItem(id: string, kind: ItemKind, rarity: Rarity, tier: numbe
       // half the time: a line for one of the classes you play (each class equally likely)
       special = pick(classLines(pick(lootPref), slot));
     } else if (accessory) {
-      // rings: 20% 骨爆, 15% an undead trait, 10% 多重箭袋, 10% 多重法典, 35% a class line; amulets: 25% trait, 10% / 10%, 45% class line
+      // rings: 20% 骨爆, 15% an undead trait, 10% 多重箭袋, 10% 多重法典, 35% a class line; amulets: 10% 骨爆, 15% trait, 10% / 10%, 45% class line
       const r = rand();
       special = slot === 'ring'
         ? (r < 0.2 ? 'boneBurst' : r < 0.35 ? pick(UNDEAD_TRAITS) : r < 0.45 ? 'multiArrow' : r < 0.55 ? 'multiSpell' : r < 0.9 ? pick(ALL_CLASS_GEAR) : undefined)
-        : (r < 0.25 ? pick(UNDEAD_TRAITS) : r < 0.35 ? 'multiArrow' : r < 0.45 ? 'multiSpell' : r < 0.9 ? pick(ALL_CLASS_GEAR) : undefined);
+        : (r < 0.1 ? 'boneBurst' : r < 0.25 ? pick(UNDEAD_TRAITS) : r < 0.35 ? 'multiArrow' : r < 0.45 ? 'multiSpell' : r < 0.9 ? pick(ALL_CLASS_GEAR) : undefined);
     } else {
       // armour: 15% an undead trait (not the ones that change how the class plays), otherwise any-class lines or a class line
       special = rand() < ARMOUR_TRAIT_CHANCE ? pick(ARMOUR_TRAITS) : pick([...GENERIC_ARMOUR, ...ALL_CLASS_GEAR]);
