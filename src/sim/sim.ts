@@ -1172,18 +1172,29 @@ export class Sim {
     }
   }
 
-  /** Javelins: one heavy throw per multishot, pierces everything in a line and knocks small enemies back. */
+  /** Javelins: one heavy throw per multishot, pierces everything in a line and knocks small enemies back.
+   *  An archer's arrow types work on the spear too (several at once with 多重箭袋): 精準 ×1.25, 穿甲 ignores armour,
+   *  爆裂 small fire blast on the first hit, 冰霜 slows + frost, 散射 +2 spears (×0.8), 追蹤 homing (×0.75). */
   private throwJavelins(base: number, mult: number): void {
     const p = this.player;
-    const n = this.stats.multishot;
+    const t = new Set(this.cls.id === 'archer' ? this.arrowTypes : []);
+    const n = this.stats.multishot + (t.has('spread') ? 2 : 0);
     const speed = this.attack.projectileSpeed ?? 22;
+    let dm = 1.3 * (t.size > 1 ? mixPenalty(this.arrowMax, this.arrowOver) ** (t.size - 1) : 1);
+    if (t.has('normal')) dm *= 1.25;
+    if (t.has('spread')) dm *= 0.8;
+    if (t.has('homing')) dm *= 0.75;
+    if (t.has('blast')) dm *= 0.85;
+    const blast = t.has('blast') ? 1.6 * Math.sqrt(value(this.stats.area)) : undefined;
     for (let i = 0; i < n; i++) {
-      const a = base + (i - (n - 1) / 2) * 0.18;
+      const a = base + (i - (n - 1) / 2) * (t.has('spread') ? 0.22 : 0.18);
       const { dmg: raw, crit } = this.rollDamage();
       this.projectiles.push({
         x: p.x, z: p.z, vx: Math.sin(a) * speed, vz: Math.cos(a) * speed,
-        dmg: raw * mult * 1.3, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.2,
+        dmg: raw * mult * dm, crit, fromPlayer: true, life: value(this.stats.range) / speed + 0.2,
         pierce: 99, radius: 0.45, hit: [], knock: 1.1, javelin: true,
+        hitBlast: blast, fx: blast ? 'fire' : undefined, slow: t.has('frost') ? 0.5 : undefined, ap: t.has('pierce') || undefined,
+        homing: t.has('homing') || undefined, elem: this.magicArrow(t.has('frost') ? 'frost' : t.has('blast') ? 'fire' : undefined),
       });
     }
   }

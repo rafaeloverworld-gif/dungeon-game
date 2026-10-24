@@ -614,7 +614,7 @@ function elemSources(save: SaveData, atkKind: string): Partial<Record<El, string
   const add = (e: El, from: string) => { (out[e] ??= []).includes(from) || out[e]!.push(from); };
   const m = mixOf(save);
   if (atkKind === 'fireball') for (const sp of spellsInUse(save)) add(sp === 'frost' ? 'frost' : sp === 'lightning' ? 'shock' : 'fire', `${SPELLS[sp].icon}${SPELLS[sp].name}`);
-  if (atkKind === 'arrow') {
+  if ((atkKind === 'arrow' || atkKind === 'javelin')) {
     if (m?.id === 'archer_mage' || m?.base === 'archer_mage') for (const e of ['fire', 'frost', 'shock'] as El[]) add(e, tr('魔法箭', 'Magic arrows'));
     for (const a of arrowsInUse(save)) { if (a === 'frost') add('frost', `${ARROWS[a].icon}${ARROWS[a].name}`); if (a === 'blast') add('fire', `${ARROWS[a].icon}${ARROWS[a].name}`); }
   }
@@ -628,6 +628,7 @@ function jiCheck(label: string, rows: [boolean, string][]): string {
 }
 function elemLine(save: SaveData, atkKind: string): string {
   const parts: string[] = [];
+  if (atkKind === 'javelin') parts.push(`<small>🔱 ${tr('擲槍都用到箭種：精準 ×1.25、穿甲無視護甲、爆裂第一下小爆炸（火）、冰霜減速（冰）、散射多 2 支（×0.8）、追蹤會轉彎（×0.75）；本身已經穿透全部', 'Your arrow types work on thrown spears: Precise ×1.25, Armour-piercing ignores armour, Blast a small fire blast on the first hit, Frost slows (frost), Spread +2 spears (×0.8), Homing turns (×0.75); spears already pierce everything')}</small>`);
   const bestPlus = (sp: SpecialId) => { const its = equippedItems(save).filter((i) => i.special === sp || i.special2 === sp); return its.length ? Math.max(...its.map((i) => i.plus)) : -1; };
   const m = mixOf(save);
   if (atkKind === 'fireball') {
@@ -637,7 +638,7 @@ function elemLine(save: SaveData, atkKind: string): string {
       [p >= MAX_PLUS, p < 0 ? tr('著住一件 +10 多重法典（而家冇著）', 'Wear a +10 Spell Mix item (none worn)') : (EN ? `Wear a +10 Spell Mix item (best now +${p})` : `著住一件 +10 多重法典（而家最高 +${p}）`)],
     ]));
   }
-  if (atkKind === 'arrow') {
+  if ((atkKind === 'arrow' || atkKind === 'javelin')) {
     const p = bestPlus('multiArrow');
     parts.push(jiCheck(tr('極·神射（多重箭極）', 'Max Sharpshooter (Arrow Mix max)'), [
       [m?.id === 'archer_archer' || m?.base === 'archer_archer', tr('職業係神射手（弓手覺醒時再揀弓手）', 'Class is Sharpshooter (Archer awakened as Archer)')],
@@ -651,7 +652,7 @@ function elemLine(save: SaveData, atkKind: string): string {
     return `<small>📚 ${EN ? `${SPECIALS[sp].name} ×${n}: ${slots}/${total} ${word} at once; each extra one: all damage ×${pen}${over ? ` (${over} spare item${over > 1 ? 's' : ''}: −3% penalty each, best ×0.94)` : ''}` : `${SPECIALS[sp].name} ×${n} 件：同時用 ${slots}/${total} 種${word}，每多一種全部傷害 ×${pen}${over ? `（多出 ${over} 件，每件減 3% 懲罰，最好 ×0.94）` : ''}`}</small>`;
   };
   if (atkKind === 'fireball') parts.push(mixRow('multiSpell', spellOver(save), spellMaxForm(save), spellSlots(save), SPELL_TYPES.length, tr('法術', 'spells')));
-  if (atkKind === 'arrow') parts.push(mixRow('multiArrow', arrowOver(save), arrowMaxForm(save), arrowSlots(save), ARROW_TYPES.length, tr('箭', 'arrow types')));
+  if ((atkKind === 'arrow' || atkKind === 'javelin')) parts.push(mixRow('multiArrow', arrowOver(save), arrowMaxForm(save), arrowSlots(save), ARROW_TYPES.length, tr('箭', 'arrow types')));
   const src = elemSources(save, atkKind);
   const have = Object.keys(src) as El[];
   if (atkKind === 'fireball' || have.length) {
@@ -790,12 +791,12 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
   body.appendChild(h(`
     <div class="col">
       ${tipCard(save, 'gear')}
-      ${atkKind === 'arrow' || atkKind === 'shadow' || atkKind === 'fireball' ? tipCard(save, 'attack') : ''}
+      ${(atkKind === 'arrow' || atkKind === 'javelin') || atkKind === 'shadow' || atkKind === 'fireball' ? tipCard(save, 'attack') : ''}
       <div class="card">
         <h3>${awk ? `${awk.icon} ${awk.name}` : `${CLASSES[save.classId].icon} ${CLASSES[save.classId].name}`} · ${tr('裝備', 'Gear')}</h3>
         ${statSummary(save)}
         <div class="undeadline">⚔️ ${tr('攻擊方式：', 'Attack: ')}<b>${ATTACK_NAMES[atkKind === 'shadow' && save.necroMode === 'summon' ? 'summon' : atkKind]}</b><small>${tr('由主武器決定（劍 / 槍 = 斬擊（弓手揸槍 = 擲槍）、弓 = 射箭、法杖 = 火球（死靈 = 暗影彈）、鐮刀 = 橫掃）', 'Set by your main-hand weapon (sword / spear = slash (an Archer throws the spear), bow = arrows, staff = fireballs (shadow bolts for a Necromancer), scythe = sweep)')}</small>
-          ${atkKind === 'arrow' ? `${arrowMax > 1 ? `<small>🏹 ${arrowJi ? tr(`<b>極·神射</b>：所有箭種可以同時用（已揀 ${arrowUse.length}）。每多一種全部箭傷害只係 ×0.88`, `<b>Max Sharpshooter</b>: every arrow type at once (${arrowUse.length} picked). Each extra type only costs ×0.88 damage`) : tr(`可以同時用 ${arrowMax} 種箭（已揀 ${arrowUse.length}）。撳一下揀／取消；效果疊埋，每多一種全部箭傷害 ×0.75`, `Use up to ${arrowMax} arrow types at once (${arrowUse.length} picked). Tap to add / remove; effects combine, each extra type: all arrows ×0.75 damage`)}</small>` : ''}<div class="arrowpick">${ARROW_TYPES.map((a) => `<button data-arrow="${a}" class="${arrowUse.includes(a) ? 'on' : ''}">${ARROWS[a].icon} ${ARROWS[a].name}</button>`).join('')}</div>${arrowUse.map((a) => `<small>${ARROWS[a].icon} <b>${ARROWS[a].name}</b>${tr('：', ': ')}${ARROWS[a].desc}</small>`).join('')}` : ''}
+          ${(atkKind === 'arrow' || atkKind === 'javelin') ? `${arrowMax > 1 ? `<small>🏹 ${arrowJi ? tr(`<b>極·神射</b>：所有箭種可以同時用（已揀 ${arrowUse.length}）。每多一種全部箭傷害只係 ×0.88`, `<b>Max Sharpshooter</b>: every arrow type at once (${arrowUse.length} picked). Each extra type only costs ×0.88 damage`) : tr(`可以同時用 ${arrowMax} 種箭（已揀 ${arrowUse.length}）。撳一下揀／取消；效果疊埋，每多一種全部箭傷害 ×0.75`, `Use up to ${arrowMax} arrow types at once (${arrowUse.length} picked). Tap to add / remove; effects combine, each extra type: all arrows ×0.75 damage`)}</small>` : ''}<div class="arrowpick">${ARROW_TYPES.map((a) => `<button data-arrow="${a}" class="${arrowUse.includes(a) ? 'on' : ''}">${ARROWS[a].icon} ${ARROWS[a].name}</button>`).join('')}</div>${arrowUse.map((a) => `<small>${ARROWS[a].icon} <b>${ARROWS[a].name}</b>${tr('：', ': ')}${ARROWS[a].desc}</small>`).join('')}` : ''}
           ${atkKind === 'shadow' ? `<div class="arrowpick">${(['bolt', 'summon'] as NecroMode[]).map((a) => `<button data-necro="${a}" class="${save.necroMode === a ? 'on' : ''}">${NECRO_MODES[a].icon} ${NECRO_MODES[a].name}</button>`).join('')}</div><small>${NECRO_MODES[save.necroMode].icon} <b>${NECRO_MODES[save.necroMode].name}</b>${tr('：', ': ')}${NECRO_MODES[save.necroMode].desc}</small>` : ''}
           ${atkKind === 'fireball' ? `${spellMaxN > 1 ? `<small>📖 ${spellJi ? tr(`<b>極·大魔導</b>：四種法術同時放（已揀 ${spellUse.length}），每多一種只係 ×0.88，反應會連鎖去附近敵人`, `<b>Max Archmage</b>: all four spells at once (${spellUse.length} picked), each extra only ×0.88; reactions chain to nearby enemies`) : tr(`可以同時放 ${spellMaxN} 種法術（已揀 ${spellUse.length}）。撳一下揀／取消；每多一種全部傷害 ×0.75`, `Cast up to ${spellMaxN} spells at once (${spellUse.length} picked). Tap to add / remove; each extra: all damage ×0.75`)}</small>` : ''}<div class="arrowpick">${SPELL_TYPES.map((a) => `<button data-spell="${a}" class="${spellUse.includes(a) ? 'on' : ''}">${SPELLS[a].icon} ${SPELLS[a].name}</button>`).join('')}</div>${spellUse.map((a) => `<small>${SPELLS[a].icon} <b>${SPELLS[a].name}</b>${tr('：', ': ')}${SPELLS[a].desc}</small>`).join('')}` : ''}</div>
         ${elemLine(save, atkKind)}
