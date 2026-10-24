@@ -11,7 +11,7 @@ import { mixFor, PURE_SIGNATURE, type AwakenedDef, type SignatureDef } from './a
 import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { mergeBonus } from './stats';
 import { updateAbilities } from './abilities';
-import { ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, MINION_PROC, PROC_ULTS, type UltId, type UltRun } from './ultimates';
+import { oneShotAbsorb, ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, PROC_ULTS, type UltId, type UltRun } from './ultimates';
 import { activeCombos, COMBO_EXTRA, isMax, MAX_POWER, MAX_STACK, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
 import { WB_TIME, WORLD_BOSSES, type WorldBossDef, type WorldBossId } from './worldboss';
 
@@ -57,6 +57,8 @@ export const MASTERY_STAT = 0.015;
 /** 極·神射: each extra arrow type only costs this. */
 export const MIX_PENALTY_MAX = 0.88;
 /** Every 多重箭袋 / 多重法典 item beyond what fills all the slots: each extra type or spell costs 3% less (up to ×0.94). */
+/** 一擊流 (蓄力) tuning: attack speed, hit multiplier, crit-bonus multiplier, and how much of the on-hit ultimates' average goes into a hit. */
+export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 4.5, absorbSpell: 14, absorbMelee: 3 };
 export const MIX_OVER = 0.03, MIX_PENALTY_CAP = 0.94;
 export const mixPenalty = (max: boolean, over: number) => Math.min(MIX_PENALTY_CAP, (max ? MIX_PENALTY_MAX : MIX_PENALTY) + MIX_OVER * over);
 
@@ -233,7 +235,7 @@ export class Sim {
   /** How the player attacks (from the main-hand weapon). */
   readonly attack: AttackStyle;
   readonly arrowType: ArrowType;
-  readonly arrowTypes: ArrowType[];
+  arrowTypes: ArrowType[];
   readonly arrowMax: boolean;
   /** 專精 (single class): class level; abilities at 10 / 25 / 50. */
   readonly mastery: number;
@@ -242,7 +244,7 @@ export class Sim {
   private volleyCount = 0; // 弓手 連射
   private masteryT = 0; // 千箭 / 天災 timer
   readonly spellType: SpellType;
-  readonly spellTypes: SpellType[];
+  spellTypes: SpellType[];
   readonly spellMax: boolean;
   readonly spellOver: number;
   readonly arrowOver: number;
@@ -337,7 +339,7 @@ export class Sim {
   // legendary specials
   // weapon / accessory skills (values are summed when several items have the same one)
   proc = { double: 0, execute: 0, frenzy: 0, lifesteal: 0, frenzyTimer: 0, lifestealCd: 0 };
-  sp = { echo: 0, bossDmg: 0, critBurst: false, frostGuard: false, thorns: false, secondWind: false, secondWindUsed: false, cdMult: 1, boneBurst: false };
+  sp = { oneShot: false, echo: 0, bossDmg: 0, critBurst: false, frostGuard: false, thorns: false, secondWind: false, secondWindUsed: false, cdMult: 1, boneBurst: false };
   /** Undead traits from gear (stack into combos, e.g. 鐵甲骨法師). */
   ut = { tank: false, ranged: false, caster: false, wraith: false, frenzy: false, lasting: false, edge: false, leech: false, shield: false, poison: false, crown: false };
   /** 骨 combos from worn traits (e.g. 骨弓 + 骨法 = 骨魔導師). */
@@ -401,7 +403,8 @@ export class Sim {
       else if (pr.id === 'lifesteal') this.proc.lifesteal = Math.min(0.6, this.proc.lifesteal + pr.value / 100);
     }
     for (const sp of setup.specials ?? []) {
-      if (sp === 'echoStrike') this.sp.echo = Math.min(0.6, this.sp.echo + 0.25);
+      if (sp === 'oneShot') this.sp.oneShot = true;
+      else if (sp === 'echoStrike') this.sp.echo = Math.min(0.6, this.sp.echo + 0.25);
       else if (sp === 'bloodEdge') this.healOnKill += 0.01;
       else if (sp === 'giantSlayer') this.sp.bossDmg += 0.3;
       else if (sp === 'extraArrow') extraMulti++;
@@ -458,6 +461,16 @@ export class Sim {
     if (this.cls.id === 'warrior' && this.mastery >= 10) this.stats.def.base *= 1.3; // 戰士 不屈 also: DEF +30%
     this.stats.multishot += (fx?.multishot ?? 0) + (this.awk?.extraMultishot ?? 0) + extraMulti;
     this.stats.pierce += extraPierce + (fx?.pierce ?? 0);
+    if (this.sp.oneShot && this.attack.kind === 'summon') this.sp.oneShot = false; // a summoner has no hit to charge
+    if (this.sp.oneShot) { // 一擊流 (蓄力): one slow, huge hit — extras and on-hit triggers turn into damage
+      const extra = this.stats.multishot - 1;
+      this.oneShotMult = ONE_SHOT.mult * (1 + 0.5 * Math.max(0, extra)) * (1 + this.proc.double) * (1 + 0.6 * this.sp.echo);
+      this.stats.multishot = 1;
+      this.stats.atkSpeed.mult *= ONE_SHOT.speed;
+      this.proc.double = 0; this.sp.echo = 0;
+      this.arrowTypes = [this.arrowTypes[0]]; this.spellTypes = [this.spellTypes[0]];
+      this.oneShotAbsorb = oneShotAbsorb(this.ult.levels) * (this.attack.kind === 'fireball' ? ONE_SHOT.absorbSpell : this.attack.kind === 'arc' || this.attack.kind === 'reap' ? ONE_SHOT.absorbMelee : ONE_SHOT.absorb);
+    }
     this.stats.minions += fx?.minions ?? 0;
     if (fx?.cdr) this.sp.cdMult *= 1 - fx.cdr;
     if (fx?.thorns) this.sp.thorns = true;
@@ -811,11 +824,9 @@ export class Sim {
           for (const off of fan) { const a = a0 + off; this.projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, dmg, crit, fromPlayer: true, life: 8 / sp, pierce: this.n('utRanged') >= 2 ? 1 : 0, radius: 0.3, hit: [], shadow: true, minion: true, blast, slow }); }
         } else if (blast) {
           this.explode(target.x, target.z, blast, dmg, crit, 'shadow', { noProc: true, slow: slow, slowTime: slow ? 1.5 : undefined });
-          if (this.ultProcs && target.hp > 0) ultOnHit(this, target, MINION_PROC);
         } else {
           this.damageEnemy(target, dmg, crit, true);
           if (slow) { target.slowTimer = 1.5; target.slowMult = Math.min(target.slowMult, slow); }
-          if (this.ultProcs && target.hp > 0) ultOnHit(this, target, MINION_PROC); // undead can trigger your on-hit ultimates
         }
       }
       // enemies touching an undead hurt it (one hit per 0.5 s, like the player)
@@ -1581,7 +1592,6 @@ export class Sim {
           if (e.hp <= 0 || pr.hit.includes(e.id)) continue;
           if (Math.hypot(e.x - pr.x, e.z - pr.z) < e.radius + pr.radius) {
             if (pr.blast) {
-              if (pr.minion && o.ultProcs) ultOnHit(o, e, MINION_PROC);
               o.explode(pr.x, pr.z, pr.blast, pr.dmg, pr.crit, pr.fx ?? (pr.minion ? 'shadow' : 'fire'), { noProc: pr.minion, slow: pr.slow, slowTime: pr.slow ? 1.5 : undefined, elem: pr.elem });
               exploded = true;
               alive = false;
@@ -1591,7 +1601,6 @@ export class Sim {
             o.damageEnemy(e, pr.dmg, pr.crit, pr.minion, pr.ap);
             if (pr.elem && e.hp > 0) o.applyElem(e, pr.elem);
             if (pr.hitBlast) { o.explode(pr.x, pr.z, pr.hitBlast, pr.dmg * 0.6, pr.crit, 'fire', { noProc: true }); pr.hitBlast = undefined; } // only the first hit blasts
-            if (pr.minion && o.ultProcs && e.hp > 0) ultOnHit(o, e, MINION_PROC); // an undead archer's bolt
             if (pr.knock && !isBigKind(e.kind)) {
               const v = Math.hypot(pr.vx, pr.vz) || 1;
               e.x += (pr.vx / v) * pr.knock; e.z += (pr.vz / v) * pr.knock;
@@ -1690,8 +1699,18 @@ export class Sim {
     for (const h of this.heroes) for (const m of h.minions) if (Math.hypot(m.x - e.x, m.z - e.z) < r) m.hp -= e.touchDmg * 3 * h.minionTaken(m);
   }
 
+  /** 一擊流: hit multiplier, absorbed on-hit ultimate damage (× ATK), and how deep an overkill chain is. */
+  oneShotMult = 1;
+  oneShotAbsorb = 0;
+  private overkillDepth = 0;
   damageEnemy(e: Enemy, dmg: number, crit: boolean, noProc = false, armourPierce = false): void {
     if (e.hp <= 0) return;
+    let oneShotHit = false;
+    if (this.sp.oneShot && !noProc && this.src === 'attack') {
+      const cm = crit ? value(this.stats.critDmg) : 1, boost = crit ? (1 + ONE_SHOT.critBoost * (cm - 1)) / cm : 1;
+      dmg = (dmg * this.oneShotMult + value(this.stats.atk) * this.oneShotAbsorb * cm) * boost;
+      noProc = true; oneShotHit = true;
+    }
     if (e.kind === 'shield' && !armourPierce) dmg *= 0.75; // 盾兵
     if (e.elite === 'armored' && !armourPierce) dmg *= 0.6;
     if (e.markTimer > 0) dmg *= 1.5;
@@ -1714,11 +1733,17 @@ export class Sim {
     this.dmgDealt += dealt;
     this.dmgBy[this.src] = (this.dmgBy[this.src] ?? 0) + dealt;
     if (e.kind === 'worldboss') { const d = Math.min(dmg, e.hp); for (const h of this.heroes) h.wbDamage += d; } // co-op: the party's damage counts for everyone
+    const overkill = oneShotHit || this.overkillDepth > 0 ? dmg - Math.max(0, e.hp) : 0;
     e.hp -= dmg;
     e.hitFlash = 0.08;
     this.events.push({ type: 'hit', x: e.x, z: e.z, dmg, crit });
     if (this.uq.markHits && !e.tagged) { e.tagged = true; e.markTimer = Math.max(e.markTimer, 2); } // 獵人本能
     if (e.hp <= 0) this.killEnemy(e);
+    if (overkill > 0 && this.overkillDepth < 3) { // 一擊流: the rest of the hit jumps on
+      let best: Enemy | null = null, bd = 5;
+      for (const o of this.enemies) { if (o === e || o.hp <= 0) continue; const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < bd) { bd = d; best = o; } }
+      if (best) { this.overkillDepth++; this.damageEnemy(best, overkill, crit, true, armourPierce); this.overkillDepth--; this.events.push({ type: 'lightning', pts: [e.x, e.z, best.x, best.z] }); }
+    }
     if (!noProc && crit && this.uq.chainCrit) { // 貫穿連鎖: bounce to a nearby enemy
       let best: Enemy | null = null, bd = 4;
       for (const o of this.enemies) { if (o === e || o.hp <= 0) continue; const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < bd) { bd = d; best = o; } }

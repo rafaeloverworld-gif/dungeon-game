@@ -14,7 +14,7 @@ import { ALL_NODES, MIX_BOARD_NODES, baseId, copyPrefix, BOARD_NODES, boardNodes
 /** A skill board: a class's board, or "2:<class>" for the second copy a same-class awakening gets. */
 export type BoardKey = string;
 import type { RunSetup } from './sim/sim';
-import { ULT_IDS, ULT_MAX_LEVEL, ULT_SLOTS, ULT_UNLOCK_COST, ultUpgradeCost, type UltId } from './sim/ultimates';
+import { ULT_IDS, ULT_MAX_LEVEL, ULT_SLOTS, ULT_SLOTS_MAX, ULT_SLOT_COSTS, ULT_UNLOCK_COST, ultUpgradeCost, type UltId } from './sim/ultimates';
 import { dayKey, makeNamed, NAMED, namedById, namedChance, todaysBoss, WB_MIN_LEVEL, WB_TICKETS, wbRewards, type WbReward } from './sim/worldboss';
 
 export interface SaveData {
@@ -60,7 +60,8 @@ export interface SaveData {
   wbUsed: number; // world boss tickets used today
   crystals: number; // 💎 for 終極技
   ults: Partial<Record<UltId, number>>; // unlocked 終極技 -> level 1..10
-  ultEquip: UltId[]; // up to ULT_SLOTS equipped
+  ultEquip: UltId[]; // up to ultSlots(s) equipped
+  ultSlotBuys: number; // extra 終極技 slots bought with 靈晶
   wbLevel: number; // last chosen world boss level
   collection: Record<string, number>; // named legendary id -> times obtained
   tips: string[]; // one-time tips already shown
@@ -80,7 +81,7 @@ export const freshSave = (): SaveData => ({
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], stash: [], stashBuys: 0, stashTabs: [], stashTabOf: {}, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
   subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
-  wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
+  wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], ultSlotBuys: 0, wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -187,7 +188,8 @@ function sanitize(raw: unknown): SaveData {
     wbFights: Math.max(0, Math.floor(num(r.wbFights, 0))),
     crystals: Math.max(0, Math.floor(num(r.crystals, 0))),
     ults: Object.fromEntries(ULT_IDS.map((u) => [u, Math.min(ULT_MAX_LEVEL, Math.max(0, Math.floor(num(r.ults?.[u], 0))))]).filter(([, v]) => v)),
-    ultEquip: Array.isArray(r.ultEquip) ? [...new Set(r.ultEquip.filter((u): u is UltId => ULT_IDS.includes(u as UltId) && num(r.ults?.[u as UltId], 0) > 0))].slice(0, ULT_SLOTS) : [],
+    ultEquip: Array.isArray(r.ultEquip) ? [...new Set(r.ultEquip.filter((u): u is UltId => ULT_IDS.includes(u as UltId) && num(r.ults?.[u as UltId], 0) > 0))].slice(0, ULT_SLOTS + Math.min(ULT_SLOT_COSTS.length, Math.max(0, Math.floor(num(r.ultSlotBuys, 0))))) : [],
+    ultSlotBuys: Math.min(ULT_SLOT_COSTS.length, Math.max(0, Math.floor(num(r.ultSlotBuys, 0)))),
     collection: Object.fromEntries(NAMED.map((n) => [n.id, Math.max(0, Math.floor(num(r.collection?.[n.id], 0)))]).filter(([, v]) => v)),
   };
 }
@@ -659,7 +661,7 @@ function sanitizeLoadouts(raw: unknown): SaveData['loadouts'] {
       if (!st || typeof st !== 'object') return null;
       return {
         equipped: Object.fromEntries(Object.entries(st.equipped ?? {}).filter(([, id]) => id === null || typeof id === 'string')) as Loadout['equipped'],
-        ultEquip: Array.isArray(st.ultEquip) ? st.ultEquip.filter((u) => ULT_IDS.includes(u)).slice(0, ULT_SLOTS) : [],
+        ultEquip: Array.isArray(st.ultEquip) ? st.ultEquip.filter((u) => ULT_IDS.includes(u)).slice(0, ULT_SLOTS_MAX) : [],
         arrowType: ARROW_TYPES.includes(st.arrowType as ArrowType) ? st.arrowType : undefined,
         arrowMix: Array.isArray(st.arrowMix) ? st.arrowMix.filter((a) => ARROW_TYPES.includes(a)) : [],
         spellType: SPELL_TYPES.includes(st.spellType as SpellType) ? st.spellType : undefined,
@@ -901,13 +903,22 @@ export function ultCost(s: SaveData, id: UltId): number | null {
   if (l >= ULT_MAX_LEVEL) return null;
   return l === 0 ? ULT_UNLOCK_COST : ultUpgradeCost(l);
 }
+/** 終極技 slots: 3, plus the ones bought with 靈晶 (up to 5). */
+export const ultSlots = (s: SaveData) => ULT_SLOTS + s.ultSlotBuys;
+export const ultSlotCost = (s: SaveData): number | null => ULT_SLOT_COSTS[s.ultSlotBuys] ?? null;
+export function buyUltSlot(s: SaveData): boolean {
+  const c = ultSlotCost(s);
+  if (c === null || s.crystals < c) return false;
+  s.crystals -= c; s.ultSlotBuys++;
+  return true;
+}
 export function ultBuy(s: SaveData, id: UltId): boolean {
   const c = ultCost(s, id);
   if (c === null || s.crystals < c) return false;
   s.crystals -= c;
   const first = !s.ults[id];
   s.ults[id] = (s.ults[id] ?? 0) + 1;
-  if (first && s.ultEquip.length < ULT_SLOTS) s.ultEquip.push(id); // equip right away if there's room
+  if (first && s.ultEquip.length < ultSlots(s)) s.ultEquip.push(id); // equip right away if there's room
   return true;
 }
 /** Put an ultimate in slot i (null = empty it). An ultimate already in another slot swaps places. */
@@ -919,14 +930,14 @@ export function ultSetSlot(s: SaveData, i: number, id: UltId | null): boolean {
   if (j >= 0) { if (i < cur.length && i !== j) [cur[i], cur[j]] = [cur[j], cur[i]]; }
   else if (i < cur.length) cur[i] = id;
   else cur.push(id);
-  s.ultEquip = cur.slice(0, ULT_SLOTS);
+  s.ultEquip = cur.slice(0, ultSlots(s));
   return true;
 }
 
 export function ultToggle(s: SaveData, id: UltId): boolean {
   if (!s.ults[id]) return false;
   if (s.ultEquip.includes(id)) { s.ultEquip = s.ultEquip.filter((u) => u !== id); return true; }
-  if (s.ultEquip.length >= ULT_SLOTS) return false;
+  if (s.ultEquip.length >= ultSlots(s)) return false;
   s.ultEquip.push(id);
   return true;
 }

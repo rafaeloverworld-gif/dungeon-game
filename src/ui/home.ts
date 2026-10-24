@@ -10,11 +10,11 @@ import {
 import { buildStats, mixPenalty } from '../sim/sim';
 import { value } from '../sim/stats';
 import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO, PURE_SIGNATURE } from '../sim/awakening';
-import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS, ultDesc, type UltId } from '../sim/ultimates';
+import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS_MAX, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
   activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, spellOver, arrowOver, isEquippedAny, inLoadout,
-  previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
+  previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, ultSlots, ultSlotCost, buyUltSlot, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
 import { NAMED, namedChance, todaysBoss, WB_MIN_LEVEL, WB_TICKETS, WB_TIME, WORLD_BOSS_IDS, WORLD_BOSSES } from '../sim/worldboss';
@@ -685,20 +685,22 @@ const ultAffordable = (save: SaveData) => ULT_IDS.some((u) => { const c = ultCos
 function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
   queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   const save = ctx.getSave();
-  const slots = Array.from({ length: ULT_SLOTS }, (_, i) => save.ultEquip[i]);
+  const slots = Array.from({ length: ultSlots(save) }, (_, i) => save.ultEquip[i]);
+  const slotCost = ultSlotCost(save);
   body.appendChild(h(`
     <div class="col">
       <div class="card ulthead">
         <div><small>${tr('靈晶', 'Crystals')}</small><b style="color:var(--crystal)">💎 ${fmt(save.crystals)}</b></div>
         <div class="ultslots">${slots.map((u, i) => `<button class="uslot ${u ? 'on' : ''}" data-uslot="${i}" aria-label="${u ? ULT[u].name : tr('空格', 'Empty slot')}">${u ? ico(ULT[u].icon) : '＋'}</button>`).join('')}</div>
       </div>
+      ${slotCost !== null ? `<button data-act="ultslot" ${save.crystals >= slotCost ? '' : 'disabled'} style="width:100%">🔓 ${EN ? `Open Ultimate slot ${ultSlots(save) + 1} of ${ULT_SLOTS_MAX} (💎 ${slotCost})` : `開第 ${ultSlots(save) + 1} 格終極技（最多 ${ULT_SLOTS_MAX} 格，💎 ${slotCost}）`}</button>` : ''}
       ${tipCard(save, 'ult')}
-      <p class="note" style="margin:0;text-align:left">${EN ? `Screen-clearing skills for any class; equip up to ${ULT_SLOTS}. Ultimate hits can crit; Lv ${ULT_LIMIT_LEVEL} unlocks a Limit effect, max Lv ${ULT_MAX_LEVEL}. 💎 Crystals: Mini-bosses 1, Bosses 3 (double in gate dungeons), elites sometimes 1, first clear of a tier +3 (gate tiers +15), and World Bosses. Your Undead can trigger on-hit Ultimates too, at 35% of your chance.` : `全場清怪技能，任何職業都用得，最多同時裝 ${ULT_SLOTS} 個。終極技傷害會暴擊；Lv ${ULT_LIMIT_LEVEL} 解鎖「極限」效果，最高 Lv ${ULT_MAX_LEVEL}。💎 靈晶：小 Boss 1、Boss 3（守關地城雙倍）、精英怪有機會跌 1、首次通關每級 +3（守關級 +15），仲有世界 Boss。亡靈打中敵人都可以觸發攻擊型終極技，機率係你自己嘅 35%。`}</p>
+      <p class="note" style="margin:0;text-align:left">${EN ? `Screen-clearing skills for any class; equip up to ${ultSlots(save)}. Ultimate hits can crit; Lv ${ULT_LIMIT_LEVEL} unlocks a Limit effect, max Lv ${ULT_MAX_LEVEL}. 💎 Crystals: Mini-bosses 1, Bosses 3 (double in gate dungeons), elites sometimes 1, first clear of a tier +3 (gate tiers +15), and World Bosses.` : `全場清怪技能，任何職業都用得，最多同時裝 ${ultSlots(save)} 個。終極技傷害會暴擊；Lv ${ULT_LIMIT_LEVEL} 解鎖「極限」效果，最高 Lv ${ULT_MAX_LEVEL}。💎 靈晶：小 Boss 1、Boss 3（守關地城雙倍）、精英怪有機會跌 1、首次通關每級 +3（守關級 +15），仲有世界 Boss。`}</p>
       ${ULT_IDS.map((id) => {
         const lv = save.ults[id] ?? 0;
         const cost = ultCost(save, id);
         const on = save.ultEquip.includes(id);
-        const full = !on && save.ultEquip.length >= ULT_SLOTS;
+        const full = !on && save.ultEquip.length >= ultSlots(save);
         return `<div class="card ultcard ${on ? 'on' : ''} ${lv ? '' : 'locked'}">
           <div class="statline"><b class="uname">${ico(ULT[id].icon)} ${ULT[id].name}</b><span class="ulv">${lv ? `Lv ${lv}/${ULT_MAX_LEVEL}` : tr('未解鎖', 'Locked')}</span></div>
           <p class="udesc">${ultDesc(id, Math.max(1, lv))}</p>
@@ -721,6 +723,7 @@ function renderUlt(ctx: HomeCtx, body: HTMLElement): void {
     }
     if (b.dataset.ultEq && ultToggle(save, b.dataset.ultEq as UltId)) { writeSave(save); showHome(ctx); }
     if (b.dataset.uslot) showUltSlot(ctx, Number(b.dataset.uslot));
+    if (b.dataset.act === 'ultslot' && buyUltSlot(save)) { writeSave(save); showHome(ctx); ctx.banner(EN ? `Ultimate slot ${ultSlots(save)} opened` : `開咗第 ${ultSlots(save)} 格終極技`, '🔓'); }
   });
 }
 

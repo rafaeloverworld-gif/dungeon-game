@@ -19,6 +19,9 @@ export const ULT_MAX_LEVEL = 15;
 /** Level that unlocks the 極限 effect. */
 export const ULT_LIMIT_LEVEL = 10;
 export const ULT_SLOTS = 3;
+/** Extra 終極技 slots bought with 靈晶: up to this many in all. */
+export const ULT_SLOTS_MAX = 5;
+export const ULT_SLOT_COSTS = [200, 500];
 
 /** Numbers for one ultimate at a level (1..10). */
 export const ULT = {
@@ -148,7 +151,7 @@ export interface UltRun {
 export function newUltRun(ults: { id: UltId; level: number }[]): UltRun {
   const levels: UltRun['levels'] = {};
   const timers: UltRun['timers'] = {};
-  for (const u of ults.slice(0, ULT_SLOTS)) { levels[u.id] = Math.max(1, Math.min(ULT_MAX_LEVEL, u.level)); timers[u.id] = 3; }
+  for (const u of ults.slice(0, ULT_SLOTS_MAX)) { levels[u.id] = Math.max(1, Math.min(ULT_MAX_LEVEL, u.level)); timers[u.id] = 3; }
   return { levels, timers, waves: [], holes: [], orbAngle: 0, orbHit: new Map(), missiles: [], mines: [], echoWaves: [], meteors: [], shield: 0, shieldTime: 0, bats: [], totems: [], vengeanceCd: 0 };
 }
 
@@ -523,6 +526,18 @@ function strikeAgain(sim: Sim, from: Enemy): void { chainLightning(sim, from, tr
 
 /** Called when one of your own attacks lands (not from procs): every on-hit ultimate rolls its chance. */
 /** On-hit ultimates. scale < 1 for hits that aren't yours (your undead). */
+/** 一擊流 (蓄力): the on-hit ultimates you wear never trigger; their average damage per hit (× ATK) goes into every hit instead. */
+export function oneShotAbsorb(levels: Partial<Record<UltId, number>>): number {
+  let e = 0;
+  const L = levels;
+  if (L.chainLightning) e += ULT.chainLightning.chance(L.chainLightning) * ULT.chainLightning.dmg(L.chainLightning) * (limit(L.chainLightning) ? 1.5 : 1);
+  if (L.flameBurst) e += ULT.flameBurst.chance(L.flameBurst) * (ULT.flameBurst.dmg(L.flameBurst) + (limit(L.flameBurst) ? 1.2 : 0));
+  if (L.frostTouch) e += ULT.frostTouch.chance(L.frostTouch) * ULT.frostTouch.dmg(L.frostTouch) * (limit(L.frostTouch) ? 1.25 : 1);
+  if (L.shadowStrike) e += ULT.shadowStrike.chance(L.shadowStrike) * ULT.shadowStrike.dmg(L.shadowStrike) * Math.min(3, ULT.shadowStrike.hits(L.shadowStrike));
+  if (L.holySmite) e += ULT.holySmite.chance(L.holySmite) * ULT.holySmite.dmg(L.holySmite) * (limit(L.holySmite) ? 1.5 : 1);
+  return e;
+}
+
 export function ultOnHit(sim: Sim, e: Enemy, scale = 1): void {
   const L = sim.ult.levels;
   if (L.chainLightning) chainLightning(sim, e, false, scale);

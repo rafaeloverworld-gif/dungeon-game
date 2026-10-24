@@ -162,6 +162,8 @@ export const SPECIALS = {
   frostGuard: { family: 'armour', name: tr('霜護', 'Frostguard'), desc: tr('受傷時 15% 機會放冰霜新星（150%，減速）', 'When hit, 15% chance to cast Frost Nova (150%, slow)') },
   thorns: { family: 'armour', name: tr('荊棘', 'Thorns'), desc: tr('敵人撞到你時受到 150% 攻擊力反傷', 'Enemies touching you take 150% ATK as damage') },
   secondWind: { family: 'armour', name: tr('再起', 'Second Wind'), desc: tr('每張地圖一次：HP 跌到 30% 以下即刻回復 40%', 'Once per map: heal 40% when HP drops below 30%') },
+  // main-hand weapons of any class: a different way to play
+  oneShot: { family: 'heavy', name: tr('蓄力', 'Heavy Blow'), desc: tr('一擊流：攻速 ×0.5、每下傷害 ×2.5、暴擊傷害加成 ×2；只得一枝箭 / 一種法術 / 一下（多出嚟嘅變傷害）；唔觸發任何命中效果（終極技、連擊、回響、爆裂…），改為將你裝住嘅命中型終極技平均傷害直接加落每一下；打死敵人之後剩低嘅傷害彈去附近（最多 3 次）', 'One-shot: attack speed ×0.5, every hit ×2.5, crit bonus ×2; one arrow / one spell / one hit (extras turn into damage); nothing triggers on hit (ultimates, Double Strike, Echo, Burst…) — instead the average damage of your on-hit ultimates goes straight into every hit; overkill damage jumps to an enemy nearby (up to 3 times)') },
   // class gear: armour and accessories, only work for that class (main or awakened class); each copy stacks (up to 4)
   ironHide: { family: 'classGear', name: tr('鋼骨', 'Ironhide'), desc: tr('戰士專屬：受到傷害 -8%（每件疊，最多 4 件）', 'Warrior only: take 8% less damage (stacks per item, up to 4)') },
   berserkRage: { family: 'classGear', name: tr('狂怒', 'Rage'), desc: tr('戰士專屬：HP 低過 50% 時傷害 +15%（每件疊，最多 4 件）', 'Warrior only: +15% damage while below 50% HP (stacks per item, up to 4)') },
@@ -374,7 +376,7 @@ export function makeItem(id: string, kind: ItemKind, rarity: Rarity, tier: numbe
       // a weapon can carry anything of its family, including the ones that change how the class plays;
       // necromancer weapons can also roll 骨爆 (otherwise a ring special)
       const family = WEAPONS[weapon].family;
-      special = pick(SPECIAL_IDS.filter((s) => SPECIALS[s].family === family || (family === 'death' && s === 'boneBurst')));
+      special = pick(SPECIAL_IDS.filter((s) => SPECIALS[s].family === family || (family === 'death' && s === 'boneBurst') || (s === 'oneShot' && slot === 'mainWeapon')));
     } else if (lootPref && rand() < LOOT_FAVOUR) {
       // half the time: a line for one of the classes you play (each class equally likely)
       special = pick(classLines(pick(lootPref), slot));
