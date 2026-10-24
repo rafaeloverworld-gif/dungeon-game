@@ -426,6 +426,7 @@ function showAscend(ctx: HomeCtx): void {
 
 // ---------- 技能（技能板） ----------
 let boardTab: BoardKey | null = null;
+let showMainBoard = false; // 技能樹 classes: looking at the old board (its stat panels still count)
 let selNode: string | null = null;
 
 const UNLOCK_MSG: Record<UnlockCheck, string> = {
@@ -489,14 +490,14 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
       <div class="card">
         <div class="statline"><h3 style="margin:0">🌳 ${CLASSES[c].icon} ${CLASSES[c].name}${tr('技能樹', ' skill tree')}</h3><small>${tr('技能點', 'Points')} <b style="color:var(--gold)">${left}</b> / ${total}</small></div>
         <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點。主動技能升滿 5 級開「✨ 強化」，強化之後喺兩個「🔀 變化」揀一個。最多同時裝備 ${TREE_EQUIP} 個主動技能（會自動放）。用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。`, `1 point per class level. Max an active skill (rank 5) to unlock ✨ Enhance, then pick one of two 🔀 modifiers. Up to ${TREE_EQUIP} actives equipped (cast automatically). Tiers open at ${TREE_TIERS.join(' / ')} points spent.`)}</small>
-        <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button>${others.map((k) => `<button data-board="${k}">${tr('其他技能盤：', 'Other board: ')}${k}</button>`).join('')}</div>
+        <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button><button data-board="${c}">📊 ${tr('屬性盤（舊技能盤嘅屬性格仍然計）', 'Stat board (old board stat panels still count)')}</button>${others.length ? `<button data-board="${others[0]}">📋 ${tr('其他技能盤', 'Other boards')} (${others.length})</button>` : ''}</div>
       </div>
       ${[0, 1, 2, 3, 4, 5].map((tier) => `<div class="card ttier ${tierOpen(t, tier) ? '' : 'locked'}"><div class="statline"><b>${tier === 0 ? tr('⚔️ 基本攻擊（揀一個用）', '⚔️ Basic attack (pick one)') : tr(`第 ${tier} 層`, `Tier ${tier}`)}</b><small>${tier === 0 ? tr('取代普通攻擊', 'Replaces your normal attack') : tierOpen(t, tier) ? tr('已開', 'Open') : `🔒 ${EN ? `${TREE_TIERS[tier - 1]} points` : `要 ${TREE_TIERS[tier - 1]} 點`}（${spent}）`}</small></div>${skills.filter((x) => x.tier === tier).map(card).join('')}</div>`).join('')}
     </div>`));
   body.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
     if (!b) return;
-    if (b.dataset.board) { boardTab = b.dataset.board as BoardKey; showHome(ctx); return; }
+    if (b.dataset.board) { boardTab = b.dataset.board as BoardKey; showMainBoard = true; showHome(ctx); return; }
     if (b.dataset.tsel) { treeSel = treeSel === b.dataset.tsel ? null : b.dataset.tsel; showHome(ctx); return; }
     if (b.dataset.tact === 'reset') { if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳確認重置', 'Tap again to reset'); return; } treeReset(save, c); writeSave(save); showHome(ctx); return; }
     if (b.dataset.tact && b.dataset.tid && treeDo(save, c, b.dataset.tid, b.dataset.tact as TreeAct)) { writeSave(save); showHome(ctx); }
@@ -505,7 +506,7 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
 
 function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
   const save = ctx.getSave();
-  if (TREE_CLASSES.includes(save.classId) && (!boardTab || boardTab === save.classId || !activeBoards(save).includes(boardTab))) { renderTree(ctx, body); return; }
+  if (TREE_CLASSES.includes(save.classId) && !(showMainBoard && boardTab === save.classId) && (!showMainBoard || !boardTab || boardTab === save.classId || !activeBoards(save).includes(boardTab))) { renderTree(ctx, body); return; }
   queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   const boards = activeBoards(save);
   const board: BoardKey = boardTab && boards.includes(boardTab) ? boardTab : save.classId;
@@ -584,6 +585,7 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
   body.appendChild(h(`
     <div class="col">
       ${tipCard(save, 'skills')}
+      ${TREE_CLASSES.includes(save.classId) ? `<div class="card"><button class="primary" data-totree>🌳 ${tr('返技能樹', 'Back to the skill tree')}</button><small>${!MIX_BOARD_NODES[board] && classOf(board) === save.classId ? tr('呢塊板嘅技能格已經由技能樹取代（唔再生效）；屬性格照計。', 'This board\'s skill panels are replaced by the skill tree (no effect); stat panels still count.') : ''}</small></div>` : ''}
       <div class="card mats">
         <div><small>${tr('靈魂', 'Souls')}</small><b style="color:var(--soul)">👻 ${fmt(save.souls)}</b></div>
         <div><small>${tr('符文', 'Runes')}</small><b style="color:var(--rune)">🔷 ${fmt(save.runes)}</b></div>
@@ -622,6 +624,7 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
     if (nd) { selNode = nd.dataset.node!; showHome(ctx); return; }
     const b = t.closest('button') as HTMLButtonElement | null;
     if (!b) return;
+    if (b.dataset.totree !== undefined) { showMainBoard = false; boardTab = null; selNode = null; showHome(ctx); return; }
     if (b.dataset.board) { boardTab = b.dataset.board as BoardKey; selNode = null; showHome(ctx); return; }
     if (b.dataset.act === 'unlock' && sel && selId && unlockNode(save, selId)) {
       writeSave(save);
@@ -858,10 +861,10 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
       <div class="card">
         <h3>${awk ? `${awk.icon} ${awk.name}` : `${CLASSES[save.classId].icon} ${CLASSES[save.classId].name}`} · ${tr('裝備', 'Gear')}</h3>
         ${statSummary(save)}
-        <div class="undeadline">⚔️ ${tr('攻擊方式：', 'Attack: ')}<b>${ATTACK_NAMES[save.classId === 'necro' && save.necroMode === 'summon' ? 'summon' : atkKind]}</b><small>${tr('由主武器決定（劍 / 槍 = 斬擊（弓手揸槍 = 擲槍）、弓 = 射箭、法杖 = 火球（死靈 = 暗影彈）、鐮刀 = 橫掃）', 'Set by your main-hand weapon (sword / spear = slash (an Archer throws the spear), bow = arrows, staff = fireballs (shadow bolts for a Necromancer), scythe = sweep)')}</small>
+        <div class="undeadline">⚔️ ${tr('攻擊方式：', 'Attack: ')}<b>${ATTACK_NAMES[save.classId === 'necro' && (treeOf(save, 'necro').basic ? treeOf(save, 'necro').basic === 'nb_summon' : save.necroMode === 'summon') ? 'summon' : atkKind]}</b><small>${tr('由主武器決定（劍 / 槍 = 斬擊（弓手揸槍 = 擲槍）、弓 = 射箭、法杖 = 火球（死靈 = 暗影彈）、鐮刀 = 橫掃）', 'Set by your main-hand weapon (sword / spear = slash (an Archer throws the spear), bow = arrows, staff = fireballs (shadow bolts for a Necromancer), scythe = sweep)')}</small>
           ${(atkKind === 'arrow' || atkKind === 'javelin') ? `${arrowMax > 1 ? `<small>🏹 ${arrowJi ? tr(`<b>極·神射</b>：所有箭種可以同時用（已揀 ${arrowUse.length}）。每多一種全部箭傷害只係 ×0.88`, `<b>Max Sharpshooter</b>: every arrow type at once (${arrowUse.length} picked). Each extra type only costs ×0.88 damage`) : tr(`可以同時用 ${arrowMax} 種箭（已揀 ${arrowUse.length}）。撳一下揀／取消；效果疊埋，每多一種全部箭傷害 ×0.75`, `Use up to ${arrowMax} arrow types at once (${arrowUse.length} picked). Tap to add / remove; effects combine, each extra type: all arrows ×0.75 damage`)}</small>` : ''}<div class="arrowpick">${ARROW_TYPES.map((a) => `<button data-arrow="${a}" class="${arrowUse.includes(a) ? 'on' : ''}">${ARROWS[a].icon} ${ARROWS[a].name}</button>`).join('')}</div>${arrowUse.map((a) => `<small>${ARROWS[a].icon} <b>${ARROWS[a].name}</b>${tr('：', ': ')}${ARROWS[a].desc}</small>`).join('')}` : ''}
           ${save.classId === 'warrior' ? `<div class="arrowpick"><button data-blood="0" class="${save.bloodMode ? '' : 'on'}">⚔️ ${tr('攻擊流', 'ATK')}</button><button data-blood="1" class="${save.bloodMode ? 'on' : ''}">❤️ ${tr('血戰', 'Blood War')}</button></div><small>${save.bloodMode ? tr('❤️ <b>血戰</b>：攻擊力 = 最大 HP × 300%（攻擊加成全部唔計，暴擊照計）。所有傷害（攻擊、技能、終極技、反應）都跟 HP 計：堆 HP 就係堆傷害。', '❤️ <b>Blood War</b>: ATK = 300% of max HP (ATK bonuses are ignored, crits still count). Every damage source (attacks, skills, ultimates, reactions) runs on HP: stack HP to stack damage.') : tr('⚔️ <b>攻擊流</b>：正常用攻擊力計傷害。改「血戰」就會用最大 HP 計。', '⚔️ <b>ATK</b>: damage uses your ATK as usual. Switch to Blood War to use max HP instead.')}</small>` : ''}
-          ${save.classId === 'necro' ? `<div class="arrowpick">${(['bolt', 'summon'] as NecroMode[]).map((a) => `<button data-necro="${a}" class="${save.necroMode === a ? 'on' : ''}">${a === 'bolt' && atkKind !== 'shadow' ? `⚔️ ${tr('用武器', 'Use weapon')}（${ATTACK_NAMES[atkKind]}）` : `${NECRO_MODES[a].icon} ${NECRO_MODES[a].name}`}</button>`).join('')}</div><small>${save.necroMode === 'bolt' && atkKind !== 'shadow' ? tr(`⚔️ <b>用武器</b>：用你件武器攻擊（${ATTACK_NAMES[atkKind]}）；亡靈靠殺敵同技能召喚`, `⚔️ <b>Use weapon</b>: attack with your weapon (${ATTACK_NAMES[atkKind]}); Undead come from kills and skills`) : `${NECRO_MODES[save.necroMode].icon} <b>${NECRO_MODES[save.necroMode].name}</b>${tr('：', ': ')}${NECRO_MODES[save.necroMode].desc}`}</small>` : ''}
+          ${save.classId === 'necro' && treeOf(save, 'necro').basic ? `<small>${tr('攻擊方式由技能樹嘅「基本攻擊」決定（揀「召喚骷髏」= 召喚，其他 = 用武器）', 'Your attack is set by the skill tree\'s basic attack (Raise Skeleton = summon, others = weapon)')}</small>` : ''}${save.classId === 'necro' && !treeOf(save, 'necro').basic ? `<div class="arrowpick">${(['bolt', 'summon'] as NecroMode[]).map((a) => `<button data-necro="${a}" class="${save.necroMode === a ? 'on' : ''}">${a === 'bolt' && atkKind !== 'shadow' ? `⚔️ ${tr('用武器', 'Use weapon')}（${ATTACK_NAMES[atkKind]}）` : `${NECRO_MODES[a].icon} ${NECRO_MODES[a].name}`}</button>`).join('')}</div><small>${save.necroMode === 'bolt' && atkKind !== 'shadow' ? tr(`⚔️ <b>用武器</b>：用你件武器攻擊（${ATTACK_NAMES[atkKind]}）；亡靈靠殺敵同技能召喚`, `⚔️ <b>Use weapon</b>: attack with your weapon (${ATTACK_NAMES[atkKind]}); Undead come from kills and skills`) : `${NECRO_MODES[save.necroMode].icon} <b>${NECRO_MODES[save.necroMode].name}</b>${tr('：', ': ')}${NECRO_MODES[save.necroMode].desc}`}</small>` : ''}
           ${atkKind === 'fireball' ? `${spellMaxN > 1 ? `<small>📖 ${spellJi ? tr(`<b>極·大魔導</b>：四種法術同時放（已揀 ${spellUse.length}），每多一種只係 ×0.88，反應會連鎖去附近敵人`, `<b>Max Archmage</b>: all four spells at once (${spellUse.length} picked), each extra only ×0.88; reactions chain to nearby enemies`) : tr(`可以同時放 ${spellMaxN} 種法術（已揀 ${spellUse.length}）。撳一下揀／取消；每多一種全部傷害 ×0.75`, `Cast up to ${spellMaxN} spells at once (${spellUse.length} picked). Tap to add / remove; each extra: all damage ×0.75`)}</small>` : ''}<div class="arrowpick">${SPELL_TYPES.map((a) => `<button data-spell="${a}" class="${spellUse.includes(a) ? 'on' : ''}">${SPELLS[a].icon} ${SPELLS[a].name}</button>`).join('')}</div>${spellUse.map((a) => `<small>${SPELLS[a].icon} <b>${SPELLS[a].name}</b>${tr('：', ': ')}${SPELLS[a].desc}</small>`).join('')}` : ''}</div>
         ${elemLine(save, atkKind)}
         ${undeadLine(save)}

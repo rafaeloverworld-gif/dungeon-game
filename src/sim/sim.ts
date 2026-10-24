@@ -10,7 +10,7 @@ import { autopilotDirection } from './autopilot';
 import { mixFor, PURE_SIGNATURE, type AwakenedDef, type SignatureDef } from './awakening';
 import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { addBonus, mergeBonus } from './stats';
-import { treeSkill, type TreeActive, type TreeRun } from './tree';
+import { treeSkill, type BasicSpec, type ModCode, type TreeActive, type TreeRun } from './tree';
 import { updateAbilities } from './abilities';
 import { oneShotAbsorb, ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, PROC_ULTS, type UltId, type UltRun } from './ultimates';
 import { activeCombos, COMBO_EXTRA, isMax, MAX_POWER, MAX_STACK, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
@@ -342,7 +342,8 @@ export class Sim {
   treeSkills: (TreeActive & { timer: number })[] = [];
   tb = { dmg: 0, dmgT: 0, avatarT: 0, avatarMult: 1.5, undyingT: 0, spinGuard: false };
   treeLater: { t: number; fn: () => void }[] = [];
-  basic: TreeActive | null = null; // 技能樹 基本攻擊
+  basic: TreeActive | null = null; // 技能樹 基本攻擊 (warrior swings)
+  gbasic: (TreeActive & { bs: BasicSpec; code?: ModCode }) | null = null; // 技能樹 基本攻擊 (archer / mage / necro)
   private basicCount = 0;
   spinTick = 0;
   zones: Zone[] = [];
@@ -396,7 +397,7 @@ export class Sim {
     this.weapons = setup.weapons ?? null;
     const wk = this.weapons?.main ? attackFor(this.weapons.main, setup.classId) : null;
     const kind0 = wk ?? this.cls.attack;
-    this.attack = ATTACK_STYLES[setup.classId === 'necro' && setup.necroMode === 'summon' ? 'summon' : kind0]; // a necromancer can summon with any weapon
+    this.attack = ATTACK_STYLES[setup.classId === 'necro' && (setup.tree?.basic ? setup.tree.basic.id === 'nb_summon' : setup.necroMode === 'summon') ? 'summon' : kind0]; // a necromancer can summon with any weapon
     this.arrowType = setup.arrowType ?? 'normal';
     this.arrowTypes = setup.arrowTypes?.length ? setup.arrowTypes : [this.arrowType];
     this.arrowMax = !!setup.arrowMax;
@@ -478,6 +479,8 @@ export class Sim {
       if (sk?.pass === 'overlord') { addBonus(bonus, 'atk', { pct: 0.1 * r }); addBonus(bonus, 'critDmg', { flat: 0.2 * r }); }
     }
     if (setup.tree?.basic?.id === 'wb_flurry' && setup.tree.basic.mod === 1) addBonus(bonus, 'moveSpeed', { pct: 0.15 }); // 技能樹 疾風
+    { const gb = setup.tree?.basic, gd = gb ? treeSkill(setup.classId, gb.id) : undefined;
+      if (gb && gd?.bs) { this.gbasic = { ...gb, bs: gd.bs, code: gb.mod !== -1 ? gd.mods?.[gb.mod]?.code : undefined }; if (this.gbasic.code === 'b_move') addBonus(bonus, 'moveSpeed', { pct: 0.15 }); } }
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
     if (this.mastery > 0) { const k = 1 + MASTERY_STAT * Math.min(50, this.mastery); this.stats.maxHp.base *= k; this.stats.atk.base *= k; } // 專精: HP and ATK +1.5% per class level (up to Lv 50)
@@ -734,11 +737,11 @@ export class Sim {
       const target = this.nearestEnemy(p.x, p.z, reach);
       if (target) {
         const frenzy = this.proc.frenzyTimer > 0 ? 1 + this.proc.frenzy : 1; // 狂風
-        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy * (this.warGod || this.tb.avatarT > 0 ? 1.5 : 1)) / (this.basic?.id === 'wb_bash' ? 0.67 : this.basic?.id === 'wb_flurry' ? 1.6 : 1); // 戰神 / 技能樹 戰神降臨 / 基本攻擊
+        p.attackTimer = this.attack.interval / (this.attack.kind === 'fireball' && this.spellType === 'meteor' && this.spellTypes.length === 1 ? 0.65 : 1) / (value(this.stats.atkSpeed) * frenzy * (this.warGod || this.tb.avatarT > 0 ? 1.5 : 1)) / (this.basic?.id === 'wb_bash' ? 0.67 : this.basic?.id === 'wb_flurry' ? 1.6 : 1) / (this.gbasic?.bs.speed ?? 1); // 戰神 / 技能樹 戰神降臨 / 基本攻擊
         const base = Math.atan2(target.x - p.x, target.z - p.z);
         p.facing = base;
-        const once = (mult: number) => (melee ? this.swing(base, reach, mult) : this.attack.kind === 'summon' ? this.summonAttack(base, mult) : this.shoot(base, mult));
-        once(1);
+        const once = (mult: number, a = base) => (melee ? this.swing(a, reach, mult) : this.attack.kind === 'summon' ? this.summonAttack(a, mult) : this.shoot(a, mult));
+        if (this.gbasic) this.basicAttack(target, once); else once(1);
         if (this.cls.id === 'archer' && this.mastery >= 25 && !melee && ++this.volleyCount % 3 === 0) once(1); // 弓手 連射: every 3rd attack fires twice
         if (this.proc.double && this.rand() < this.proc.double) once(1); // 連擊
         if (this.sp.echo && this.rand() < this.sp.echo) once(0.6); // 回響
@@ -907,7 +910,7 @@ export class Sim {
     const fx = this.attack.kind === 'reap' ? 'shadow' : undefined;
     const b = this.basic;
     if (b) { // 技能樹 基本攻擊
-      const n = ++this.basicCount, rm = 1 + 0.1 * (b.rank - 1), p = this.player;
+      const n = ++this.basicCount, rm = 1 + 0.05 * (b.rank - 1), p = this.player;
       const inArc = (rch: number, a: number) => this.enemies.filter((e) => { if (e.hp <= 0) return false; const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz); if (d - e.radius > rch) return false; let df = Math.atan2(dx, dz) - angle; df = Math.atan2(Math.sin(df), Math.cos(df)); return d <= e.radius + 0.6 || Math.abs(df) <= a / 2; });
       if (b.id === 'wb_slash') {
         if (b.enh) arc = Math.min(Math.PI * 2, arc * 1.3);
@@ -935,6 +938,27 @@ export class Sim {
       const p = this.player, sp = 16, { dmg, crit } = this.rollDamage();
       this.projectiles.push({ x: p.x, z: p.z, vx: Math.sin(angle) * sp, vz: Math.cos(angle) * sp, dmg: dmg * mult * 1.0, crit, fromPlayer: true, life: 0.55, pierce: 99, radius: 0.7, hit: [], javelin: true, src: 'skill' });
     }
+  }
+
+  /** 技能樹 基本攻擊 for archer / mage / necro: speed (set on the timer), damage, side shots and the picked 變化. */
+  private basicAttack(target: Enemy, once: (mult: number, a?: number) => void): void {
+    const g = this.gbasic!, bs = g.bs, n = ++this.basicCount, p = this.player;
+    const base = Math.atan2(target.x - p.x, target.z - p.z);
+    const m = bs.mult * (1 + 0.05 * (g.rank - 1)) * (g.enh ? bs.enhMult : 1);
+    this.critBonus = g.code === 'b_crit' ? 0.2 : 0;
+    this.forceCrit = g.code === 'b_nth3' && n % 3 === 0;
+    const side = (bs.side ?? 0) + (g.enh ? bs.enhSide ?? 0 : 0), sm = bs.sideMult ?? 0.5;
+    if (side && this.sp.oneShot) once(m * (1 + side * sm)); // 一擊流: side shots become damage
+    else {
+      once(m);
+      for (let i = 1; i <= side / 2; i++) { once(m * sm, base - 0.2 * i); once(m * sm, base + 0.2 * i); }
+    }
+    if (g.code === 'b_extra4' && n % 4 === 0) once(m);
+    this.critBonus = 0; this.forceCrit = false;
+    if (bs.curse || g.code === 'b_mark') target.markTimer = Math.max(target.markTimer, 2);
+    if (g.code === 'b_slow' && target.hp > 0) { target.slowTimer = Math.max(target.slowTimer, 1.5); target.slowMult = Math.min(target.slowMult, 0.5); }
+    const h = (bs.drain ?? 0) * (g.enh ? 2 : 1) + (g.code === 'b_heal' ? 0.004 : 0);
+    if (h) p.hp = Math.min(this.maxHp, p.hp + this.maxHp * h);
   }
 
   /** 戰士 戰神 (專精 Lv 25): below half HP, attacks and attack speed ×1.5. */

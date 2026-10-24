@@ -1,7 +1,7 @@
 // Skill-tree auto skills and awakened signature skills.
 import { ARENA_HALF } from './config';
-import { AUTO_SKILLS } from './skills';
-import { rankMult, treeSkill } from './tree';
+import { AUTO_SKILLS, type AutoSkillId } from './skills';
+import { rankMult, treeSkill, type TreeActive, type TreeSkill } from './tree';
 import { value } from './stats';
 import type { Enemy, Sim } from './sim';
 
@@ -18,7 +18,6 @@ const area = (sim: Sim) => Math.sqrt(value(sim.stats.area));
 const atk = (sim: Sim) => value(sim.stats.atk);
 
 export function updateAbilities(sim: Sim, dt: number): void {
-  const p = sim.player;
   updateTree(sim, dt);
 
   // ---------- auto skills from the trees ----------
@@ -29,45 +28,60 @@ export function updateAbilities(sim: Sim, dt: number): void {
     if (sk.id === 'barrier') {
       if (sim.player.hp / sim.maxHp > 0.85 && !nearestWithin(sim, 4)) { sk.timer = 0.5; continue; }
       sk.timer = AUTO_SKILLS.barrier.cooldown[sk.level - 1] * sim.sp.cdMult;
-      p.invuln = Math.max(p.invuln, lv2 ? 1.8 : 1.2);
-      p.hp = Math.min(sim.maxHp, p.hp + sim.maxHp * (lv2 ? 0.1 : 0.06));
-      sim.events.push({ type: 'explode', x: p.x, z: p.z, r: 1.6, fx: 'holy' });
+      castAuto(sim, 'barrier', lv2, null);
       continue;
     }
     const target = nearestWithin(sim, 11);
     if (!target) { sk.timer = 0.3; continue; }
     sk.timer = AUTO_SKILLS[sk.id].cooldown[sk.level - 1] * sim.sp.cdMult * (sk.id === 'raiseDead' ? sim.summonCdMult : 1);
+    castAuto(sim, sk.id, lv2, target);
+  }
+  updateZonesEtc(sim, dt);
+}
+
+/** One auto skill (old skill boards and the 技能樹 share these). */
+export function castAuto(sim: Sim, id: AutoSkillId, lv2: boolean, target: Enemy | null, k = 1): void {
+  const A = atk(sim) * k; // 技能樹: rank / 強化 power
+  const p = sim.player;
+  if (id === 'barrier') {
+    p.invuln = Math.max(p.invuln, lv2 ? 1.8 : 1.2);
+    p.hp = Math.min(sim.maxHp, p.hp + sim.maxHp * (lv2 ? 0.1 : 0.06));
+    sim.events.push({ type: 'explode', x: p.x, z: p.z, r: 1.6, fx: 'holy' });
+    return;
+  }
+  if (!target) return;
+  {
     const { crit } = sim.rollDamage();
     const critMult = crit ? value(sim.stats.critDmg) : 1;
-    switch (sk.id) {
+    switch (id) {
       case 'whirlwind': {
         const r = (lv2 ? 3.8 : 3) * area(sim);
-        sim.arcHit(0, r, Math.PI * 2, lv2 ? 2.5 : 1.5, 'physical'); // arcHit rolls its own crits
+        sim.arcHit(0, r, Math.PI * 2, (lv2 ? 2.5 : 1.5) * k, 'physical'); // arcHit rolls its own crits
         break;
       }
       case 'slam': {
         const r = (lv2 ? 5.5 : 4) * area(sim);
-        sim.explode(p.x, p.z, r, atk(sim) * (lv2 ? 3 : 2) * critMult, crit, 'physical', { knock: 2.5 });
+        sim.explode(p.x, p.z, r, A * (lv2 ? 3 : 2) * critMult, crit, 'physical', { knock: 2.5 });
         break;
       }
       case 'arrowRain': {
         const r = (lv2 ? 3.5 : 2.5) * area(sim);
-        sim.explode(target.x, target.z, r, atk(sim) * (lv2 ? 2 : 1.2) * critMult, crit, 'physical', { slow: 0.7 });
+        sim.explode(target.x, target.z, r, A * (lv2 ? 2 : 1.2) * critMult, crit, 'physical', { slow: 0.7 });
         break;
       }
       case 'warCry': {
         const r = (lv2 ? 6 : 5) * area(sim);
-        sim.explode(p.x, p.z, r, atk(sim) * critMult, crit, 'holy', { slow: 0.5, slowTime: lv2 ? 4 : 3 });
+        sim.explode(p.x, p.z, r, A * critMult, crit, 'holy', { slow: 0.5, slowTime: lv2 ? 4 : 3 });
         break;
       }
       case 'snare': {
         const r = (lv2 ? 3.6 : 2.8) * area(sim);
-        sim.explode(target.x, target.z, r, atk(sim) * 0.8 * critMult, crit, 'arcane', { slow: 0.15, slowTime: lv2 ? 3 : 2 });
+        sim.explode(target.x, target.z, r, A * 0.8 * critMult, crit, 'arcane', { slow: 0.15, slowTime: lv2 ? 3 : 2 });
         break;
       }
       case 'timeWarp': {
         const r = 9 * area(sim);
-        sim.explode(p.x, p.z, r, lv2 ? atk(sim) * 1.2 * critMult : 0, crit, 'arcane', { slow: lv2 ? 0.4 : 0.5, slowTime: lv2 ? 5 : 4 });
+        sim.explode(p.x, p.z, r, lv2 ? A * 1.2 * critMult : 0, crit, 'arcane', { slow: lv2 ? 0.4 : 0.5, slowTime: lv2 ? 5 : 4 });
         break;
       }
       case 'arrowFan': {
@@ -76,13 +90,13 @@ export function updateAbilities(sim: Sim, dt: number): void {
         const spread = (55 * Math.PI) / 180;
         for (let i = 0; i < n; i++) {
           const a = base - spread / 2 + (spread * i) / (n - 1);
-          shootArrow(sim, a, atk(sim) * critMult, crit, { pierce: 2, speed: 22, range: 11 });
+          shootArrow(sim, a, A * critMult, crit, { pierce: 2, speed: 22, range: 11 });
         }
         break;
       }
       case 'frostNova': {
         const r = (lv2 ? 4.5 : 3.5) * area(sim);
-        sim.explode(p.x, p.z, r, atk(sim) * (lv2 ? 2.5 : 1.5) * critMult, crit, 'frost', { slow: 0.6 });
+        sim.explode(p.x, p.z, r, A * (lv2 ? 2.5 : 1.5) * critMult, crit, 'frost', { slow: 0.6 });
         break;
       }
       case 'meteor': {
@@ -91,14 +105,14 @@ export function updateAbilities(sim: Sim, dt: number): void {
           const others = sim.enemies.filter((e) => e !== target && Math.hypot(e.x - p.x, e.z - p.z) < 12);
           if (others.length) targets.push(others[Math.floor(sim.rand() * others.length)]);
         }
-        for (const t of targets) sim.explode(t.x, t.z, 3.5 * area(sim), atk(sim) * 4 * critMult, crit, 'fire');
+        for (const t of targets) sim.explode(t.x, t.z, 3.5 * area(sim), A * 4 * critMult, crit, 'fire');
         break;
       }
       case 'raiseDead': {
         const n = lv2 ? 3 : 2;
         for (let i = 0; i < n; i++) {
           const a = sim.rand() * Math.PI * 2;
-          if (!sim.summon(p.x + Math.sin(a) * 1.5, p.z + Math.cos(a) * 1.5)) {
+          if (!sim.summon(p.x + Math.sin(a) * 1.5, p.z + Math.cos(a) * 1.5, { power: k })) {
             for (const m of sim.minions) { m.hp = m.maxHp; m.life = Math.max(m.life, 20); } // at the cap: refresh them instead
             break;
           }
@@ -107,7 +121,7 @@ export function updateAbilities(sim: Sim, dt: number): void {
       }
       case 'corpseBlast': {
         const r = (lv2 ? 3.2 : 2.5) * area(sim);
-        sim.explode(target.x, target.z, r, atk(sim) * (lv2 ? 2.8 : 1.8) * critMult, crit, 'shadow');
+        sim.explode(target.x, target.z, r, A * (lv2 ? 2.8 : 1.8) * critMult, crit, 'shadow');
         break;
       }
       case 'boneArmor': {
@@ -123,7 +137,7 @@ export function updateAbilities(sim: Sim, dt: number): void {
           e.markTimer = Math.max(e.markTimer, lv2 ? 4 : 3);
           e.slowTimer = Math.max(e.slowTimer, lv2 ? 4 : 3);
           e.slowMult = Math.min(e.slowMult, 0.6);
-          if (lv2) sim.damageEnemy(e, atk(sim) * 0.8 * critMult, crit, true);
+          if (lv2) sim.damageEnemy(e, A * 0.8 * critMult, crit, true);
         }
         sim.events.push({ type: 'explode', x: p.x, z: p.z, r, fx: 'shadow' });
         break;
@@ -131,7 +145,10 @@ export function updateAbilities(sim: Sim, dt: number): void {
       default: break;
     }
   }
+}
 
+function updateZonesEtc(sim: Sim, dt: number): void {
+  const p = sim.player;
   // ---------- zones (附魔領域) ----------
   sim.zones = sim.zones.filter((z) => {
     z.timer -= dt;
@@ -256,15 +273,16 @@ function bestTarget(sim: Sim, r: number): Enemy | null {
   return best;
 }
 
-function castSignature(sim: Sim): boolean {
+/** Cast a Signature-style skill: the character's own (no args) or one from the skill tree (kind / power / enhanced). */
+export function castSignature(sim: Sim, kindO?: string, mO?: number, upO?: boolean): boolean {
   const p = sim.player;
-  const sig = sim.signature!;
-  const m = sig.dmgMult;
-  const up = sig.level === 2; // enhanced version (awakened board)
+  const m = mO ?? sim.signature!.dmgMult;
+  const up = upO ?? sim.signature!.level === 2; // enhanced version (awakened board)
+  const kind = kindO ?? sim.sigDef!.kind;
   const { dmg: baseDmg, crit } = sim.rollDamage();
   const target = nearestWithin(sim, 14);
   const aim = target ? Math.atan2(target.x - p.x, target.z - p.z) : p.facing;
-  switch (sim.sigDef!.kind) {
+  switch (kind) {
     case 'bladeStorm':
       sim.spinTimer = up ? 4.5 : 3;
       sim.spinTick = 0;
@@ -398,6 +416,7 @@ function castSignature(sim: Sim): boolean {
       return true;
     }
   }
+  return false;
 }
 
 // ---------- 技能樹 actives (Diablo-style): rank → 強化 → one of two 變化 ----------
@@ -421,8 +440,14 @@ function updateTree(sim: Sim, dt: number): void {
     // self buffs wait for a fight; the rest wait for a target in reach
     if (!target) { sk.timer = 0.3; continue; }
     if (sk.id === 'w_wall' && p.hp > sim.maxHp * 0.9 && sim.elemShield > sim.maxHp * 0.05) { sk.timer = 0.5; continue; }
+    if (def.cast) { // archer / mage / necro: shared skills with generic 變化
+      const code = sk.mod !== -1 ? def.mods?.[sk.mod]?.code : undefined;
+      sk.timer = (def.cd ?? 5) * sim.sp.cdMult * (code === 'cdr' ? 0.7 : 1);
+      castTree(sim, sk, def, target, 1);
+      continue;
+    }
     sk.timer = (def.cd ?? 5) * sim.sp.cdMult;
-    const m = rankMult(sk.rank) * (sk.enh ? 1 : 1);
+    const m = rankMult(sk.rank);
     const ar = area(sim);
     const aim = Math.atan2(target.x - p.x, target.z - p.z);
     switch (sk.id) {
@@ -495,5 +520,28 @@ function updateTree(sim: Sim, dt: number): void {
         break;
       }
     }
+  }
+}
+
+/** Generic 技能樹 active: rank +20% each, 強化 = upgraded version +30%, then its 變化. */
+function castTree(sim: Sim, sk: TreeActive, def: TreeSkill, target: Enemy, scale: number): void {
+  const c = def.cast!, p = sim.player;
+  const code = sk.mod !== -1 ? def.mods?.[sk.mod]?.code : undefined;
+  const k = rankMult(sk.rank) * (sk.enh ? 1.3 : 1) * (code === 'power' ? 1.5 : 1) * scale;
+  if ('auto' in c) castAuto(sim, c.auto, sk.enh, target, k);
+  else castSignature(sim, c.sig, k, sk.enh);
+  if (scale === 1) sim.events.push({ type: 'skill', name: def.name, icon: def.icon, signature: false });
+  if (scale !== 1 || !code) return;
+  const near = (r: number) => sim.enemies.filter((e) => e.hp > 0 && Math.hypot(e.x - target.x, e.z - target.z) < r + e.radius);
+  switch (code) {
+    case 'echo': sim.treeLater.push({ t: 0.5, fn: () => { const t = target.hp > 0 ? target : sim.nearestEnemy(p.x, p.z, 11); if (t) sim.withSrc('skill', () => castTree(sim, sk, def, t, 0.6)); } }); break;
+    case 'heal': heal(sim, 0.1); break;
+    case 'shield': sim.elemShield = Math.max(sim.elemShield, sim.maxHp * 0.15); break;
+    case 'buff': sim.tb.dmg = Math.max(sim.tb.dmgT > 0 ? sim.tb.dmg : 0, 0.25); sim.tb.dmgT = Math.max(sim.tb.dmgT, 5); break;
+    case 'invuln': p.invuln = Math.max(p.invuln, 1.2); break;
+    case 'mark': for (const e of near(4)) e.markTimer = Math.max(e.markTimer, 4); break;
+    case 'slow': for (const e of near(4)) { e.slowTimer = Math.max(e.slowTimer, 3); e.slowMult = Math.min(e.slowMult, 0.3); } break;
+    case 'nova': sim.explode(p.x, p.z, 3.5 * area(sim), atk(sim) * 1.2 * k, false, 'arcane'); break;
+    default: break;
   }
 }

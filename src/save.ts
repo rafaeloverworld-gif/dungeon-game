@@ -859,8 +859,8 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   const specials = worn.flatMap((i) => [i.special, i.special2]).filter((x): x is SpecialId => !!x);
   const procs = worn.map((i) => i.proc).filter((p): p is NonNullable<Item['proc']> => !!p);
   const treeOn = TREE_CLASSES.includes(s.classId);
-  // the main class's old board is replaced by its skill tree (other boards of a mix still count)
-  const skills = boardEffects(treeOn ? activeBoard(s).filter((id) => boardKeyOf(id) !== s.classId) : activeBoard(s), pureBoardScale(s));
+  // the main class's old board: its skills are replaced by the skill tree; its stat panels still count (until the board refund)
+  const skills = boardEffects(treeOn ? activeBoard(s).filter((id) => { const k = boardKeyOf(id); return k.slice(copyPrefix(`${k}.`).length) !== s.classId || nodeById(id)?.kind !== 'skill'; }) : activeBoard(s), pureBoardScale(s));
   const tree = treeOn ? treeRun(s.classId, treeOf(s, s.classId)) : undefined;
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
