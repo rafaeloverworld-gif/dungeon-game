@@ -73,8 +73,15 @@ const KEY = 'website-game-save-v1';
 
 const emptyEquipped = (): Record<string, string | null> => ({});
 
-/** Weapons are remembered per class, so switching class doesn't lose your sword. Armour is shared. */
-export const slotKey = (slot: EquipSlot, classId: ClassId) => (slot === 'mainWeapon' || slot === 'subWeapon' ? `${slot}:${classId}` : slot);
+/** Every slot is remembered per class (and each class has its own 配裝 A/B/C), so changing one class's gear never touches another's. */
+export const slotKey = (slot: EquipSlot, classId: ClassId) => `${slot}:${classId}`;
+/** Old saves shared armour between classes ('helmet'): give every class its own copy ('helmet:archer', …). */
+function splitSharedArmour(eq: Record<string, string | null>, classes: readonly ClassId[]): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const [k, v] of Object.entries(eq)) if (k.includes(':')) out[k] = v;
+  for (const [k, v] of Object.entries(eq)) if (!k.includes(':')) for (const c of classes) if (!(`${k}:${c}` in out)) out[`${k}:${c}`] = v;
+  return out;
+}
 
 export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
@@ -144,6 +151,8 @@ function sanitize(raw: unknown): SaveData {
       if (it && (it.weapon ? isWeaponSlot(slot as Slot) : EQUIP_SLOTS.includes(slot as EquipSlot) && it.slot === itemSlotOf(slot as EquipSlot))) equipped[key] = it.id;
     }
   }
+  Object.assign(equipped, splitSharedArmour(equipped, CLASS_IDS));
+  for (const k of Object.keys(equipped)) if (!k.includes(':')) delete equipped[k];
   return {
     version: 2,
     coins: Math.max(0, num(r.coins, 0)),
@@ -660,7 +669,7 @@ function sanitizeLoadouts(raw: unknown): SaveData['loadouts'] {
       const st = v.sets![i] as Partial<Loadout> | null | undefined;
       if (!st || typeof st !== 'object') return null;
       return {
-        equipped: Object.fromEntries(Object.entries(st.equipped ?? {}).filter(([, id]) => id === null || typeof id === 'string')) as Loadout['equipped'],
+        equipped: splitSharedArmour(Object.fromEntries(Object.entries(st.equipped ?? {}).filter(([, id]) => id === null || typeof id === 'string')), [c as ClassId]) as Loadout['equipped'],
         ultEquip: Array.isArray(st.ultEquip) ? st.ultEquip.filter((u) => ULT_IDS.includes(u)).slice(0, ULT_SLOTS_MAX) : [],
         arrowType: ARROW_TYPES.includes(st.arrowType as ArrowType) ? st.arrowType : undefined,
         arrowMix: Array.isArray(st.arrowMix) ? st.arrowMix.filter((a) => ARROW_TYPES.includes(a)) : [],
