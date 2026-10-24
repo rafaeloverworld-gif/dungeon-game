@@ -121,7 +121,7 @@ function renderGo(ctx: HomeCtx, body: HTMLElement): void {
   const c = CLASSES[save.classId];
   body.appendChild(h(`
     <div class="col">
-      <h1>${tr('地城 Beta 4', 'Dungeon Beta 4')} <small class="buildtag">${buildLabel()}</small></h1>
+      <h1>${tr('地城 Beta 5', 'Dungeon Beta 5')} <small class="buildtag">${buildLabel()}</small></h1>
       ${questCard(save)}
       <div class="card">
         <h3>${tr('職業', 'Class')}</h3>
@@ -1222,7 +1222,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       </div>
       <div class="note">${modelsReady && !modelsError ? tr('3D 模型：✅ 已載入', '3D models: ✅ loaded') : modelsError ? `${tr('3D 模型：❌ 載入失敗', '3D models: ❌ failed')} (${modelsError})` : tr('3D 模型：⏳ 載入中', '3D models: ⏳ loading')}</div>
       <div class="note">${tr('版本', 'Version')} <b>${buildLabel()}</b>${tr('（GitHub 更新咗大約 10 分鐘內會見到新版本；見唔到就閂咗個分頁再開）', ' (a new update shows up within about 10 minutes; if not, close the tab and open it again)')}</div>
-      <div class="note">${tr('地城 Beta 4 · 職業、技能板、覺醒、裝備、交換、世界 Boss、離線收益。', 'Dungeon Beta 4 · Classes, Skill Boards, Awakening, Gear, Trade, World Boss, offline rewards.')}</div>
+      <div class="note">${tr('地城 Beta 5 · 職業、技能板、覺醒、裝備、交換、世界 Boss、離線收益。', 'Dungeon Beta 5 · Classes, Skill Boards, Awakening, Gear, Trade, World Boss, offline rewards.')}</div>
     </div>`));
   ctx.wireToggles(body);
   body.addEventListener('click', (ev) => {
