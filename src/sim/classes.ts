@@ -27,6 +27,8 @@ export interface ClassDef {
   dodge?: number; // 弓手 迴避: chance to ignore a hit completely
   bigDmg?: number; // 弓手 弱點射擊: extra damage to mini bosses and bosses
   bossGuard?: number; // ranged classes: take this much less damage while a boss is in the fight
+  hitCap?: number; // a single hit can't take more than this share of max HP (ranged classes: no one-shots)
+  dmgMult?: number; // class damage multiplier for your own damage (attacks, skills, ultimates, reactions; not undead)
 }
 
 export const CLASSES: Record<ClassId, ClassDef> = {
@@ -37,16 +39,16 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     arcDegrees: 150, preferredDistance: 1.6, healOnKill: 0.008,
   },
   archer: {
-    id: 'archer', name: tr('弓手', 'Archer'), icon: '🏹', desc: tr('遠程射擊最近嘅敵人，暴擊率高、速度快。保持距離：有 Boss 喺場時受傷 -30%。弱點射擊：對小 Boss 同 Boss 傷害 +40%。迴避：25% 機會完全無視一下傷害。', 'Shoots the nearest enemy from range. High crit, fast attacks. Keeps their distance: 30% less damage while a boss is in the fight. Weak Spot: +40% damage to Mini-bosses and Bosses. Evasion: 25% chance to ignore a hit completely.'),
+    id: 'archer', name: tr('弓手', 'Archer'), icon: '🏹', desc: tr('遠程射擊最近嘅敵人，暴擊率高、速度快。保持距離：有 Boss 喺場時受傷 -30%。弱點射擊：對小 Boss 同 Boss 傷害 +40%。迴避：25% 機會完全無視一下傷害。身法：一下最多只會扣 30% 最大 HP（唔會俾人一擊秒殺）。所有傷害 ×1.3。', 'Shoots the nearest enemy from range. High crit, fast attacks. Keeps their distance: 30% less damage while a boss is in the fight. Weak Spot: +40% damage to Mini-bosses and Bosses. Evasion: 25% chance to ignore a hit completely. Footwork: no single hit takes more than 30% of max HP (no one-shots). All damage ×1.3.'),
     attack: 'arrow', mainWeapon: tr('弓', 'Bow'), subWeapon: tr('箭筒', 'Quiver'),
     base: { hp: 175, atk: 19.5, def: 10, attackInterval: 0.5, range: 10, moveSpeed: 6, crit: 0.12, critDmg: 1.6 },
-    projectileSpeed: 20, preferredDistance: 7, bossGuard: 0.3, bigDmg: 0.4, dodge: 0.25,
+    projectileSpeed: 20, preferredDistance: 7, bossGuard: 0.3, bigDmg: 0.4, dodge: 0.25, hitCap: 0.3, dmgMult: 1.3,
   },
   mage: {
-    id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。有 Boss 喺場時受傷 -35%。元素護盾：每次觸發反應得到最大 HP 3% 護盾（最多 15%）。元素同調：每 2 次施法加多一種元素，兩種元素喺敵人身上會起反應（火+冰=蒸發爆炸、火+雷=超載、冰+雷=超導），法師嘅反應傷害 +50%。', 'Fireballs explode on hit. Best area damage, but lowest HP. 35% less damage while a boss is in the fight. Elemental Shield: each reaction you set off gives a 3% max HP shield (up to 15%). Elemental Sync: every 2nd cast adds a second element; two elements on an enemy react (fire+frost = Steam Blast, fire+lightning = Overload, frost+lightning = Superconduct). Mage reactions hit 50% harder.'),
+    id: 'mage', name: tr('魔法師', 'Mage'), icon: '🔮', desc: tr('火球撞到敵人會爆炸，範圍傷害最高，但血最少。有 Boss 喺場時受傷 -35%。法力屏護：一下最多只會扣 30% 最大 HP（唔會俾人一擊秒殺）。元素護盾：每次觸發反應得到最大 HP 3% 護盾（最多 15%）。元素同調：每 2 次施法加多一種元素，兩種元素喺敵人身上會起反應（火+冰=蒸發爆炸、火+雷=超載、冰+雷=超導），法師嘅反應傷害 +50%。', 'Fireballs explode on hit. Best area damage, but lowest HP. 35% less damage while a boss is in the fight. Mana Guard: no single hit takes more than 30% of max HP (no one-shots). Elemental Shield: each reaction you set off gives a 3% max HP shield (up to 15%). Elemental Sync: every 2nd cast adds a second element; two elements on an enemy react (fire+frost = Steam Blast, fire+lightning = Overload, frost+lightning = Superconduct). Mage reactions hit 50% harder.'),
     attack: 'fireball', mainWeapon: tr('法杖', 'Staff'), subWeapon: tr('法球', 'Orb'),
     base: { hp: 130, atk: 20, def: 8, attackInterval: 0.8, range: 8.5, moveSpeed: 5.8, crit: 0.06, critDmg: 1.7 },
-    blastRadius: 2.3, projectileSpeed: 15, preferredDistance: 6, bossGuard: 0.35,
+    blastRadius: 2.3, projectileSpeed: 15, preferredDistance: 6, bossGuard: 0.35, hitCap: 0.3,
   },
   necro: {
     id: 'necro', name: tr('死靈法師', 'Necromancer'), icon: '💀', desc: tr('射暗影彈；殺死嘅敵人有機會變成亡靈幫你打（同時最多 3 隻，近戰怪變近戰、遠程怪會射）。自己偏脆，靠亡靈擋怪。', 'Fires shadow bolts; kills may rise as Undead that fight for you (max 3; melee foes stay melee, ranged ones shoot). Fragile, so let the Undead tank.'),

@@ -289,7 +289,7 @@ function updateHud(): void {
     hud.kills.textContent = `${tr('傷害', 'Damage')} ${Math.floor((sim.wbDamage / (sim.boss?.maxHp ?? (sim.wbDamage || 1))) * 100)}%`;
   } else {
     hud.map.textContent = sim.endless ? `♾️ ${tr(`第 ${sim.wave} 波 · 第 ${sim.tier} 級`, `Wave ${sim.wave} · T${sim.tier}`)}` : `${tr('地圖', 'Map')} ${sim.map + 1}/${DUNGEON.maps}`;
-    hud.kills.textContent = sim.bossSpawned ? tr('Boss 戰', 'Boss fight') : `${tr('擊殺', 'Kills')} ${sim.kills}/${sim.quota}`;
+    hud.kills.textContent = sim.endless ? `${tr('擊殺', 'Kills')} ${sim.kills}` : sim.bossSpawned ? tr('Boss 戰', 'Boss fight') : `${tr('擊殺', 'Kills')} ${sim.kills}/${sim.quota}`; // 無盡: no quota
   }
   hud.coins.textContent = `🪙 ${fmt(sim.runCoins)} · 👻 ${fmt(sim.runSouls)}${sim.runRunes ? ` · 🔷 ${sim.runRunes}` : ''}${sim.runCrystals ? ` · 💎 ${sim.runCrystals}` : ''}`;
   hud.timer.textContent = `⏱ ${mmss(sim.endless ? sim.time : Math.max(0, sim.timeLimit - sim.time))}`; // 無盡模式 counts up

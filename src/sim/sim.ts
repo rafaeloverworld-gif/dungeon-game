@@ -1272,6 +1272,7 @@ export class Sim {
     if (this.cls.id === 'warrior' && this.mastery >= 10 && this.boss) dmg *= 0.65; // 戰士 不屈: 35% less while a boss is in the fight (melee has to stand next to it)
     if (this.cls.id === 'warrior' && this.mastery >= 10 && src !== 'boss' && src !== 'miniboss' && src !== 'slam' && src !== 'charge') dmg *= 0.8; // 戰士 不屈: small enemies hit 20% softer
     dmg *= this.cg.taken; // 鋼骨 / 法力屏障
+    if (this.cls.hitCap) dmg = Math.min(dmg, this.maxHp * this.cls.hitCap); // 弓手 / 法師: no single hit takes more than this
     dmg = ultOnHurt(this, dmg); // 聖光壁壘 / 復仇之魂
     if (dmg <= 0) { p.invuln = PLAYER.hurtInvuln * 0.5; return false; }
     if (this.elemShield > 0) { // 元素護盾 takes the hit first
@@ -1710,6 +1711,7 @@ export class Sim {
   private overkillDepth = 0;
   damageEnemy(e: Enemy, dmg: number, crit: boolean, noProc = false, armourPierce = false): void {
     if (e.hp <= 0) return;
+    if (this.cls.dmgMult && this.src !== 'undead' && this.src !== 'thorns') dmg *= this.cls.dmgMult; // 職業傷害倍數 (弓手 / 法師 catch up with 骨爆)
     let oneShotHit = false;
     if (this.sp.oneShot && !noProc && this.src === 'attack') {
       const cm = crit ? value(this.stats.critDmg) : 1, boost = crit ? (1 + ONE_SHOT.critBoost * (cm - 1)) / cm : 1;
