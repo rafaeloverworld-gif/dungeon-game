@@ -1060,7 +1060,7 @@ export class Sim {
     const n = this.stats.multishot + (t.has('spread') && !this.sp.oneShot ? 2 : 0);
     const spread = t.has('spread') ? 0.2 : 0.14;
     const speed = this.attack.projectileSpeed ?? 18;
-    let dm = 1.15 * mixPenalty(this.arrowMax, this.arrowOver) ** (types.length - 1);
+    let dm = 1.15 * (this.sp.oneShot && this.arrowMax ? 1 : mixPenalty(this.arrowMax, this.arrowOver)) ** (types.length - 1);
     if (t.has('normal')) dm *= 1.4;
     if (t.has('spread')) dm *= 0.8;
     if (t.has('homing')) dm *= 0.75;
@@ -1191,7 +1191,7 @@ export class Sim {
     const t = new Set(this.cls.id === 'archer' ? this.arrowTypes : []);
     const n = this.stats.multishot + (t.has('spread') && !this.sp.oneShot ? 2 : 0);
     const speed = this.attack.projectileSpeed ?? 22;
-    let dm = 1.3 * (t.size > 1 ? mixPenalty(this.arrowMax, this.arrowOver) ** (t.size - 1) : 1);
+    let dm = 1.3 * (t.size > 1 ? (this.sp.oneShot && this.arrowMax ? 1 : mixPenalty(this.arrowMax, this.arrowOver)) ** (t.size - 1) : 1);
     if (t.has('normal')) dm *= 1.25;
     if (t.has('spread')) dm *= 0.8;
     if (t.has('homing')) dm *= 0.75;
@@ -1708,7 +1708,7 @@ export class Sim {
     let oneShotHit = false;
     if (this.sp.oneShot && !noProc && this.src === 'attack') {
       const cm = crit ? value(this.stats.critDmg) : 1, boost = crit ? (1 + ONE_SHOT.critBoost * (cm - 1)) / cm : 1;
-      dmg = (dmg * this.oneShotMult + value(this.stats.atk) * this.oneShotAbsorb * cm) * boost;
+      dmg = dmg * (this.oneShotMult + this.oneShotAbsorb) * boost; // the absorbed ultimates scale with the hit itself (arrow types, 極 penalties, spell power…)
       noProc = true; oneShotHit = true;
     }
     if (e.kind === 'shield' && !armourPierce) dmg *= 0.75; // 盾兵
