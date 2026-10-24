@@ -699,6 +699,9 @@ function slotLabel(save: SaveData, slot: Slot): string {
 }
 
 const salvSel = new Set<Rarity>(['common']);
+// 背包多選 → 一次過放入倉庫
+let bagPickMode = false;
+const bagPicked = new Set<string>();
 
 function renderGear(ctx: HomeCtx, body: HTMLElement): void {
   queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
@@ -747,7 +750,8 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
         </div>
         <button data-act="salvage-sel" class="${salvSel.has('epic') || salvSel.has('legendary') ? 'danger' : ''}" ${toSell.length ? '' : 'disabled'} style="font-size:13px;padding:8px 10px;width:100%;margin-top:6px">${toSell.length ? (EN ? `Salvage ${toSell.length} selected (🪙 ${fmt(sellValue)})` : `分解所選 ${toSell.length} 件（🪙 ${fmt(sellValue)}）`) : tr('揀咗嘅稀有度冇嘢可以分解', 'Nothing to salvage at these rarities')}</button>
         <small class="note" style="display:block;margin-top:4px">${tr('鎖定同已裝備嘅唔會分解', 'Locked and equipped items are kept')}</small>
-        <div class="bag">${bag.length ? bag.map((it) => itemRow(save, it, { showSlot: true })).join('') : `<p class="note">${tr('背包係空嘅。通關地城開寶箱就有裝備。', 'Bag is empty. Clear dungeons and open chests for gear.')}</p>`}</div>
+        ${bag.length ? `<div class="pickbar">${bagPickMode ? `<button data-act="bagpick-all">${tr('全選', 'All')}</button><button data-act="bagpick-none">${tr('清除', 'Clear')}</button><button class="primary" data-act="bagpick-stash" ${bagPicked.size ? '' : 'disabled'}>🏦 ${EN ? `Store ${bagPicked.size}` : `放入倉庫 ${bagPicked.size} 件`}${stashTargetTab(save) ? ` → ${esc(save.stashTabs.find((t) => t.id === stashTargetTab(save))!.name)}` : ''}</button><button class="ghost" data-act="bagpick">${tr('完成', 'Done')}</button>` : `<button data-act="bagpick">☑ ${tr('多選放入倉庫', 'Multi-select to Storage')}</button>`}</div>${bagPickMode ? `<small class="note" style="display:block">${tr('已裝備 / 喺 A/B/C 套裝入面嘅揀唔到', 'Worn gear and gear in an A/B/C build can’t be picked')}</small>` : ''}` : ''}
+        <div class="bag">${bag.length ? bag.map((it) => bagPickMode ? (canStash(save, it) ? itemRow(save, it, { showSlot: true, selectable: true, selected: bagPicked.has(it.id) }).replace('data-item=', 'data-bp=') : '') : itemRow(save, it, { showSlot: true })).join('') : `<p class="note">${tr('背包係空嘅。通關地城開寶箱就有裝備。', 'Bag is empty. Clear dungeons and open chests for gear.')}</p>`}</div>
       </div>
     </div>`));
   body.addEventListener('click', (ev) => {
@@ -756,6 +760,18 @@ function renderGear(ctx: HomeCtx, body: HTMLElement): void {
     if (b.dataset.item) { const it = itemById(save, b.dataset.item); if (it) showItem(ctx, it); }
     else if (b.dataset.act === 'trade') showTrade(ctx);
     else if (b.dataset.act === 'stash') showStash(ctx);
+    else if (b.dataset.bp) { if (bagPicked.has(b.dataset.bp)) bagPicked.delete(b.dataset.bp); else bagPicked.add(b.dataset.bp); showHome(ctx); }
+    else if (b.dataset.act === 'bagpick') { bagPickMode = !bagPickMode; bagPicked.clear(); showHome(ctx); }
+    else if (b.dataset.act === 'bagpick-all') { bag.filter((i) => canStash(save, i)).forEach((i) => bagPicked.add(i.id)); showHome(ctx); }
+    else if (b.dataset.act === 'bagpick-none') { bagPicked.clear(); showHome(ctx); }
+    else if (b.dataset.act === 'bagpick-stash') {
+      let n = 0, full = false;
+      for (const id of [...bagPicked]) { const res = toStash(save, id, stashTargetTab(save)); if (res === 'ok') { n++; bagPicked.delete(id); } else if (res === 'full') { full = true; break; } }
+      writeSave(save);
+      if (!full) bagPickMode = false;
+      showHome(ctx);
+      ctx.banner(full ? (EN ? `Stored ${n}. Storage is full` : `放咗 ${n} 件，倉庫滿咗`) : (EN ? `🏦 Stored ${n}` : `🏦 放咗 ${n} 件入倉庫`));
+    }
     else if (b.dataset.act === 'bag') { if (buyBag(save)) { writeSave(save); showHome(ctx); } }
     else if (b.dataset.necro) { save.necroMode = b.dataset.necro as NecroMode; writeSave(save); showHome(ctx); }
     else if (b.dataset.spell) {
@@ -885,6 +901,8 @@ const CAT_NAMES: Record<TradeCat, string> = { weapon: tr('武器', 'Weapons'), a
 // 倉庫 view: 'all' | 'none' (未分類) | 'tab:<id>' (player tab) | 'cls:<class>' (weapons that class can hold) | 'gen' (armour & accessories)
 let stashView = 'all';
 let stashPick: string | null = null;
+let stashMulti = false;
+const stashPicked = new Set<string>();
 /** Bag → 倉庫 goes into the player tab you last looked at. */
 function stashTargetTab(save: SaveData): string | null {
   const id = stashView.startsWith('tab:') ? stashView.slice(4) : null;
@@ -933,7 +951,12 @@ function showStash(ctx: HomeCtx, note = ''): void {
           ${curTab ? `<div class="row"><input id="stab-name" maxlength="${STASH_TAB_NAME}" value="${tabName(curTab)}"><button data-act="tab-rename">${tr('改名', 'Rename')}</button><button data-act="tab-del" class="danger">${tr('刪除', 'Delete')}</button></div><small class="note">${tr('刪除分頁唔會刪裝備，入面嘅嘢會返去「未分類」', 'Deleting a tab keeps its gear (it goes back to Unsorted)')}</small>` : `<small class="note">${tr('揀咗一個自己嘅分頁先改得名 / 刪除。喺背包放入倉庫時，會放入你最後睇緊嘅分頁。', 'Pick one of your tabs to rename or delete it. Gear moved from the bag goes into the tab you last opened.')}</small>`}
         </details>
         ${cost !== null ? `<button data-act="expand" ${save.coins < cost ? 'disabled' : ''} style="width:100%;margin:8px 0">🏦 +${STASH_STEP} ${tr('格', 'slots')}（🪙 ${fmt(cost)}）</button>` : `<small class="note" style="display:block">${tr('倉庫已經擴充到最大', 'Storage is at max size')}</small>`}
-        <div class="bag">${list.length ? list.map((it) => itemRow(save, it, { showSlot: true, selected: stashPick === it.id }).replace('data-item=', 'data-pick=') + (stashPick === it.id ? pickPanel(it) : '')).join('') : `<p class="note">${save.stash.length ? tr('呢個分類冇裝備', 'Nothing here') : tr('倉庫係空嘅。喺背包撳一件裝備 → 「放入倉庫」。', 'Storage is empty. Tap an item in your bag → "Move to Storage".')}</p>`}</div>
+        ${list.length ? `<div class="pickbar">${stashMulti ? `<button data-act="m-all">${tr('全選', 'All')}</button><button data-act="m-none">${tr('清除', 'Clear')}</button><button class="ghost" data-act="multi">${tr('完成', 'Done')}</button>` : `<button data-act="multi">☑ ${tr('多選', 'Multi-select')}</button>`}</div>` : ''}
+        ${stashMulti ? `<div class="stashpick multi"><b>${EN ? `${stashPicked.size} picked` : `已揀 ${stashPicked.size} 件`}</b>
+          <button class="primary" data-act="m-out" ${stashPicked.size && !bagFull ? '' : 'disabled'}>📤 ${bagFull ? tr('背包滿咗', 'Bag is full') : (EN ? `Take out (bag space ${bagMax(save) - save.items.length})` : `取出返背包（背包仲有 ${bagMax(save) - save.items.length} 格）`)}</button>
+          <small>${tr('移去分頁：', 'Move to tab:')}</small>
+          <div class="chips">${[null, ...save.stashTabs.map((t) => t.id)].map((id) => `<button data-mmove="${id ?? ''}" ${stashPicked.size ? '' : 'disabled'}>${id ? '📁 ' : ''}${tabName(id)}</button>`).join('')}</div></div>` : ''}
+        <div class="bag">${list.length ? list.map((it) => stashMulti ? itemRow(save, it, { showSlot: true, selectable: true, selected: stashPicked.has(it.id) }).replace('data-item=', 'data-mpick=') : itemRow(save, it, { showSlot: true, selected: stashPick === it.id }).replace('data-item=', 'data-pick=') + (stashPick === it.id ? pickPanel(it) : '')).join('') : `<p class="note">${save.stash.length ? tr('呢個分類冇裝備', 'Nothing here') : tr('倉庫係空嘅。喺背包撳一件裝備 → 「放入倉庫」。', 'Storage is empty. Tap an item in your bag → "Move to Storage".')}</p>`}</div>
         <button class="ghost" data-act="close" style="width:100%;margin-top:8px">${tr('關閉', 'Close')}</button>
       </div>
     </div>`);
@@ -951,7 +974,17 @@ function showStash(ctx: HomeCtx, note = ''): void {
       if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳確認', 'Tap again'); return; }
       deleteStashTab(save, curTab); stashView = 'all';
     }
-    else if (b.dataset.view !== undefined) { stashView = b.dataset.view; stashPick = null; }
+    else if (b.dataset.view !== undefined) { stashView = b.dataset.view; stashPick = null; stashPicked.clear(); }
+    else if (act === 'multi') { stashMulti = !stashMulti; stashPicked.clear(); stashPick = null; }
+    else if (act === 'm-all') list.forEach((i) => stashPicked.add(i.id));
+    else if (act === 'm-none') stashPicked.clear();
+    else if (b.dataset.mpick) { if (stashPicked.has(b.dataset.mpick)) stashPicked.delete(b.dataset.mpick); else stashPicked.add(b.dataset.mpick); }
+    else if (b.dataset.mmove !== undefined) { const n = stashPicked.size; stashPicked.forEach((id) => setStashTab(save, id, b.dataset.mmove || null)); stashPicked.clear(); msg = EN ? `✅ Moved ${n} to ${tabName(b.dataset.mmove || null)}` : `✅ ${n} 件移咗去${tabName(b.dataset.mmove || null)}`; }
+    else if (act === 'm-out') {
+      let n = 0;
+      for (const id of [...stashPicked]) { if (fromStash(save, id) === 'full') break; stashPicked.delete(id); n++; }
+      msg = stashPicked.size ? (EN ? `❌ Took out ${n}; bag is full` : `❌ 取咗 ${n} 件，背包滿咗`) : (EN ? `✅ Took out ${n}` : `✅ 取咗 ${n} 件返背包`);
+    }
     else if (b.dataset.pick) stashPick = stashPick === b.dataset.pick ? null : b.dataset.pick;
     else if (b.dataset.move !== undefined && stashPick) { setStashTab(save, stashPick, b.dataset.move || null); msg = `✅ ${tr('已移去', 'Moved to ')}${tabName(b.dataset.move || null)}`; stashPick = null; }
     else if (b.dataset.out) { msg = fromStash(save, b.dataset.out) === 'full' ? `❌ ${tr('背包滿咗', 'Bag is full')}` : `✅ ${tr('已取出返背包', 'Moved to bag')}`; stashPick = null; }
