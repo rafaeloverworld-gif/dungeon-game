@@ -14,7 +14,7 @@ import { ALL_NODES, MIX_BOARD_NODES, baseId, copyPrefix, BOARD_NODES, boardNodes
 /** A skill board: a class's board, or "2:<class>" for the second copy a same-class awakening gets. */
 export type BoardKey = string;
 import type { RunSetup } from './sim/sim';
-import { ACTIVE_MAX, TREE_CLASSES, TREE_EQUIP, TREES, emptyTree, tierOpen, treeRun, treeSkill, treeSpent, type TreeState } from './sim/tree';
+import { ACTIVE_MAX, TREE_CLASSES, TREE_EQUIP, TREES, emptyTree, tierOpen, treeRun, treeAllow, treeSkill, treeSkillAny, treeSpent, type TreeState } from './sim/tree';
 import { ULT_IDS, ULT_MAX_LEVEL, ULT_SLOTS, ULT_SLOTS_MAX, ULT_SLOT_COSTS, ULT_UNLOCK_COST, ultUpgradeCost, type UltId } from './sim/ultimates';
 import { dayKey, makeNamed, NAMED, namedById, namedChance, todaysBoss, WB_MIN_LEVEL, WB_TICKETS, wbRewards, type WbReward } from './sim/worldboss';
 
@@ -156,7 +156,7 @@ function sanitize(raw: unknown): SaveData {
   }
   Object.assign(equipped, splitSharedArmour(equipped, CLASS_IDS));
   for (const k of Object.keys(equipped)) if (!k.includes(':')) delete equipped[k];
-  return {
+  const out: SaveData = {
     version: 2,
     coins: Math.max(0, num(r.coins, 0)),
     level: Math.max(1, Math.floor(num(r.level, 1))),
@@ -206,6 +206,8 @@ function sanitize(raw: unknown): SaveData {
     ultSlotBuys: Math.min(ULT_SLOT_COSTS.length, Math.max(0, Math.floor(num(r.ultSlotBuys, 0)))),
     collection: Object.fromEntries(NAMED.map((n) => [n.id, Math.max(0, Math.floor(num(r.collection?.[n.id], 0)))]).filter(([, v]) => v)),
   };
+  retireBaseBoards(out);
+  return out;
 }
 
 // Beta 2/3 skill trees were point-based. Points spent there come back as souls and runes.
@@ -503,13 +505,35 @@ export const canAwaken = (s: SaveData) => !subOf(s) && s.highestCleared >= AWAKE
 export const canAscend = (s: SaveData) => !!subOf(s) && !sub2Of(s) && s.level >= ASCEND_LEVEL && s.highestCleared >= ASCEND_TIER;
 /** The mix this character is (two or three classes), or null. */
 export const mixOf = (s: SaveData) => mixFor(s.classId, subOf(s), sub2Of(s));
-/** The boards this character uses: one per class (a class picked again gets copy ② / ③), plus the mixed-class board. */
+/** The boards this character uses: only the mixed-class board now (class boards were replaced by the 技能樹). */
 export function activeBoards(s: SaveData): BoardKey[] {
   const sub = subOf(s), sub2 = sub2Of(s);
-  if (!sub) return [s.classId];
-  const classes = [s.classId, sub, ...(sub2 ? [sub2] : [])];
-  const keys = classes.map((c, i) => { const n = classes.slice(0, i).filter((x) => x === c).length; return n ? `${n + 1}:${c}` : c; });
-  return [...keys, sub2 ? `${s.classId}_${sub}_${sub2}` : `${s.classId}_${sub}`];
+  if (!sub) return [];
+  return [(sub2 ? `${s.classId}_${sub}_${sub2}` : `${s.classId}_${sub}`) as BoardKey];
+}
+/** A single-class board (warrior, 2:mage …) — retired: the 技能樹 took over. */
+export const isClassBoard = (k: string) => !k.includes('_');
+/** 技能樹 migration: take every single-class board panel off (current boards and all 配裝) and refund what was paid. */
+function retireBaseBoards(s: SaveData): void {
+  const take = (board: string[], spent: SaveData['boardSpent']) => {
+    const keys = [...new Set(board.map(boardKeyOf))].filter(isClassBoard);
+    for (const k of keys) {
+      const ids = board.filter((id) => boardKeyOf(id) === k);
+      const r = spent[k as BoardKey] ?? boardCost(ids);
+      s.souls += r.souls; s.runes += r.runes;
+      delete spent[k as BoardKey];
+    }
+    return board.filter((id) => !isClassBoard(boardKeyOf(id)));
+  };
+  s.board = take(s.board, s.boardSpent);
+  for (const k of Object.keys(s.boardResets)) if (isClassBoard(k)) delete s.boardResets[k as BoardKey];
+  for (const lo of Object.values(s.loadouts)) for (const [i, st] of (lo?.sets ?? []).entries()) {
+    if (!st) continue;
+    // the active set is the same build as s.board (already refunded above): just clear it
+    if (i === lo!.active) { st.board = st.board.filter((id) => !isClassBoard(boardKeyOf(id))); for (const k of Object.keys(st.boardSpent)) if (isClassBoard(k)) delete st.boardSpent[k as BoardKey]; continue; }
+    st.board = take(st.board, st.boardSpent);
+    for (const k of Object.keys(st.boardResets)) if (isClassBoard(k)) delete st.boardResets[k as BoardKey];
+  }
 }
 /** Unlocked panels that count for this character (other boards stay saved but switched off). */
 export const activeBoard = (s: SaveData) => { const a: string[] = activeBoards(s); return s.board.filter((id) => a.includes(boardKeyOf(id))); };
@@ -552,8 +576,7 @@ export function ascend(s: SaveData, sub2: ClassId): { souls: number; runes: numb
 /** Test-only: undo the third class (its class board copy and the three-class board are refunded; the two-class board starts empty). */
 export function resetAscension(s: SaveData): { souls: number; runes: number } {
   if (!sub2Of(s)) return { souls: 0, runes: 0 };
-  const boards = activeBoards(s);
-  const drop = [boards[2], boards[3]];
+  const drop: string[] = activeBoards(s);
   for (const k of Object.keys(MIX_BOARD_NODES)) if (k.startsWith(`${s.classId}_${subOf(s)}_`) && !drop.includes(k)) drop.push(k);
   const r = refundBoards(s, drop);
   delete s.subClass2[s.classId];
@@ -640,7 +663,7 @@ export function resetBoard(s: SaveData, c: BoardKey): boolean {
 /** Test-only: undo the second class for the current main class. */
 export function resetAwakening(s: SaveData): { souls: number; runes: number } {
   // the second-class board and the awakened board are cleared and fully refunded (free); the main class board stays
-  const drop = activeBoards(s).slice(1);
+  const drop: string[] = activeBoards(s);
   // also clear mixed boards of this main class left over from earlier picks
   for (const k of Object.keys(MIX_BOARD_NODES)) if (k.startsWith(`${s.classId}_`) && !drop.includes(k)) drop.push(k);
   const refund = refundBoards(s, drop);
@@ -860,8 +883,8 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   const procs = worn.map((i) => i.proc).filter((p): p is NonNullable<Item['proc']> => !!p);
   const treeOn = TREE_CLASSES.includes(s.classId);
   // the main class's old board: its skills are replaced by the skill tree; its stat panels still count (until the board refund)
-  const skills = boardEffects(treeOn ? activeBoard(s).filter((id) => { const k = boardKeyOf(id); return k.slice(copyPrefix(`${k}.`).length) !== s.classId || nodeById(id)?.kind !== 'skill'; }) : activeBoard(s), pureBoardScale(s));
-  const tree = treeOn ? treeRun(s.classId, treeOf(s, s.classId)) : undefined;
+  const skills = boardEffects(activeBoard(s), 1);
+  const tree = treeOn ? { ...treeRun(s.classId, treeOf(s, s.classId), treeAllowOf(s, s.classId)), scale: pureBoardScale(s) } : undefined;
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
@@ -968,13 +991,13 @@ function sanitizeTrees(raw: unknown): SaveData['trees'] {
   if (!raw || typeof raw !== 'object') return out;
   for (const [c, v] of Object.entries(raw as Record<string, Partial<TreeState>>)) {
     if (!CLASS_IDS.includes(c as ClassId) || !v || typeof v !== 'object') continue;
-    const sk = (id: string) => !!treeSkill(c as ClassId, id);
-    const ranks = Object.fromEntries(Object.entries(v.ranks ?? {}).filter(([id, r]) => sk(id) && typeof r === 'number' && r > 0).map(([id, r]) => [id, Math.min(treeSkill(c as ClassId, id)!.max, Math.floor(r as number))]));
+    const sk = (id: string) => !!treeSkillAny(id) && (treeSkillAny(id)!.kind !== 'basic' || !!treeSkill(c as ClassId, id)); // 混合層 skills come from other trees
+    const ranks = Object.fromEntries(Object.entries(v.ranks ?? {}).filter(([id, r]) => sk(id) && typeof r === 'number' && r > 0).map(([id, r]) => [id, Math.min(treeSkillAny(id)!.max, Math.floor(r as number))]));
     out[c as ClassId] = {
       ranks,
       enh: Array.isArray(v.enh) ? v.enh.filter((id) => sk(id) && ranks[id] >= ACTIVE_MAX) : [],
       mods: Object.fromEntries(Object.entries(v.mods ?? {}).filter(([id, m]) => sk(id) && (m === 0 || m === 1) && (v.enh ?? []).includes(id))) as TreeState['mods'],
-      equip: Array.isArray(v.equip) ? v.equip.filter((id) => sk(id) && ranks[id] > 0 && treeSkill(c as ClassId, id)!.kind === 'active').slice(0, TREE_EQUIP) : [],
+      equip: Array.isArray(v.equip) ? v.equip.filter((id) => sk(id) && ranks[id] > 0 && treeSkillAny(id)!.kind === 'active') : [],
       basic: typeof v.basic === 'string' && sk(v.basic) && ranks[v.basic] > 0 ? v.basic : undefined,
     };
   }
@@ -983,24 +1006,28 @@ function sanitizeTrees(raw: unknown): SaveData['trees'] {
 export const treeOf = (s: SaveData, c: ClassId): TreeState => (s.trees[c] ??= emptyTree());
 /** Skill points: one per class level. */
 export const treePoints = (s: SaveData, c: ClassId) => classLevel(s, c);
-export const treeLeft = (s: SaveData, c: ClassId) => treePoints(s, c) - treeSpent(treeOf(s, c));
+/** The skills that count for class c: its tree, plus the 混合層 when c is the current main class. */
+export const treeAllowOf = (s: SaveData, c: ClassId) => (c === s.classId ? treeAllow(c, subOf(s), sub2Of(s)) : treeAllow(c));
+export const treeLeft = (s: SaveData, c: ClassId) => treePoints(s, c) - treeSpent(treeOf(s, c), treeAllowOf(s, c));
+/** Equipped actives that count right now (a sleeping 混合層 skill doesn't take a slot). */
+export const treeEquipNow = (s: SaveData, c: ClassId) => { const a = treeAllowOf(s, c); return treeOf(s, c).equip.filter((id) => a.has(id)); };
 export type TreeAct = 'rank' | 'enh' | 'mod0' | 'mod1' | 'equip';
 /** Can this be done to this skill right now? */
 export function treeCan(s: SaveData, c: ClassId, id: string, act: TreeAct): boolean {
-  const sk = treeSkill(c, id), t = treeOf(s, c);
+  const allow = treeAllowOf(s, c), sk = allow.has(id) ? treeSkillAny(id) : undefined, t = treeOf(s, c);
   if (!sk) return false;
   const r = t.ranks[id] ?? 0;
-  if (act === 'equip') return sk.kind === 'basic' ? r > 0 && t.basic !== id : sk.kind === 'active' && r > 0 && (t.equip.includes(id) || t.equip.length < TREE_EQUIP);
+  if (act === 'equip') return sk.kind === 'basic' ? r > 0 && t.basic !== id : sk.kind === 'active' && r > 0 && (t.equip.includes(id) || treeEquipNow(s, c).length < TREE_EQUIP);
   if (treeLeft(s, c) <= 0) return false;
-  if (act === 'rank') return r < sk.max && tierOpen(t, sk.tier);
+  if (act === 'rank') return r < sk.max && tierOpen(t, sk.tier, allow);
   if (act === 'enh') return sk.kind !== 'passive' && r >= sk.max && !t.enh.includes(id);
   return sk.kind !== 'passive' && t.enh.includes(id) && t.mods[id] === undefined;
 }
 export function treeDo(s: SaveData, c: ClassId, id: string, act: TreeAct): boolean {
   if (!treeCan(s, c, id, act)) return false;
   const t = treeOf(s, c);
-  const kind = treeSkill(c, id)!.kind;
-  if (act === 'rank') { t.ranks[id] = (t.ranks[id] ?? 0) + 1; if (kind === 'active' && t.ranks[id] === 1 && t.equip.length < TREE_EQUIP) t.equip.push(id); if (kind === 'basic' && !t.basic) t.basic = id; }
+  const kind = treeSkillAny(id)!.kind;
+  if (act === 'rank') { t.ranks[id] = (t.ranks[id] ?? 0) + 1; if (kind === 'active' && t.ranks[id] === 1 && treeEquipNow(s, c).length < TREE_EQUIP) t.equip.push(id); if (kind === 'basic' && !t.basic) t.basic = id; }
   else if (act === 'enh') t.enh.push(id);
   else if (act === 'mod0' || act === 'mod1') t.mods[id] = act === 'mod0' ? 0 : 1;
   else if (kind === 'basic') t.basic = id;

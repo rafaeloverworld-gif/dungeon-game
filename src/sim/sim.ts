@@ -10,7 +10,7 @@ import { autopilotDirection } from './autopilot';
 import { mixFor, PURE_SIGNATURE, type AwakenedDef, type SignatureDef } from './awakening';
 import { AUTO_SKILLS, type AutoSkillId, type SkillEffects } from './skills';
 import { addBonus, mergeBonus } from './stats';
-import { treeSkill, type BasicSpec, type ModCode, type TreeActive, type TreeRun } from './tree';
+import { treeSkillAny, type BasicSpec, type ModCode, type TreeActive, type TreeRun } from './tree';
 import { updateAbilities } from './abilities';
 import { oneShotAbsorb, ultOnHit, newUltRun, ULT, ultOnHurt, updateUltimates, PROC_ULTS, type UltId, type UltRun } from './ultimates';
 import { activeCombos, COMBO_EXTRA, isMax, MAX_POWER, MAX_STACK, attackFor, type BoneCombo, type ProcId, type SpecialId, type WeaponType } from './gear';
@@ -473,13 +473,13 @@ export class Sim {
     // combos: the strongest one's undead damage counts, each other combo adds +20% (they don't multiply); ×4 = 極 form
     const powers = activeCombos(setup.specials ?? []).map((c) => { this.combo.add(c.id); return (c.power ?? 1) * (isMax(c, setup.specials ?? []) ? MAX_POWER : 1); }).sort((a, b) => b - a);
     if (powers.length) this.comboPower = powers[0] * (1 + COMBO_EXTRA * (powers.length - 1));
-    for (const [id, r] of Object.entries(setup.tree?.passives ?? {})) { // 技能樹 stat passives
-      const sk = treeSkill(setup.classId, id);
+    for (const [id, r0] of Object.entries(setup.tree?.passives ?? {})) { // 技能樹 stat passives (專精 multiplies them)
+      const sk = treeSkillAny(id), r = r0 * (setup.tree?.scale ?? 1);
       if (sk?.stat) addBonus(bonus, sk.stat.stat, { pct: sk.stat.pct ? sk.stat.pct * r : undefined, flat: sk.stat.flat ? sk.stat.flat * r : undefined });
       if (sk?.pass === 'overlord') { addBonus(bonus, 'atk', { pct: 0.1 * r }); addBonus(bonus, 'critDmg', { flat: 0.2 * r }); }
     }
     if (setup.tree?.basic?.id === 'wb_flurry' && setup.tree.basic.mod === 1) addBonus(bonus, 'moveSpeed', { pct: 0.15 }); // 技能樹 疾風
-    { const gb = setup.tree?.basic, gd = gb ? treeSkill(setup.classId, gb.id) : undefined;
+    { const gb = setup.tree?.basic, gd = gb ? treeSkillAny(gb.id) : undefined;
       if (gb && gd?.bs) { this.gbasic = { ...gb, bs: gd.bs, code: gb.mod !== -1 ? gd.mods?.[gb.mod]?.code : undefined }; if (this.gbasic.code === 'b_move') addBonus(bonus, 'moveSpeed', { pct: 0.15 }); } }
     this.stats = buildStats(setup.classId, bonus);
     this.stats.range.base = this.attack.range;
@@ -509,7 +509,7 @@ export class Sim {
     { // 技能樹 passives (stat ones were added to the bonus before the stats were built)
       const tp = setup.tree?.passives ?? {};
       for (const [id, r] of Object.entries(tp)) {
-        const sk = treeSkill(setup.classId, id);
+        const sk = treeSkillAny(id);
         if (!sk?.pass) continue;
         if (sk.pass === 'healOnKill') this.healOnKill += 0.004 * r;
         else if (sk.pass === 'cdr') this.sp.cdMult *= 1 - 0.06 * r;
@@ -518,7 +518,7 @@ export class Sim {
         else if (sk.pass === 'lastStand') this.lastStand = { level: (r >= 2 ? 2 : 1), used: false };
       }
       this.basic = this.attack.kind === 'arc' || this.attack.kind === 'reap' ? setup.tree?.basic ?? null : null;
-      this.treeSkills = (setup.tree?.actives ?? []).map((a) => ({ ...a, timer: (treeSkill(setup.classId, a.id)?.cd ?? 5) * 0.4 * this.sp.cdMult }));
+      this.treeSkills = (setup.tree?.actives ?? []).map((a) => ({ ...a, timer: (treeSkillAny(a.id)?.cd ?? 5) * 0.4 * this.sp.cdMult }));
     }
     for (const sk of fx?.autoSkills ?? []) {
       if (sk.id === 'lastStand') this.lastStand = { level: sk.level, used: false };

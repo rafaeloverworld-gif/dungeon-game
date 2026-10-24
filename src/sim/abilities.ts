@@ -1,7 +1,7 @@
 // Skill-tree auto skills and awakened signature skills.
 import { ARENA_HALF } from './config';
 import { AUTO_SKILLS, type AutoSkillId } from './skills';
-import { rankMult, treeSkill, type TreeActive, type TreeSkill } from './tree';
+import { rankMult, treeSkillAny, type TreeActive, type TreeSkill } from './tree';
 import { value } from './stats';
 import type { Enemy, Sim } from './sim';
 
@@ -434,7 +434,7 @@ function updateTree(sim: Sim, dt: number): void {
   for (const sk of sim.treeSkills) {
     sk.timer -= dt;
     if (sk.timer > 0) continue;
-    const def = treeSkill(sim.cls.id, sk.id);
+    const def = treeSkillAny(sk.id);
     if (!def) continue;
     const target = sim.nearestEnemy(p.x, p.z, 9);
     // self buffs wait for a fight; the rest wait for a target in reach

@@ -8,13 +8,13 @@ import {
   upgradeCost, upgradedMain, WEAPON_TYPES, WEAPONS, weaponOptions, attackFor, weaponUseText, weaponUserIcons, weaponUsers, specialClass, type Item, type ItemKind, type Rarity, type Slot,
 } from '../sim/gear';
 import { buildStats, mixPenalty } from '../sim/sim';
-import { TREE_CLASSES, TREE_EQUIP, TREE_TIERS, tierOpen, treeSpent, type TreeSkill } from '../sim/tree';
+import { TREE_CLASSES, TREE_EQUIP, TREE_TIERS, tierOpen, treeSpent, layerSkills, LAYER_TIERS, type TreeSkill } from '../sim/tree';
 import { value } from '../sim/stats';
 import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascendedFor, ESSENCE_INFO, PURE_SIGNATURE } from '../sim/awakening';
 import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS_MAX, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, treeAllowOf, treeEquipNow, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, ultSlots, ultSlotCost, buyUltSlot, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -308,7 +308,7 @@ function masteryBlock(save: SaveData): string {
   const title = L >= 25 ? `<div class="sig">👑 ${tr('稱號：', 'Title: ')}<b>${PURE_TITLE[c]}</b>${tr('（腳下有金色光環）', ' (gold aura under your feet)')}</div>` : '';
   const sigLine = `<small class="line">${L >= 10 ? '✅' : '🔒'} Lv 10 ${tr('專屬招牌技', 'Own Signature')} ${ico(PURE_SIGNATURE[c].icon)} <b>${PURE_SIGNATURE[c].name}</b>${tr('：', ': ')}${PURE_SIGNATURE[c].desc}${EN ? ` (${PURE_SIGNATURE[c].cooldown}s)` : `（冷卻 ${PURE_SIGNATURE[c].cooldown} 秒）`}</small>`;
   const rows = MASTERY_INFO[c].map(([n, d], i) => `<small class="line">${L >= MASTERY_LEVELS[i] ? '✅' : '🔒'} Lv ${MASTERY_LEVELS[i]} <b>${n}</b>${tr('：', ': ')}${d}</small>`).join('');
-  return `<div class="awk mastery">${head}${title}<div class="sig">🎖️ <b>${tr('專精', 'Mastery')}</b>${tr(`：唔揀第二職業（唔覺醒）就有：技能盤所有數值 ×${pureBoardScale(save)}（通關第 ${ASCEND_TIER} 級 + Lv ${ASCEND_LEVEL} 之後再 +0.5），同埋下面能力。每級職業 HP 同攻擊 +1.5%（而家 +${Math.round(Math.min(50, L) * 1.5)}%）`, `: with no second class (not Awakened) your skill board numbers are ×${pureBoardScale(save)} (+0.5 more after Tier ${ASCEND_TIER} + Lv ${ASCEND_LEVEL}), plus these abilities. +1.5% HP and ATK per class level (now +${Math.round(Math.min(50, L) * 1.5)}%)`)}</div>${sigLine}${rows}</div>`;
+  return `<div class="awk mastery">${head}${title}<div class="sig">🎖️ <b>${tr('專精', 'Mastery')}</b>${tr(`：唔揀第二職業（唔覺醒）就有：技能樹被動嘅數值 ×${pureBoardScale(save)}（通關第 ${ASCEND_TIER} 級 + Lv ${ASCEND_LEVEL} 之後再 +0.5），同埋下面能力。每級職業 HP 同攻擊 +1.5%（而家 +${Math.round(Math.min(50, L) * 1.5)}%）`, `: with no second class (not Awakened) your skill tree passive numbers are ×${pureBoardScale(save)} (+0.5 more after Tier ${ASCEND_TIER} + Lv ${ASCEND_LEVEL}), plus these abilities. +1.5% HP and ATK per class level (now +${Math.round(Math.min(50, L) * 1.5)}%)`)}</div>${sigLine}${rows}</div>`;
 }
 
 function awakeningBlock(save: SaveData): string {
@@ -459,13 +459,14 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
   const c = save.classId;
   const t = treeOf(save, c);
   const skills = TREES[c] ?? [];
-  const left = treeLeft(save, c), total = treePoints(save, c), spent = treeSpent(t);
+  const allow = treeAllowOf(save, c), layers = layerSkills(c, subOf(save), sub2Of(save)), eqNow = treeEquipNow(save, c);
+  const left = treeLeft(save, c), total = treePoints(save, c), spent = treeSpent(t, allow);
   const others = activeBoards(save).filter((k) => k !== c);
   const card = (sk: TreeSkill) => {
-    const r = t.ranks[sk.id] ?? 0, open = tierOpen(t, sk.tier), sel = treeSel === sk.id;
+    const r = t.ranks[sk.id] ?? 0, open = tierOpen(t, sk.tier, allow), sel = treeSel === sk.id;
     const enh = t.enh.includes(sk.id), mod = t.mods[sk.id];
     const pips = Array.from({ length: sk.max }, (_, i) => `<i class="${i < r ? 'on' : ''}"></i>`).join('');
-    const tags = [sk.kind === 'active' ? `⏱ ${sk.cd}s` : sk.kind === 'basic' ? tr('基本攻擊', 'Basic attack') : tr('被動', 'Passive'), t.basic === sk.id ? `⚔️ ${tr('用緊', 'In use')}` : '', enh ? `✨ ${tr('強化', 'Enhanced')}` : '', mod !== undefined && sk.mods ? `🔀 ${sk.mods[mod].name}` : '', t.equip.includes(sk.id) ? `✅ ${tr('已裝備', 'Equipped')}` : ''].filter(Boolean).join(' · ');
+    const tags = [sk.kind === 'active' ? `⏱ ${sk.cd}s` : sk.kind === 'basic' ? tr('基本攻擊', 'Basic attack') : tr('被動', 'Passive'), t.basic === sk.id ? `⚔️ ${tr('用緊', 'In use')}` : '', enh ? `✨ ${tr('強化', 'Enhanced')}` : '', mod !== undefined && sk.mods ? `🔀 ${sk.mods[mod].name}` : '', eqNow.includes(sk.id) ? `✅ ${tr('已裝備', 'Equipped')}` : ''].filter(Boolean).join(' · ');
     let detail = '';
     if (sel) {
       const btn = (act: TreeAct, label: string, primary = false) => `<button class="${primary ? 'primary' : ''}" data-tact="${act}" data-tid="${sk.id}" ${treeCan(save, c, sk.id, act) ? '' : 'disabled'}>${label}</button>`;
@@ -478,7 +479,7 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
           ${sk.enh && r >= sk.max && !enh ? btn('enh', `✨ ${tr('強化', 'Enhance')}`, true) : ''}
           ${sk.mods && enh && mod === undefined ? btn('mod0', `🔀 ${sk.mods[0].name}`) + btn('mod1', `🔀 ${sk.mods[1].name}`) : ''}
           ${sk.kind === 'basic' && r > 0 ? btn('equip', t.basic === sk.id ? `⚔️ ${tr('用緊', 'In use')}` : tr('改用呢個', 'Use this')) : ''}
-          ${sk.kind === 'active' && r > 0 ? btn('equip', t.equip.includes(sk.id) ? tr('卸下', 'Unequip') : `${tr('裝備', 'Equip')}（${t.equip.length}/${TREE_EQUIP}）`) : ''}
+          ${sk.kind === 'active' && r > 0 ? btn('equip', t.equip.includes(sk.id) ? tr('卸下', 'Unequip') : `${tr('裝備', 'Equip')}（${eqNow.length}/${TREE_EQUIP}）`) : ''}
         </div>
         ${!open ? `<small class="note">🔒 ${EN ? `Spend ${TREE_TIERS[sk.tier - 1]} points in this tree to open tier ${sk.tier}` : `呢棵樹用夠 ${TREE_TIERS[sk.tier - 1]} 點先開第 ${sk.tier} 層`}</small>` : ''}
       </div>`;
@@ -489,10 +490,12 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
     <div class="col">
       <div class="card">
         <div class="statline"><h3 style="margin:0">🌳 ${CLASSES[c].icon} ${CLASSES[c].name}${tr('技能樹', ' skill tree')}</h3><small>${tr('技能點', 'Points')} <b style="color:var(--gold)">${left}</b> / ${total}</small></div>
-        <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點。主動技能升滿 5 級開「✨ 強化」，強化之後喺兩個「🔀 變化」揀一個。最多同時裝備 ${TREE_EQUIP} 個主動技能（會自動放）。用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。`, `1 point per class level. Max an active skill (rank 5) to unlock ✨ Enhance, then pick one of two 🔀 modifiers. Up to ${TREE_EQUIP} actives equipped (cast automatically). Tiers open at ${TREE_TIERS.join(' / ')} points spent.`)}</small>
-        <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button><button data-board="${c}">📊 ${tr('屬性盤（舊技能盤嘅屬性格仍然計）', 'Stat board (old board stat panels still count)')}</button>${others.length ? `<button data-board="${others[0]}">📋 ${tr('其他技能盤', 'Other boards')} (${others.length})</button>` : ''}</div>
+        <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點。主動技能升滿 5 級開「✨ 強化」，強化之後喺兩個「🔀 變化」揀一個。最多同時裝備 ${TREE_EQUIP} 個主動技能（會自動放）。用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。舊嘅職業技能盤已經由技能樹取代，用過嘅靈魂同符文全數退還（可以用喺混合職業技能盤）。`, `1 point per class level. Max an active skill (rank 5) to unlock ✨ Enhance, then pick one of two 🔀 modifiers. Up to ${TREE_EQUIP} actives equipped (cast automatically). Tiers open at ${TREE_TIERS.join(' / ')} points spent. The old class boards are replaced by the tree; every soul and rune spent on them was refunded (use them on mixed-class boards).`)}</small>
+        ${layers.length ? `<small class="note" style="display:block;text-align:left">🔗 ${tr('混合職業：第二職業嘅第 1–3 層（第三職業第 1–2 層）技能都可以喺呢度用點數學（最底「混合層」）。換第二職業之後，舊嗰個混合層嘅點數會暫時唔計（唔扣點、唔生效），換返就返嚟。', 'Mixed classes: your second class\'s tiers 1–3 (third class tiers 1–2) can be learned here with the same points (the "Mixed layer" at the bottom). Change the second class and that layer sleeps (no cost, no effect) until you change back.')}</small>` : ''}
+        <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button>${others.length ? `<button data-board="${others[0]}">📋 ${tr('混合職業技能盤', 'Mixed-class board')}</button>` : ''}</div>
       </div>
       ${[0, 1, 2, 3, 4, 5].map((tier) => `<div class="card ttier ${tierOpen(t, tier) ? '' : 'locked'}"><div class="statline"><b>${tier === 0 ? tr('⚔️ 基本攻擊（揀一個用）', '⚔️ Basic attack (pick one)') : tr(`第 ${tier} 層`, `Tier ${tier}`)}</b><small>${tier === 0 ? tr('取代普通攻擊', 'Replaces your normal attack') : tierOpen(t, tier) ? tr('已開', 'Open') : `🔒 ${EN ? `${TREE_TIERS[tier - 1]} points` : `要 ${TREE_TIERS[tier - 1]} 點`}（${spent}）`}</small></div>${skills.filter((x) => x.tier === tier).map(card).join('')}</div>`).join('')}
+      ${layers.map((l) => `<div class="card ttier"><div class="statline"><b>🔗 ${tr('混合層', 'Mixed layer')}：${CLASSES[l.cls].icon} ${CLASSES[l.cls].name}</b><small>${tr(`第 1–${l.cls === subOf(save) ? LAYER_TIERS.sub : LAYER_TIERS.sub2} 層技能，用同一棵樹嘅點數`, `Tiers 1–${l.cls === subOf(save) ? LAYER_TIERS.sub : LAYER_TIERS.sub2}, same points as your tree`)}</small></div>${l.skills.map(card).join('')}</div>`).join('')}
     </div>`));
   body.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
@@ -506,7 +509,7 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
 
 function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
   const save = ctx.getSave();
-  if (TREE_CLASSES.includes(save.classId) && !(showMainBoard && boardTab === save.classId) && (!showMainBoard || !boardTab || boardTab === save.classId || !activeBoards(save).includes(boardTab))) { renderTree(ctx, body); return; }
+  if (TREE_CLASSES.includes(save.classId) && !(showMainBoard && boardTab && activeBoards(save).includes(boardTab))) { renderTree(ctx, body); return; }
   queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   const boards = activeBoards(save);
   const board: BoardKey = boardTab && boards.includes(boardTab) ? boardTab : save.classId;
@@ -585,7 +588,7 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
   body.appendChild(h(`
     <div class="col">
       ${tipCard(save, 'skills')}
-      ${TREE_CLASSES.includes(save.classId) ? `<div class="card"><button class="primary" data-totree>🌳 ${tr('返技能樹', 'Back to the skill tree')}</button><small>${!MIX_BOARD_NODES[board] && classOf(board) === save.classId ? tr('呢塊板嘅技能格已經由技能樹取代（唔再生效）；屬性格照計。', 'This board\'s skill panels are replaced by the skill tree (no effect); stat panels still count.') : ''}</small></div>` : ''}
+      ${TREE_CLASSES.includes(save.classId) ? `<div class="card"><button class="primary" data-totree>🌳 ${tr('返技能樹', 'Back to the skill tree')}</button><small></small></div>` : ''}
       <div class="card mats">
         <div><small>${tr('靈魂', 'Souls')}</small><b style="color:var(--soul)">👻 ${fmt(save.souls)}</b></div>
         <div><small>${tr('符文', 'Runes')}</small><b style="color:var(--rune)">🔷 ${fmt(save.runes)}</b></div>

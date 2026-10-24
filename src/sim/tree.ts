@@ -205,18 +205,18 @@ const MAGE: TreeSkill[] = [
   B('mb_split', ['分裂法彈', 'Split Spell'], '✨', { speed: 1, mult: 0.75, enhMult: 1, side: 2, sideMult: 0.5, enhSide: 2 }, ['中間一發再加左右各一發（50%）', 'One spell plus one on each side (50%)'], ['多 2 發側彈', '2 more side spells'], 'b_crit', 'b_slow'),
   A('m_nova', ['冰霜新星', 'Frost Nova'], '❄️', 1, 7, { auto: 'frostNova' }, ['身邊爆出冰環，減速', 'A ring of frost around you that slows'], 'shield', 'echo'),
   A('m_meteor', ['隕石', 'Meteor'], '☄️', 1, 9, { auto: 'meteor' }, ['一粒隕石砸向目標', 'A meteor crashes on the target'], 'power', 'echo'),
-  statP('m_int', ['智力', 'Intellect'], '🧠', 1, 'atk', 0.06, ['攻擊', 'ATK']),
-  statP('m_area', ['擴散', 'Expanse'], '🌀', 1, 'area', 0.06, ['範圍', 'Area']),
+  statP('m_int', ['智力', 'Intellect'], '🧠', 1, 'atk', 0.1, ['攻擊', 'ATK']),
+  statP('m_area', ['擴散', 'Expanse'], '🌀', 1, 'area', 0.2, ['範圍', 'Area']),
   A('m_warp', ['時間扭曲', 'Time Warp'], '⏳', 2, 14, { auto: 'timeWarp' }, ['大範圍減慢敵人', 'Slows enemies in a huge area'], 'mark', 'cdr'),
   A('m_barrier', ['護盾術', 'Barrier'], '🔰', 2, 12, { auto: 'barrier' }, ['短暫無敵兼回少少 HP', 'Brief invulnerability and a small heal'], 'shield', 'nova'),
   healP('m_siphon', ['魔力汲取', 'Mana Siphon'], 2),
-  statP('m_fort', ['魔障', 'Arcane Skin'], '❤️', 2, 'maxHp', 0.08, ['最大 HP', 'Max HP']),
+  statP('m_fort', ['魔障', 'Arcane Skin'], '❤️', 2, 'maxHp', 0.12, ['最大 HP', 'Max HP']),
   A('m_burst', ['奧術爆發', 'Arcane Burst'], '💫', 3, 12, { sig: 'arcaneBurst' }, ['喺附近最強嘅幾隻敵人身上爆炸', 'Explosions on the strongest enemies nearby'], 'power', 'echo'),
   A('m_field', ['元素領域', 'Elemental Field'], '🔥', 3, 14, { sig: 'field' }, ['喺腳下放一個持續傷害嘅領域', 'A damaging field under you'], 'buff', 'shield'),
-  statP('m_crit', ['奧術精通', 'Arcane Mastery'], '💥', 3, 'critDmg', 0.1, ['暴擊傷害', 'Crit damage'], true),
+  statP('m_crit', ['奧術精通', 'Arcane Mastery'], '💥', 3, 'critDmg', 0.25, ['暴擊傷害', 'Crit damage'], true),
   cdrP('m_focus', 3),
   A('m_slash', ['魔刃', 'Spell Blade'], '🗡️', 4, 10, { sig: 'spellSlash' }, ['揮出一道巨大魔法刃', 'A huge arcane blade sweep'], 'invuln', 'power'),
-  statP('m_eye', ['預知', 'Foresight'], '👁️', 4, 'crit', 0.03, ['暴擊率', 'Crit rate'], true),
+  statP('m_eye', ['預知', 'Foresight'], '👁️', 4, 'crit', 0.05, ['暴擊率', 'Crit rate'], true),
   standP('m_stand', 4),
   A('m_call', ['隕石召喚', 'Meteor Call'], '🌠', 5, 18, { sig: 'meteorCall' }, ['隕石砸向附近最強嘅幾隻敵人', 'Meteors on the strongest enemies nearby'], 'power', 'cdr'),
   lordP('m_lord', ['大魔導', 'Archmage'], '🧙'),
@@ -248,24 +248,44 @@ const NECRO: TreeSkill[] = [
 
 export const TREES: Partial<Record<ClassId, TreeSkill[]>> = { warrior: WARRIOR, archer: ARCHER, mage: MAGE, necro: NECRO };
 export const treeSkill = (c: ClassId, id: string) => TREES[c]?.find((s) => s.id === id);
+let BY_ID: Map<string, TreeSkill> | null = null;
+/** Any class's tree skill by id (ids are unique across trees: w_ / a_ / m_ / n_). */
+export const treeSkillAny = (id: string) => (BY_ID ??= new Map(Object.values(TREES).flat().map((x) => [x.id, x]))).get(id);
+/** 混合層: a second class lends its tiers 1–3 (actives + passives), a third class its tiers 1–2. */
+export const LAYER_TIERS = { sub: 3, sub2: 2 };
+export function layerSkills(c: ClassId, sub: ClassId | null, sub2: ClassId | null): { cls: ClassId; skills: TreeSkill[] }[] {
+  const out: { cls: ClassId; skills: TreeSkill[] }[] = [];
+  const add = (x: ClassId | null, maxTier: number) => {
+    if (!x || x === c || out.some((o) => o.cls === x)) return;
+    out.push({ cls: x, skills: (TREES[x] ?? []).filter((k) => k.kind !== 'basic' && k.tier <= maxTier) });
+  };
+  add(sub, LAYER_TIERS.sub); add(sub2, LAYER_TIERS.sub2);
+  return out;
+}
+/** Skill ids that count for this character: the main tree plus the 混合層. */
+export function treeAllow(c: ClassId, sub: ClassId | null = null, sub2: ClassId | null = null): Set<string> {
+  return new Set([...(TREES[c] ?? []), ...layerSkills(c, sub, sub2).flatMap((l) => l.skills)].map((k) => k.id));
+}
 
 /** One class's tree in the save. */
 export interface TreeState { ranks: Record<string, number>; enh: string[]; mods: Record<string, 0 | 1>; equip: string[]; basic?: string }
 export const emptyTree = (): TreeState => ({ ranks: {}, enh: [], mods: {}, equip: [] });
 
-export function treeSpent(t: TreeState): number {
-  return Object.values(t.ranks).reduce((a, b) => a + b, 0) + t.enh.length + Object.keys(t.mods).length;
+/** Points spent (only skills in `allow` count: a 混合層 of another second class is kept but sleeps, free). */
+export function treeSpent(t: TreeState, allow?: Set<string>): number {
+  const ok = (id: string) => !allow || allow.has(id);
+  return Object.entries(t.ranks).reduce((a, [id, b]) => a + (ok(id) ? b : 0), 0) + t.enh.filter(ok).length + Object.keys(t.mods).filter(ok).length;
 }
 /** Points spent in tiers below this one (opens the tier). */
-export const tierOpen = (t: TreeState, tier: number) => tier <= 0 || treeSpent(t) >= TREE_TIERS[tier - 1];
+export const tierOpen = (t: TreeState, tier: number, allow?: Set<string>) => tier <= 0 || treeSpent(t, allow) >= TREE_TIERS[tier - 1];
 
 /** What a run gets from the tree. */
 export interface TreeActive { id: string; rank: number; enh: boolean; mod: -1 | 0 | 1 }
-export interface TreeRun { actives: TreeActive[]; passives: Record<string, number>; basic: TreeActive | null }
-export function treeRun(c: ClassId, t: TreeState): TreeRun {
+export interface TreeRun { actives: TreeActive[]; passives: Record<string, number>; basic: TreeActive | null; scale?: number /* 專精: stat passives ×2 / ×2.5 */ }
+export function treeRun(c: ClassId, t: TreeState, allow: Set<string> = treeAllow(c)): TreeRun {
   const passives: Record<string, number> = {};
-  for (const s of TREES[c] ?? []) if (s.kind === 'passive' && t.ranks[s.id]) passives[s.id] = t.ranks[s.id];
-  const actives = t.equip.filter((id) => (t.ranks[id] ?? 0) > 0).slice(0, TREE_EQUIP).map((id) => ({ id, rank: t.ranks[id], enh: t.enh.includes(id), mod: (t.mods[id] ?? -1) as -1 | 0 | 1 }));
+  for (const id of allow) { const s = treeSkillAny(id); if (s?.kind === 'passive' && t.ranks[id]) passives[id] = t.ranks[id]; }
+  const actives = t.equip.filter((id) => allow.has(id) && (t.ranks[id] ?? 0) > 0).slice(0, TREE_EQUIP).map((id) => ({ id, rank: t.ranks[id], enh: t.enh.includes(id), mod: (t.mods[id] ?? -1) as -1 | 0 | 1 }));
   const b = t.basic && (t.ranks[t.basic] ?? 0) > 0 ? t.basic : null;
   return { actives, passives, basic: b ? { id: b, rank: t.ranks[b], enh: t.enh.includes(b), mod: (t.mods[b] ?? -1) as -1 | 0 | 1 } : null };
 }
