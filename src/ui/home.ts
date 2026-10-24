@@ -498,9 +498,10 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
   };
   body.appendChild(h(`
     <div class="col">
+      ${tipCard(save, 'tree')}
       <div class="card">
         <div class="statline"><h3 style="margin:0">🌳 ${mixOf(save) ? `${mixOf(save)!.icon} ${mixOf(save)!.name}` : `${CLASSES[c].icon} ${CLASSES[c].name}`}${tr('技能樹', ' skill tree')}</h3><small>${tr('技能點', 'Points')} <b style="color:var(--gold)">${left}</b> / ${total}</small></div>
-        <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點。主動技能升滿 5 級開「✨ 強化」，強化之後喺兩個「🔀 變化」揀一個。最多同時裝備 ${TREE_EQUIP} 個主動技能（會自動放）。用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。舊嘅職業技能盤已經由技能樹取代，用過嘅靈魂同符文全數退還（可以用喺混合職業技能盤）。`, `1 point per class level. Max an active skill (rank 5) to unlock ✨ Enhance, then pick one of two 🔀 modifiers. Up to ${TREE_EQUIP} actives equipped (cast automatically). Tiers open at ${TREE_TIERS.join(' / ')} points spent. The old class boards are replaced by the tree; every soul and rune spent on them was refunded (use them on mixed-class boards).`)}</small>
+        <small class="note" style="display:block;text-align:left">${tr(`職業等級每升 1 級得 1 點；用夠點數開下一層：${TREE_TIERS.join(' / ')} 點。`, `1 point per class level; tiers open at ${TREE_TIERS.join(' / ')} points spent.`)}</small>
         ${layers.length ? `<small class="note" style="display:block;text-align:left">🔗 ${tr('混合職業：第二職業嘅第 1–3 層（第三職業第 1–2 層）技能都可以喺呢度用點數學（最底「混合層」）。換第二職業之後，舊嗰個混合層嘅點數會暫時唔計（唔扣點、唔生效），換返就返嚟。', 'Mixed classes: your second class\'s tiers 1–3 (third class tiers 1–2) can be learned here with the same points (the "Mixed layer" at the bottom). Change the second class and that layer sleeps (no cost, no effect) until you change back.')}</small>` : ''}
         <div class="tbtns" style="margin-top:6px"><button data-tact="reset" ${spent ? '' : 'disabled'}>↺ ${tr('重置技能樹（免費）', 'Reset tree (free)')}</button>${others.length ? `<button data-board="${others[0]}">📋 ${tr('混合職業技能盤', 'Mixed-class board')}</button>` : ''}</div>
       </div>
@@ -600,7 +601,6 @@ function renderSkills(ctx: HomeCtx, body: HTMLElement): void {
 
   body.appendChild(h(`
     <div class="col">
-      ${tipCard(save, 'skills')}
       ${TREE_CLASSES.includes(save.classId) ? `<div class="card"><button class="primary" data-totree>🌳 ${tr('返技能樹', 'Back to the skill tree')}</button><small></small></div>` : ''}
       <div class="card mats">
         <div><small>${tr('靈魂', 'Souls')}</small><b style="color:var(--soul)">👻 ${fmt(save.souls)}</b></div>
@@ -1287,7 +1287,7 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
       <div class="card">
         <h3>${tr('重置帳號', 'Reset account')}</h3>
         <button data-act="reset-all" class="danger" style="width:100%">${tr('🗑️ 重置所有進度', '🗑️ Reset all progress')}</button>
-        <p class="note" style="margin:8px 0 0;text-align:left">${tr('等級、金幣、裝備、技能板、終極技、覺醒、地城紀錄全部清零，由頭開始。音效設定唔郁，重置後會再問你揀語言。', 'Level, coins, gear, skill boards, ultimates, Awakening and dungeon records all go back to zero. Sound settings stay; you will be asked to pick a language again.')}${cloudReady() ? tr('雲端存檔都會一齊重置（電腦同手機）。', ' The cloud save is reset too (PC and phone).') : ''}</p>
+        <p class="note" style="margin:8px 0 0;text-align:left">${tr('等級、金幣、裝備、技能樹、技能板、終極技、覺醒、地城紀錄全部清零，由頭開始。音效設定唔郁，重置後會再問你揀語言。', 'Level, coins, gear, skill trees, skill boards, ultimates, Awakening and dungeon records all go back to zero. Sound settings stay; you will be asked to pick a language again.')}${cloudReady() ? tr('雲端存檔都會一齊重置（電腦同手機）。', ' The cloud save is reset too (PC and phone).') : ''}</p>
         ${hasResetBackup() ? `<button data-act="undo-reset" style="width:100%;margin-top:10px">${tr('↩️ 復原上次重置前嘅存檔', '↩️ Restore the save from before the last reset')}</button>` : ''}
       </div>
       <div class="card">
@@ -1300,11 +1300,11 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
           <div class="seg"><button data-coopbot="1" class="${coopBotOn() ? 'on' : ''}">${tr('開', 'On')}</button><button data-coopbot="0" class="${coopBotOn() ? '' : 'on'}">${tr('關', 'Off')}</button></div></div>
         ${sub2Of(save) ? `<button data-act="reset-ascend" class="danger" style="width:100%;margin-bottom:8px">${EN ? `Reset ${CLASSES[save.classId].name}'s third class` : `重置${CLASSES[save.classId].name}嘅第三職業`}</button>` : ''}
         <button data-act="reset-awaken" class="danger" ${subOf(save) ? '' : 'disabled'} style="width:100%">${EN ? `Reset ${CLASSES[save.classId].name}'s second class` : `重置${CLASSES[save.classId].name}嘅第二職業`}</button>
-        <p class="note" style="margin:8px 0 0;text-align:left">${tr('正式版第二職業揀咗就唔可以改。呢個掣只係方便試玩唔同覺醒職業：第二職業板同覺醒板會清空，用咗嘅靈魂同符文全數退返，免費；主職業板唔郁。', 'In the full game the second class is final. This is for trying Awakenings: the second-class and Awakening boards are cleared and all Souls and Runes refunded, free. Your main board is untouched.')}</p>
+        <p class="note" style="margin:8px 0 0;text-align:left">${tr('正式版第二職業揀咗就唔可以改。呢個掣只係方便試玩唔同覺醒職業：混合職業板會清空，用咗嘅靈魂同符文全數退返，免費；技能樹唔郁（組合專屬層換返第二職業就返嚟）。', 'In the full game the second class is final. This is for trying Awakenings: the mixed-class board is cleared and all Souls and Runes refunded, free. Your skill tree is untouched (a pair layer comes back if you pick that class again).')}</p>
       </div>
       <div class="note">${modelsReady && !modelsError ? tr('3D 模型：✅ 已載入', '3D models: ✅ loaded') : modelsError ? `${tr('3D 模型：❌ 載入失敗', '3D models: ❌ failed')} (${modelsError})` : tr('3D 模型：⏳ 載入中', '3D models: ⏳ loading')}</div>
       <div class="note">${tr('版本', 'Version')} <b>${buildLabel()}</b>${tr('（GitHub 更新咗大約 10 分鐘內會見到新版本；見唔到就閂咗個分頁再開）', ' (a new update shows up within about 10 minutes; if not, close the tab and open it again)')}</div>
-      <div class="note">${tr('地城 Beta 5 · 職業、技能板、覺醒、裝備、交換、世界 Boss、離線收益。', 'Dungeon Beta 5 · Classes, Skill Boards, Awakening, Gear, Trade, World Boss, offline rewards.')}</div>
+      <div class="note">${tr('地城 Beta 5 · 職業、技能樹、覺醒、裝備、交換、世界 Boss、離線收益。', 'Dungeon Beta 5 · Classes, Skill Trees, Awakening, Gear, Trade, World Boss, offline rewards.')}</div>
     </div>`));
   ctx.wireToggles(body);
   wireAudioControls(body);
@@ -1318,13 +1318,13 @@ function renderSettings(ctx: HomeCtx, body: HTMLElement): void {
     if (b?.dataset.act === 'export') void doExport(save);
     if (b?.dataset.act === 'reset-tips') { save.tips = []; writeSave(save); ctx.banner(tr('提示已重設', 'Tips reset')); showHome(ctx); return; }
     if (b?.dataset.act === 'reset-ascend') {
-      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳一次確認（第三職業板同三職業板清空，材料退返）', 'Tap again to confirm (boards cleared, materials refunded)'); return; }
+      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳一次確認（三職業板清空，材料退返）', 'Tap again to confirm (boards cleared, materials refunded)'); return; }
       const r = resetAscension(save); writeSave(save); showHome(ctx);
       ctx.banner(`${tr('第三職業已重置', 'Third class reset')}${r.souls || r.runes ? `${tr('，退返', ', refunded')} 👻 ${fmt(r.souls)} · 🔷 ${r.runes}` : ''}`);
       return;
     }
     if (b?.dataset.act === 'reset-awaken') {
-      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳一次確認（第二職業板同覺醒板會清空，材料全數退返）', 'Tap again to confirm (boards cleared, materials refunded)'); return; }
+      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = tr('再撳一次確認（混合職業板會清空，材料全數退返）', 'Tap again to confirm (boards cleared, materials refunded)'); return; }
       const r = resetAwakening(save); writeSave(save); showHome(ctx);
       ctx.banner(`${tr('第二職業已重置', 'Second class reset')}${r.souls || r.runes ? `${tr('，退返', ', refunded')} 👻 ${fmt(r.souls)} · 🔷 ${r.runes}` : ''}`);
     }
