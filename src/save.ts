@@ -49,6 +49,7 @@ export interface SaveData {
   spellType: Partial<Record<ClassId, SpellType>>; // staffs: chosen spell per class
   spellMix: Partial<Record<ClassId, SpellType[]>>; // 多重法典: extra spells cast in turn
   necroMode: NecroMode; // necromancer: shadow bolts or summoner
+  bloodMode: boolean; // 戰士 血戰: ATK comes from max HP
   board: string[]; // unlocked skill-board panels (all three boards, shared by the character)
   souls: number; // 👻 unlock stat panels
   runes: number; // 🔷 unlock skill panels
@@ -87,7 +88,7 @@ export const freshSave = (): SaveData => ({
   version: 2, coins: 0, level: 1, xp: 0, highestCleared: 0, selectedTier: 1,
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], stash: [], stashBuys: 0, stashTabs: [], stashTabOf: {}, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
-  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
+  subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', bloodMode: false, board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
   wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], ultSlotBuys: 0, wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
@@ -180,6 +181,7 @@ function sanitize(raw: unknown): SaveData {
     autoSalvage: r.autoSalvage === 'common' || r.autoSalvage === 'rare' || r.autoSalvage === 'epic' ? r.autoSalvage : 'off',
     autoRepeat: r.autoRepeat === true,
     necroMode: r.necroMode === 'summon' ? 'summon' : 'bolt',
+    bloodMode: r.bloodMode === true,
     spellType: Object.fromEntries(Object.entries(r.spellType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && SPELL_TYPES.includes(a as SpellType))) as SaveData['spellType'],
     arrowType: Object.fromEntries(Object.entries(r.arrowType ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && ARROW_TYPES.includes(a as ArrowType))) as SaveData['arrowType'],
     arrowMix: Object.fromEntries(Object.entries(r.arrowMix ?? {}).filter(([c, a]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(a)).map(([c, a]) => [c, [...new Set((a as string[]).filter((x) => ARROW_TYPES.includes(x as ArrowType)))]])) as SaveData['arrowMix'],
@@ -656,6 +658,7 @@ export interface Loadout {
   arrowType?: ArrowType; arrowMix: ArrowType[];
   spellType?: SpellType; spellMix: SpellType[];
   necroMode: NecroMode;
+  bloodMode?: boolean;
   board: string[];
   boardSpent: SaveData['boardSpent'];
   boardResets: SaveData['boardResets'];
@@ -676,6 +679,7 @@ function sanitizeLoadouts(raw: unknown): SaveData['loadouts'] {
         spellType: SPELL_TYPES.includes(st.spellType as SpellType) ? st.spellType : undefined,
         spellMix: Array.isArray(st.spellMix) ? st.spellMix.filter((a) => SPELL_TYPES.includes(a)) : [],
         necroMode: st.necroMode === 'summon' ? 'summon' : 'bolt',
+        bloodMode: st.bloodMode === true,
         board: Array.isArray(st.board) ? st.board.filter((id) => typeof id === 'string' && !!nodeById(id)) : [],
         boardSpent: st.boardSpent && typeof st.boardSpent === 'object' ? st.boardSpent : {},
         boardResets: st.boardResets && typeof st.boardResets === 'object' ? st.boardResets : {},
@@ -692,7 +696,7 @@ function snapshotLoadout(s: SaveData): Loadout {
   return {
     equipped: Object.fromEntries(EQUIP_SLOTS.map((sl) => [slotKey(sl, c), s.equipped[slotKey(sl, c)] ?? null])),
     ultEquip: [...s.ultEquip], arrowType: s.arrowType[c], arrowMix: [...(s.arrowMix[c] ?? [])], spellType: s.spellType[c], spellMix: [...(s.spellMix[c] ?? [])],
-    necroMode: s.necroMode, board: s.board.filter((id) => keys.includes(boardKeyOf(id))), boardSpent: pick(s.boardSpent), boardResets: pick(s.boardResets),
+    necroMode: s.necroMode, bloodMode: s.bloodMode, board: s.board.filter((id) => keys.includes(boardKeyOf(id))), boardSpent: pick(s.boardSpent), boardResets: pick(s.boardResets),
   };
 }
 export const activeLoadout = (s: SaveData) => s.loadouts[s.classId]?.active ?? 0;
@@ -717,6 +721,7 @@ export function switchLoadout(s: SaveData, i: number): void {
     if (next.spellType) s.spellType[c] = next.spellType;
     s.spellMix[c] = [...next.spellMix];
     s.necroMode = next.necroMode;
+    s.bloodMode = !!next.bloodMode;
     s.board.push(...next.board.filter((id) => !s.board.includes(id)));
     Object.assign(s.boardSpent, next.boardSpent);
     Object.assign(s.boardResets, next.boardResets);
@@ -854,7 +859,7 @@ export function runSetup(s: SaveData): Omit<RunSetup, 'tier' | 'seed' | 'autoPic
   // awakened-board panels that work like gear skills / legendary specials
   const ults = s.ultEquip.filter((u) => s.ults[u]).map((id) => ({ id, level: s.ults[id]! }));
   const weapons = { main: equippedIn(s, 'mainWeapon')?.weapon ?? null, sub: equippedIn(s, 'subWeapon')?.weapon ?? null, blocked: offHandBlocked(s) };
-  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), arrowOver: arrowOver(s), mastery: isPure(s) ? classLevel(s, s.classId) : 0, spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), spellOver: spellOver(s), necroMode: s.necroMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
+  return { classId: s.classId, subClassId: sub, subClass2Id: sub2Of(s), weapons, arrowType: s.arrowType[s.classId] ?? 'normal', arrowTypes: arrowsInUse(s), arrowMax: arrowMaxForm(s), arrowOver: arrowOver(s), mastery: isPure(s) ? classLevel(s, s.classId) : 0, spellType: s.spellType[s.classId] ?? 'fire', spellTypes: spellsInUse(s), spellMax: spellMaxForm(s), spellOver: spellOver(s), necroMode: s.necroMode, bloodMode: s.classId === 'warrior' && s.bloodMode, skills, bonus: bonuses(s), specials: [...specials, ...skills.specials], procs: [...procs, ...skills.procs], ults };
 }
 
 /** Stats preview including skills and awakening (for the home screen). */

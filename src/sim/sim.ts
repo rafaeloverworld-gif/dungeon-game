@@ -61,6 +61,8 @@ export const MIX_PENALTY_MAX = 0.88;
 export const ONE_SHOT = { speed: 0.5, mult: 2.5, critBoost: 2, absorb: 20, absorbSpell: 24, absorbMelee: 10 };
 /** 骨爆: every blast hits this much harder (on top of max HP × 150% × copies). */
 export const BONE_BURST_MULT = 1.5;
+/** 戰士 血戰: ATK = max HP × this (ATK bonuses are ignored). */
+export const BLOOD_ATK = 3;
 export const MIX_OVER = 0.03, MIX_PENALTY_CAP = 0.94;
 export const mixPenalty = (max: boolean, over: number) => Math.min(MIX_PENALTY_CAP, (max ? MIX_PENALTY_MAX : MIX_PENALTY) + MIX_OVER * over);
 
@@ -172,6 +174,7 @@ export interface RunSetup {
   spellTypes?: SpellType[]; // 多重法典: spells cast in turn
   spellMax?: boolean; // 極·大魔導: reactions chain to nearby enemies
   necroMode?: NecroMode; // necromancer with a staff / no weapon: shadow bolts or summoner
+  bloodMode?: boolean; // 戰士 血戰: your ATK is your max HP × BLOOD_ATK
   skills?: SkillEffects | null; // from the skill trees
   specials?: SpecialId[]; // legendary special affixes on worn gear
   procs?: { id: ProcId; value: number }[]; // weapon / accessory skills on worn gear
@@ -248,6 +251,7 @@ export class Sim {
   readonly spellType: SpellType;
   spellTypes: SpellType[];
   readonly spellMax: boolean;
+  readonly bloodMode: boolean;
   readonly spellOver: number;
   readonly arrowOver: number;
   private chainDepth = 0;
@@ -388,6 +392,7 @@ export class Sim {
     this.spellType = setup.spellType ?? 'fire';
     this.spellTypes = setup.spellTypes?.length ? setup.spellTypes : [this.spellType];
     this.spellMax = !!setup.spellMax;
+    this.bloodMode = !!setup.bloodMode && setup.classId === 'warrior';
     this.spellOver = setup.spellOver ?? 0;
     this.arrowOver = setup.arrowOver ?? 0;
     this.wb = setup.worldBoss ? WORLD_BOSSES[setup.worldBoss] : null;
@@ -1711,6 +1716,7 @@ export class Sim {
   private overkillDepth = 0;
   damageEnemy(e: Enemy, dmg: number, crit: boolean, noProc = false, armourPierce = false): void {
     if (e.hp <= 0) return;
+    if (this.bloodMode && this.src !== 'undead' && this.src !== 'thorns') dmg *= (this.maxHp * BLOOD_ATK) / Math.max(1, value(this.stats.atk)); // 戰士 血戰: every damage source runs on max HP instead of ATK
     if (this.cls.dmgMult && this.src !== 'undead' && this.src !== 'thorns') dmg *= this.cls.dmgMult; // 職業傷害倍數 (弓手 / 法師 catch up with 骨爆)
     let oneShotHit = false;
     if (this.sp.oneShot && !noProc && this.src === 'attack') {
