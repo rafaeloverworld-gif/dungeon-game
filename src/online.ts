@@ -131,6 +131,9 @@ export async function logout(): Promise<void> {
 
 // ---------- uploads (batched: at most one every few seconds) ----------
 let pending: SaveData | null = null;
+/** updatedAt of the cloud save this device last loaded or uploaded: a newer one in the cloud means another device wrote. */
+let syncedAt = 0;
+export const markSynced = (t: number) => { syncedAt = t; };
 let timer: number | undefined;
 let pushing = false;
 
@@ -143,8 +146,18 @@ async function flush(): Promise<void> {
   try {
     const c = client();
     const uid = session.user.id;
+    // never overwrite a save another device wrote after our last sync: hand it to the game to ask instead
+    const { data: cur } = await c.from('saves').select('data, updated_at').eq('user_id', uid).maybeSingle();
+    const d = cur?.data as { json?: string; updatedAt?: number } | undefined;
+    const curAt = d?.updatedAt ?? (cur ? Date.parse(cur.updated_at as string) : 0);
+    if (cur && typeof d?.json === 'string' && curAt > syncedAt && curAt !== s.updatedAt) {
+      status = 'idle'; pushing = false;
+      window.dispatchEvent(new CustomEvent('online-conflict', { detail: { json: d.json, updatedAt: curAt } }));
+      return;
+    }
     const { error } = await c.from('saves').upsert({ user_id: uid, data: { json: JSON.stringify(s), updatedAt: s.updatedAt }, save_version: s.version ?? 1, updated_at: new Date(s.updatedAt || Date.now()).toISOString() });
     if (error) throw error;
+    syncedAt = s.updatedAt;
     await c.from('scores').upsert({
       user_id: uid, player_id: playerId, class_id: s.classId, mix_name: mixOf(s)?.id ?? null, best_tier: s.highestCleared, account_level: s.level,
       updated_at: new Date().toISOString(),

@@ -10,7 +10,7 @@ import { endlessStart, parseSave, setSaveHook, writeSaveLocalOnly, addAccountXp,
 import { namedChance, todaysBoss, type WorldBossId } from './sim/worldboss';
 import { createInput } from './input';
 import { cloudConnect, cloudPush, cloudReady } from './cloud';
-import { onlineConnect, onlinePush, onlineState, reportWorldBoss, type RemoteSave } from './online';
+import { markSynced, onlineConnect, onlinePush, onlineState, reportWorldBoss, type RemoteSave } from './online';
 import { esc, fmt, h, mmss } from './ui/dom';
 import { showHome as renderHome, type HomeCtx, type Tab } from './ui/home';
 import { showRunTip, welcomeModal } from './ui/onboarding';
@@ -127,9 +127,10 @@ function checkOffline(): void {
   ui.appendChild(el);
 }
 
+/** Offline rewards clock: kept on this device only, so an idle tab doesn't stamp its save as the newest and upload it. */
 function touchLastSeen(): void {
   save.lastSeen = Date.now();
-  writeSave(save);
+  writeSaveLocalOnly(save);
 }
 setInterval(() => { if (!document.hidden) touchLastSeen(); }, 30000);
 window.addEventListener('pagehide', touchLastSeen);
@@ -808,30 +809,47 @@ async function startOnline(): Promise<void> {
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushNow(); });
 }
 // logging in from the Settings tab hands over the account's cloud save
-window.addEventListener('online-login', (ev) => syncWithRemote((ev as CustomEvent<RemoteSave | null>).detail));
+window.addEventListener('online-login', (ev) => syncWithRemote((ev as CustomEvent<RemoteSave | null>).detail, true)); // logging in: always ask if they differ
+// another device changed the cloud save since this one last synced: don't overwrite it, ask
+window.addEventListener('online-conflict', (ev) => syncWithRemote((ev as CustomEvent<RemoteSave>).detail, true));
 
 /** Newest save wins, unless the older one has more progress: then ask which to keep. */
-function syncWithRemote(remote: RemoteSave | null): void {
-  const push = () => onlinePush(save, true);
+function syncWithRemote(remote: RemoteSave | null, ask = false): void {
+  const push = () => { if (remote) markSynced(remote.updatedAt); onlinePush(save, true); };
   if (!remote) { push(); return; }
   let r: SaveData;
   try { r = parseSave(remote.json); } catch { push(); return; }
-  if (remote.updatedAt === save.updatedAt) return;
+  if (remote.updatedAt === save.updatedAt) { markSynced(remote.updatedAt); return; }
+  if (ask && !sim) { askWhich(r, remote, push); return; }
   const remoteNewer = remote.updatedAt > save.updatedAt;
   const remoteMore = r.level > save.level || r.highestCleared > save.highestCleared;
   const localMore = save.level > r.level || save.highestCleared > r.highestCleared;
   const useRemote = () => {
     if (sim) return; // mid-run: keep this device's progress
+    markSynced(remote.updatedAt);
     save = r; writeSaveLocalOnly(save); showHome(); checkOffline();
     banner(tr('☁️ 已載入雲端存檔', '☁️ Cloud save loaded'));
   };
   if (!(remoteNewer ? localMore : remoteMore)) { if (remoteNewer) useRemote(); else push(); return; }
+  askWhich(r, remote, push);
+}
+
+/** The cloud and this device differ in a way we can't settle alone: the player picks. */
+function askWhich(r: SaveData, remote: RemoteSave, push: () => void): void {
+  if (document.querySelector('.whichsave')) return;
+  const useRemote = () => {
+    if (sim) return;
+    markSynced(remote.updatedAt);
+    save = r; writeSaveLocalOnly(save); showHome(); checkOffline();
+    banner(tr('☁️ 已載入雲端存檔', '☁️ Cloud save loaded'));
+  };
+  const when = (t: number) => new Date(t).toLocaleString();
   const line = (s: SaveData) => `Lv ${s.level} · ${EN ? `best Tier ${s.highestCleared}` : `最高通關 ${s.highestCleared}`} · ${CLASSES[s.classId].icon} ${CLASSES[s.classId].name}`;
-  const el = h(`<div class="screen dim modal"><div class="card welcome">
+  const el = h(`<div class="screen dim modal whichsave"><div class="card welcome">
       <h2>${tr('揀邊個存檔？', 'Which save?')}</h2>
-      <p class="sub">${tr('雲端同呢部機嘅存檔唔一樣。揀咗嗰個會覆蓋另一個。', 'The cloud save and this device differ. The one you pick replaces the other.')}</p>
-      <button class="primary" data-pick="remote" style="width:100%;margin-bottom:8px">☁️ ${tr('雲端', 'Cloud')}：${line(r)}</button>
-      <button data-pick="local" style="width:100%">📱 ${tr('呢部機', 'This device')}：${line(save)}</button>
+      <p class="sub">${tr('雲端同呢部機嘅存檔唔一樣（可能係另一部機改過）。揀咗嗰個會覆蓋另一個。', 'The cloud save and this device differ (another device may have changed it). The one you pick replaces the other.')}</p>
+      <button class="primary" data-pick="remote" style="width:100%;margin-bottom:8px">☁️ ${tr('雲端', 'Cloud')}：${line(r)}<br><small>${when(remote.updatedAt)}</small></button>
+      <button data-pick="local" style="width:100%">📱 ${tr('呢部機', 'This device')}：${line(save)}<br><small>${when(save.updatedAt)}</small></button>
     </div></div>`);
   el.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-pick]');
