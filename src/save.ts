@@ -65,7 +65,8 @@ export interface SaveData {
   crystals: number; // 💎 for 終極技
   ults: Partial<Record<UltId, number>>; // unlocked 終極技 -> level 1..10
   ultEquip: UltId[]; // up to ultSlots(s) equipped
-  ultByClass: Partial<Record<ClassId, UltId[]>>; // each class remembers its own equipped ultimates (its current 配裝)
+  ultByClass: Partial<Record<ClassId, UltId[]>>;
+  loadoutBuys: number; // extra 配裝 sets bought (D, E, F) // each class remembers its own equipped ultimates (its current 配裝)
   ultSlotBuys: number; // extra 終極技 slots bought with 靈晶
   wbLevel: number; // last chosen world boss level
   collection: Record<string, number>; // named legendary id -> times obtained
@@ -93,7 +94,7 @@ export const freshSave = (): SaveData => ({
   shop: { hp: 0, atk: 0, speed: 0 }, runs: 0, autoPickCards: true,
   classId: 'archer', items: [], stash: [], stashBuys: 0, stashTabs: [], stashTabOf: {}, equipped: emptyEquipped(), nextItemId: 1, lastSeen: Date.now(),
   subClass: {}, subClass2: {}, arrowType: {}, arrowMix: {}, loadouts: {}, classXp: {}, bagBuys: 0, endlessBest: 0, endlessTier: 0, spellType: {}, spellMix: {}, necroMode: 'bolt', bloodMode: false, trees: {}, pure: {}, board: [], souls: 0, runes: 0, boardResets: {}, boardSpent: {}, autoSalvage: 'off', autoRepeat: false, updatedAt: 0,
-  wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], ultByClass: {}, ultSlotBuys: 0, wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
+  wbDay: '', wbUsed: 0, crystals: 0, ults: {}, ultEquip: [], ultByClass: {}, loadoutBuys: 0, ultSlotBuys: 0, wbLevel: WB_MIN_LEVEL, collection: {}, tips: [], quests: [], wbFights: 0,
 });
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -207,6 +208,7 @@ function sanitize(raw: unknown): SaveData {
     ults: Object.fromEntries(ULT_IDS.map((u) => [u, Math.min(ULT_MAX_LEVEL, Math.max(0, Math.floor(num(r.ults?.[u], 0))))]).filter(([, v]) => v)),
     ultEquip: Array.isArray(r.ultEquip) ? [...new Set(r.ultEquip.filter((u): u is UltId => ULT_IDS.includes(u as UltId) && num(r.ults?.[u as UltId], 0) > 0))].slice(0, ULT_SLOTS + Math.min(ULT_SLOT_COSTS.length, Math.max(0, Math.floor(num(r.ultSlotBuys, 0))))) : [],
     ultSlotBuys: Math.min(ULT_SLOT_COSTS.length, Math.max(0, Math.floor(num(r.ultSlotBuys, 0)))),
+    loadoutBuys: Math.min(3, Math.max(0, Math.floor(num(r.loadoutBuys, 0)))),
     ultByClass: Object.fromEntries(Object.entries(r.ultByClass ?? {}).filter(([c, v]) => CLASS_IDS.includes(c as ClassId) && Array.isArray(v)).map(([c, v]) => [c, [...new Set((v as string[]).filter((u): u is UltId => ULT_IDS.includes(u as UltId)))].slice(0, ULT_SLOTS_MAX)])) as SaveData['ultByClass'],
     collection: Object.fromEntries(NAMED.map((n) => [n.id, Math.max(0, Math.floor(num(r.collection?.[n.id], 0)))]).filter(([, v]) => v)),
   };
@@ -679,8 +681,18 @@ export function resetAwakening(s: SaveData): { souls: number; runes: number } {
 export { BOARD_NODES };
 
 // ---------- 配裝 A/B/C (per class) ----------
-export const LOADOUT_COUNT = 3;
-export const LOADOUT_NAMES = ['A', 'B', 'C'];
+export const LOADOUT_COUNT = 3; // free sets per class
+export const LOADOUT_MAX = 6; // with bought ones
+export const LOADOUT_NAMES = ['A', 'B', 'C', 'D', 'E', 'F'];
+export const LOADOUT_COSTS = [100_000, 300_000, 1_000_000]; // coins for sets D, E, F (every class gets them)
+export const loadoutCount = (s: SaveData) => LOADOUT_COUNT + Math.min(LOADOUT_COSTS.length, s.loadoutBuys ?? 0);
+export const loadoutCost = (s: SaveData) => LOADOUT_COSTS[s.loadoutBuys ?? 0] ?? null;
+export function buyLoadout(s: SaveData): boolean {
+  const c = loadoutCost(s);
+  if (c === null || s.coins < c) return false;
+  s.coins -= c; s.loadoutBuys = (s.loadoutBuys ?? 0) + 1;
+  return true;
+}
 /** A saved build: gear, ultimates, arrows / spells / necro mode, and the skill boards (each set invests its own souls and runes). */
 export interface Loadout {
   equipped: Record<string, string | null>;
@@ -692,13 +704,15 @@ export interface Loadout {
   board: string[];
   boardSpent: SaveData['boardSpent'];
   boardResets: SaveData['boardResets'];
+  sub?: ClassId | null; sub2?: ClassId | null; // this set's second / third class (undefined = older save: keep whatever is current)
+  tree?: TreeState; // this set's skill tree
 }
 function sanitizeLoadouts(raw: unknown): SaveData['loadouts'] {
   const out: SaveData['loadouts'] = {};
   if (!raw || typeof raw !== 'object') return out;
   for (const [c, v] of Object.entries(raw as Record<string, { active?: number; sets?: unknown[] }>)) {
     if (!CLASS_IDS.includes(c as ClassId) || !v || !Array.isArray(v.sets)) continue;
-    const sets = Array.from({ length: LOADOUT_COUNT }, (_, i) => {
+    const sets = Array.from({ length: LOADOUT_MAX }, (_, i) => {
       const st = v.sets![i] as Partial<Loadout> | null | undefined;
       if (!st || typeof st !== 'object') return null;
       return {
@@ -713,9 +727,12 @@ function sanitizeLoadouts(raw: unknown): SaveData['loadouts'] {
         board: Array.isArray(st.board) ? st.board.filter((id) => typeof id === 'string' && !!nodeById(id)) : [],
         boardSpent: st.boardSpent && typeof st.boardSpent === 'object' ? st.boardSpent : {},
         boardResets: st.boardResets && typeof st.boardResets === 'object' ? st.boardResets : {},
+        sub: st.sub === null ? null : CLASS_IDS.includes(st.sub as ClassId) ? st.sub : undefined,
+        sub2: st.sub2 === null ? null : CLASS_IDS.includes(st.sub2 as ClassId) ? st.sub2 : undefined,
+        tree: st.tree && typeof st.tree === 'object' ? sanitizeTrees({ [c]: st.tree })[c as ClassId] : undefined,
       } as Loadout;
     });
-    out[c as ClassId] = { active: Math.max(0, Math.min(LOADOUT_COUNT - 1, Math.floor(num(v.active, 0)))), sets };
+    out[c as ClassId] = { active: Math.max(0, Math.min(LOADOUT_MAX - 1, Math.floor(num(v.active, 0)))), sets };
   }
   return out;
 }
@@ -727,16 +744,19 @@ function snapshotLoadout(s: SaveData): Loadout {
     equipped: Object.fromEntries(EQUIP_SLOTS.map((sl) => [slotKey(sl, c), s.equipped[slotKey(sl, c)] ?? null])),
     ultEquip: [...s.ultEquip], arrowType: s.arrowType[c], arrowMix: [...(s.arrowMix[c] ?? [])], spellType: s.spellType[c], spellMix: [...(s.spellMix[c] ?? [])],
     necroMode: s.necroMode, bloodMode: s.bloodMode, board: s.board.filter((id) => keys.includes(boardKeyOf(id))), boardSpent: pick(s.boardSpent), boardResets: pick(s.boardResets),
+    sub: s.subClass[c] ?? null, sub2: s.subClass2[c] ?? null, tree: JSON.parse(JSON.stringify(treeOf(s, c))) as TreeState,
   };
 }
 export const activeLoadout = (s: SaveData) => s.loadouts[s.classId]?.active ?? 0;
 export const loadoutUsed = (s: SaveData, i: number) => i === activeLoadout(s) || !!s.loadouts[s.classId]?.sets[i];
-/** Switch this class to 配裝 i. The current build is saved into its set first. An empty set starts with the same
- *  gear, ultimates and arrows, but an empty skill board (each set pays for its own panels). */
+/** Switch this class to 配裝 i. The current build is saved into its set first. Each set keeps its own second / third
+ *  class and skill tree. An empty set starts with the same gear, ultimates, arrows and skill tree, no second class
+ *  (awaken it into any class) and an empty mixed board (each set pays for its own panels). */
 export function switchLoadout(s: SaveData, i: number): void {
   const c = s.classId;
-  const lo = (s.loadouts[c] ??= { active: 0, sets: new Array<Loadout | null>(LOADOUT_COUNT).fill(null) });
-  if (i === lo.active || i < 0 || i >= LOADOUT_COUNT) return;
+  const lo = (s.loadouts[c] ??= { active: 0, sets: new Array<Loadout | null>(LOADOUT_MAX).fill(null) });
+  while (lo.sets.length < LOADOUT_MAX) lo.sets.push(null);
+  if (i === lo.active || i < 0 || i >= loadoutCount(s)) return;
   const keys: string[] = activeBoards(s);
   lo.sets[lo.active] = snapshotLoadout(s);
   const next: Loadout | null = lo.sets[i] ?? null;
@@ -755,7 +775,10 @@ export function switchLoadout(s: SaveData, i: number): void {
     s.board.push(...next.board.filter((id) => !s.board.includes(id)));
     Object.assign(s.boardSpent, next.boardSpent);
     Object.assign(s.boardResets, next.boardResets);
-  }
+    if (next.sub !== undefined) { if (next.sub) s.subClass[c] = next.sub; else delete s.subClass[c]; }
+    if (next.sub2 !== undefined) { if (next.sub2) s.subClass2[c] = next.sub2; else delete s.subClass2[c]; }
+    if (next.tree) s.trees[c] = JSON.parse(JSON.stringify(next.tree)) as TreeState;
+  } else { delete s.subClass[c]; delete s.subClass2[c]; } // a new set: same tree, no second class yet
   lo.active = i;
 }
 

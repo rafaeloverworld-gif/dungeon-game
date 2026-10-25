@@ -14,7 +14,7 @@ import { ASCEND_LEVEL, ASCEND_TIER, AWAKEN_TIER, AWAKENED, awakenedFor, ascended
 import { ULT_ELEM, ULT, ULT_IDS, ULT_LIMIT, ULT_LIMIT_LEVEL, ULT_MAX_LEVEL, ULT_SLOTS_MAX, ultDesc, type UltId } from '../sim/ultimates';
 import { AUTO_SKILLS, MIX_BOARD_NODES, copyPrefix, COST_GROWTH, boardEffects, boardNodes, sectionTiers, BRANCH_COLORS, BRANCH_NAMES, canUnlock, effectText, MAX_LEVEL, nodeById, type Branch } from '../sim/skills';
 import {
-  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, treeAllowOf, treeEquipNow, changeClass, pureBuy, pureReset, pureRank, pureCanBuy, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
+  activeBoard, activeBoards, canPickSub, isPure, pureBoardScale, classLevel, classProgress, MASTERY_LEVELS, SUB_LEVEL, SUB2_LEVEL, activeLoadout, loadoutUsed, LOADOUT_NAMES, loadoutCount, loadoutCost, buyLoadout, switchLoadout, spellMaxForm, spellSlots, spellsInUse, arrowMaxForm, endlessStart, ENDLESS_UNLOCK, bagCost, bagMax, buyBag, stashMax, stashCost, buyStash, canStash, toStash, fromStash, STASH_STEP, STASH_TABS_MAX, STASH_TAB_NAME, addStashTab, renameStashTab, deleteStashTab, setStashTab, stashTabOfItem, BAG_STEP, arrowSlots, arrowsInUse, boardOwned, type BoardKey, awaken, boardCount, boardResetCost, canAwaken, equip, equippedIn, exportSave, importSave, isEquipped, isProtected, itemById, inStash, equippedItems, TREES, treeOf, treeLeft, treePoints, treeCan, treeDo, treeReset, treeAllowOf, treeEquipNow, changeClass, pureBuy, pureReset, pureRank, pureCanBuy, type TreeAct, spellOver, arrowOver, isEquippedAny, inLoadout,
   previewBonus, pathPlan, unlockPath, reroll, resetAwakening, resetAscension, ascend, canAscend, mixOf, sub2Of, offHandBlocked, resetBoard, salvage, levelBonus, panelCost, ultBuy, ultCost, ultSetSlot, ultToggle, ultSlots, ultSlotCost, buyUltSlot, runSetup, unlockableNow, unlockCheck, unlockNode, type UnlockCheck, shopCost, slotsFor, subOf, trade, tradeCat, unequip, upgrade, usableNow, type TradeCat,
   wbMaxLevel, wbTicketsLeft, wbUnlocked, writeSave, freshSave, type SaveData,
 } from '../save';
@@ -438,9 +438,10 @@ const UNLOCK_MSG: Record<UnlockCheck, string> = {
 function loadoutBar(ctx: HomeCtx, body: HTMLElement): void {
   const save = ctx.getSave();
   const cur = activeLoadout(save);
-  const el = h(`<div class="card loadoutbar"><div class="statline"><h3 style="margin:0">🗂️ ${tr('配裝', 'Builds')}</h3><div class="seg">${LOADOUT_NAMES.map((n, i) => `<button data-lo="${i}" class="${i === cur ? 'on' : ''}">${n}${!loadoutUsed(save, i) ? ' ＋' : ''}</button>`).join('')}</div></div><small>${tr('每個職業各自 3 套：裝備、終極技、箭種／法術、技能盤。新嘅一套會抄你而家嘅裝備同終極技，但技能盤由空白開始（每套自己投資靈魂同符文）。', 'Three builds per class: gear, ultimates, arrows / spells and skill boards. A new build copies your gear and ultimates, but its skill boards start empty (each build invests its own souls and runes).')}</small></div>`);
+  const el = h(`<div class="card loadoutbar"><div class="statline"><h3 style="margin:0">🗂️ ${tr('配裝', 'Builds')}</h3><div class="seg">${LOADOUT_NAMES.slice(0, loadoutCount(save)).map((n, i) => `<button data-lo="${i}" class="${i === cur ? 'on' : ''}">${n}${!loadoutUsed(save, i) ? ' ＋' : ''}</button>`).join('')}${loadoutCost(save) !== null ? `<button data-lobuy title="${tr('加一套配裝', 'Add a build')}">＋ 🪙 ${fmt(loadoutCost(save)!)}</button>` : ''}</div></div><small>${tr(`每個職業各自 ${loadoutCount(save)} 套，每套有自己嘅裝備、終極技、箭種／法術、第二／第三職業、技能樹同混合職業技能盤，換套唔使重新點技能。新嘅一套會抄你而家嘅裝備、終極技同技能樹，冇第二職業（可以覺醒做另一個職業），混合板由空白開始。`, `${loadoutCount(save)} builds per class, each with its own gear, ultimates, arrows / spells, second / third class, skill tree and mixed-class board: no re-spending points when you swap. A new build copies your gear, ultimates and skill tree, starts with no second class (awaken into any class) and an empty mixed board.`)}</small></div>`);
   el.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest('button');
+    if (b?.dataset.lobuy !== undefined) { ev.stopPropagation(); if (buyLoadout(save)) { writeSave(save); ctx.banner(`🗂️ ${tr(`多咗配裝 ${LOADOUT_NAMES[loadoutCount(save) - 1]}`, `Build ${LOADOUT_NAMES[loadoutCount(save) - 1]} added`)}`); showHome(ctx, tab); } else ctx.banner(tr('金幣唔夠', 'Not enough coins')); return; }
     if (!b?.dataset.lo) return;
     ev.stopPropagation();
     const i = Number(b.dataset.lo);
@@ -496,6 +497,7 @@ function renderTree(ctx: HomeCtx, body: HTMLElement): void {
     }
     return `<button class="tskill ${sk.kind} ${r ? 'has' : ''} ${open ? '' : 'locked'} ${sel ? 'sel' : ''}" data-tsel="${sk.id}"><span class="ic">${sk.icon}</span><span class="nm"><b>${sk.name}</b><small>${tags}</small><span class="pips">${pips}</span></span></button>${detail}`;
   };
+  queueMicrotask(() => loadoutBar(ctx, body.querySelector('.col') ?? body));
   body.appendChild(h(`
     <div class="col">
       ${tipCard(save, 'tree')}
