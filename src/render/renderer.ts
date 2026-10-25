@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { ARENA_HALF, isBigKind, SMALL_KINDS, type SmallKind } from '../sim/config';
 import type { Enemy, FxKind, Sim, SimEvent } from '../sim/sim';
-import { BossDecor, bossStyle } from './bossdecor';
+import { BossDecor, bossStyle, dragonStyle } from './bossdecor';
 import { COOP_REVIVE } from '../sim/sim';
 
 /** Merge simple non-indexed geometries into one (for instanced shapes made of parts). */
@@ -34,7 +34,7 @@ import { weaponReq, WEAPONS, type WeaponType } from '../sim/gear';
 import { ULT } from '../sim/ultimates';
 import { value } from '../sim/stats';
 import { prefs as fxPrefs } from '../audio';
-import { Actor, dungeonGeo, dungeonTexture, flipbook, loadModels, setModelsError, type AttackAnim, type DungeonPiece, type Look, type PropName } from './models';
+import { Actor, DragonActor, dragonReady, loadDragon, dungeonGeo, dungeonTexture, flipbook, loadModels, setModelsError, type AttackAnim, type DungeonPiece, type Look, type PropName } from './models';
 
 /** How each biome dresses the dungeon pieces (stone tint, floor kind, banner colour, torch flame). */
 const BIOME_LOOKS: { floor: DungeonPiece; floorRough: DungeonPiece; floorTint: number; stone: number; banner: DungeonPiece; flame: number }[] = [
@@ -173,11 +173,11 @@ export class Renderer {
   private flipsDie: Record<SmallKind, THREE.InstancedMesh[]> | null = null;
   private enemyPrev = new Map<number, { x: number; z: number; moving: number }>();
   private corpses: { kind: SmallKind; x: number; z: number; rot: number; t: number }[] = [];
-  private bossDying: { g: THREE.Group; actor: Actor; t: number }[] = [];
+  private bossDying: { g: THREE.Group; actor: Actor | DragonActor; t: number }[] = [];
   private undeadFlips: Record<UndeadKind, THREE.InstancedMesh[]> | null = null;
   private mageFlips: THREE.InstancedMesh[] | null = null;
   private bossCastT = 0; // a boss just started a telegraphed attack (its aura flares)
-  private bossActors = new Map<number, { actor: Actor; x: number; z: number; atk: number; decor?: BossDecor }>();
+  private bossActors = new Map<number, { actor: Actor | DragonActor; x: number; z: number; atk: number; decor?: BossDecor; fallback?: boolean }>();
   private lastWarnCount = 0;
   private primitiveLook: THREE.Object3D[] = [];
   private dungeonMat: THREE.MeshLambertMaterial | null = null;
@@ -1374,18 +1374,23 @@ export class Renderer {
   private drawBossModel(e: Enemy, sim: Sim, dt: number): void {
     let g = this.bossMeshes.get(e.id);
     let b = this.bossActors.get(e.id);
+    // 熔岩魔龍: the dragon model loads on demand; until then the stand-in is shown, then swapped
+    if (g && b?.fallback && dragonReady()) { this.scene.remove(g); b.actor.dispose(); b.decor?.dispose(); this.bossMeshes.delete(e.id); this.bossActors.delete(e.id); g = undefined; b = undefined; }
     if (!g || !b) {
       const h = e.radius * (e.kind === 'miniboss' ? 3.2 : e.kind === 'worldboss' ? 3.4 : 3.1);
-      const style = bossStyle(e.kind as 'miniboss' | 'boss' | 'worldboss', e.id, sim.theme, sim.wb?.id ?? null);
+      const dragon = e.kind === 'worldboss' && sim.wb?.id === 'lavaDragon';
+      if (dragon && !dragonReady()) void loadDragon();
+      const useDragon = dragon && dragonReady();
+      const style = useDragon ? dragonStyle() : bossStyle(e.kind as 'miniboss' | 'boss' | 'worldboss', e.id, sim.theme, sim.wb?.id ?? null);
       const look: Look = { ...style.look, height: h };
-      const actor = new Actor(look, { ...(style.tint !== undefined ? { tint: style.tint } : {}), ...(style.hue ? { hue: style.hue } : {}) });
+      const actor = useDragon ? new DragonActor(h * 0.9, e.radius * 4.2, { tint: style.tint, emissive: 0x2a0800 }) : new Actor(look, { ...(style.tint !== undefined ? { tint: style.tint } : {}), ...(style.hue ? { hue: style.hue } : {}) });
       const decor = new BossDecor(actor.root.children[0], style, h, e.radius);
       g = new THREE.Group();
       g.add(actor.root);
       g.add(decor.ground);
       this.scene.add(g);
       this.bossMeshes.set(e.id, g);
-      b = { actor, x: e.x, z: e.z, atk: 0, decor };
+      b = { actor, x: e.x, z: e.z, atk: 0, decor, fallback: dragon && !useDragon };
       this.bossActors.set(e.id, b);
     }
     const p = sim.player;

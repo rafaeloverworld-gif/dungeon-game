@@ -424,3 +424,85 @@ export function dungeonGeo(name: DungeonPiece): THREE.BufferGeometry | null {
   return out;
 }
 export const dungeonTexture = () => dungeonMap;
+
+// ---------- 熔岩魔龍: a real dragon model (CC0, "Cethiel's Dragon 3D" by Drummyfish), loaded only when needed ----------
+import dragonUrl from '../assets/models/Dragon.glb?url';
+let dragonGltf: GLTF | null = null;
+let dragonLoading: Promise<boolean> | null = null;
+export const dragonReady = () => !!dragonGltf;
+export function loadDragon(): Promise<boolean> {
+  dragonLoading ??= loadGlb(new GLTFLoader(), dragonUrl).then((g) => {
+    g.scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (m?.map) m.map.colorSpace = THREE.SRGBColorSpace; });
+    dragonGltf = g; return true;
+  }).catch((e) => { console.warn('dragon failed to load', e); return false; });
+  return dragonLoading;
+}
+
+/** Same calls as Actor (attack / flash / update / die / dispose) so the renderer can use either. */
+export class DragonActor {
+  readonly root = new THREE.Group();
+  private mixer: THREE.AnimationMixer;
+  private cur: THREE.AnimationAction | null = null;
+  private curName = '';
+  private oneShot = 0;
+  private dead = false;
+  private mats: THREE.MeshLambertMaterial[] = [];
+  private base: THREE.Color[] = [];
+
+  constructor(height: number, length: number, opts: { tint?: number; emissive?: number } = {}) {
+    const g = dragonGltf!;
+    const model = skClone(g.scene) as THREE.Group;
+    model.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (mesh.name.startsWith('Plane')) { mesh.visible = false; return; } // a stray plane in the source file
+      mesh.frustumCulled = false;
+      const src = mesh.material as THREE.MeshStandardMaterial;
+      const m = new THREE.MeshLambertMaterial({ map: src.map, color: src.color.clone() });
+      if (opts.tint !== undefined) m.color.multiply(new THREE.Color(opts.tint));
+      if (opts.emissive !== undefined) m.emissive.setHex(opts.emissive);
+      mesh.material = m;
+      this.mats.push(m); this.base.push(m.emissive.clone());
+    });
+    // scale from its real size: `height` tall, and never longer than `length`; feet on the floor, body centred
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3();
+    model.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.visible) { m.geometry.computeBoundingBox(); box.union(m.geometry.boundingBox!.clone().applyMatrix4(m.matrixWorld)); } });
+    const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    const s = Math.min(height / Math.max(0.01, size.y), length / Math.max(0.01, size.x, size.z));
+    model.scale.setScalar(s);
+    model.position.set(-c.x * s, -box.min.y * s, -c.z * s);
+    this.root.add(model);
+    this.mixer = new THREE.AnimationMixer(model);
+    this.play('Idle');
+  }
+
+  private play(name: string, once = false, speed = 1): void {
+    const clip = dragonGltf!.animations.find((a) => a.name === name);
+    if (!clip || (this.curName === name && !once)) return;
+    const act = this.mixer.clipAction(clip);
+    act.reset(); act.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); act.clampWhenFinished = once; act.timeScale = speed; act.play();
+    if (this.cur && this.cur !== act) this.cur.crossFadeTo(act, 0.15, false);
+    this.cur = act; this.curName = name;
+  }
+
+  attack(kind: AttackAnim, interval = 0.8): void {
+    if (this.dead) return;
+    const clip = dragonGltf!.animations.find((a) => a.name === 'Attack');
+    if (!clip) return;
+    const dur = Math.min(clip.duration, Math.max(0.3, interval * 0.95));
+    this.play('Attack', true, clip.duration / dur);
+    this.oneShot = dur;
+    void kind;
+  }
+  flash(hex: number): void { this.mats.forEach((m, i) => { if (hex) m.emissive.setHex(hex); else m.emissive.copy(this.base[i]); }); }
+  die(): void { if (this.dead) return; this.dead = true; this.play('Die', true); }
+  update(dt: number, moving: boolean, runSpeed = 1): void {
+    if (!this.dead) {
+      if (this.oneShot > 0) this.oneShot -= dt;
+      else this.play(runSpeed > 1.5 ? 'Flying' : moving ? 'Walk' : 'Idle');
+    }
+    this.mixer.update(dt);
+  }
+  dispose(): void { this.mixer.stopAllAction(); for (const m of this.mats) m.dispose(); }
+}

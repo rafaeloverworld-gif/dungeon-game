@@ -10,6 +10,7 @@
 
 ## Credits
 - 3D 角色、武器同地城模型：[KayKit](https://kaylousberg.com) by Kay Lousberg，CC0（授權檔喺 `src/assets/models/`）
+- 熔岩魔龍模型：「Cethiel's Dragon 3D」by Drummyfish（原作 2D 龍 by Cethiel），CC0，[OpenGameArt](https://opengameart.org/content/cethiels-dragon-3d)（授權檔 `src/assets/models/LICENSE-Dragon.txt`）
 
 ## 改 code 同開發
 要先裝 [Node.js](https://nodejs.org)（22 或以上）。喺呢個資料夾開 terminal：

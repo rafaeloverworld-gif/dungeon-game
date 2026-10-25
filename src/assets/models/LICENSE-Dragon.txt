@@ -1,0 +1,4 @@
+Dragon.glb — "Cethiel's Dragon 3D" by Drummyfish, based on Cethiel's CC0 2D animated dragon.
+License: CC0 1.0 (public domain dedication). Attribution not required; credit to Cethiel and Drummyfish as suggested by the author.
+Source: https://opengameart.org/content/cethiels-dragon-3d
+glTF conversion taken from https://github.com/jogoiarexx-blip/Asas-de-Brum-ria (assets/models/cethiel-dragon.glb).

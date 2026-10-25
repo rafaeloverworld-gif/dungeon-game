@@ -962,3 +962,9 @@
 - 舊存檔嘅舊配裝未記錄第二職業 / 技能樹：轉去嗰陣沿用當時嘅，之後就各自記住
 - 可以加配裝：D 10 萬、E 30 萬、F 100 萬金幣（全帳號，每個職業都多一套），最多 6 套
 - 技能樹頁頂都有配裝列
+
+## 101. 熔岩魔龍用真龍模型（CC0）（2026-10-25）
+- 模型：「Cethiel's Dragon 3D」by Drummyfish（原作 2D 龍 by Cethiel），CC0；本身有 Idle / Walk / Flying / Attack / Die 動作（src/assets/models/Dragon.glb，720 KB，授權檔 LICENSE-Dragon.txt）
+- 只係打熔岩魔龍先下載（唔會拖慢其他時候載入）；未載完之前先用舊嘅人形魔王頂住，載完自動換
+- 行路用 Walk、衝刺用 Flying、攻擊用 Attack、死亡用 Die；仍然有熔岩光環、環繞火球同火星
+- 按真實大小縮放：唔會長過光環

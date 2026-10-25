@@ -39,6 +39,11 @@ export function bossStyle(kind: 'miniboss' | 'boss' | 'worldboss', id: number, t
   return { look: { char: 'Barbarian', right: '2H_Axe' }, aura: 0xffb23a, eyes: 0xffd86b, horns: { color: 0xe8dcc0, size: 0.9 } };
 }
 
+/** 熔岩魔龍 with the real dragon model: the model has its own wings and horns; add the lava aura, embers and fireballs. */
+export function dragonStyle(): BossStyle {
+  return { look: { char: 'Barbarian' }, tint: 0xffc0a0, aura: 0xff6a1a, eyes: 0xffb21a, orbit: { color: 0xff8a2a, n: 5, shape: 'ember' }, embers: 0xff7a2a };
+}
+
 const glow = (color: number, op = 1) => new THREE.MeshBasicMaterial({ color, transparent: op < 1, opacity: op, depthWrite: op >= 1 });
 const solid = (color: number) => new THREE.MeshLambertMaterial({ color });
 
