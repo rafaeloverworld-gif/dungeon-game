@@ -20,6 +20,13 @@ const ENEMY_COLORS: Record<SmallKind, number> = { grunt: 0xc0563f, shooter: 0x9a
 const HALF_HEIGHT: Record<SmallKind, number> = { grunt: 0.48, shooter: 0.6, swarm: 0.3, bomber: 0.45, shield: 0.53, healer: 0.55 };
 /** Elites: gold, with a hint of their trait. */
 const ELITE_COLORS = { swift: 0xffe066, armored: 0xd9b45a, enraged: 0xffa040, regen: 0xc8e070 } as const;
+/** Damage numbers: 950 · 9.5k · 950k · 3.38M · 33.8M · 338M · 3.38B · 3.38T */
+function shortNum(n: number): string {
+  if (n < 1000) return `${Math.round(n)}`;
+  const u = n >= 1e12 ? ['T', 1e12] : n >= 1e9 ? ['B', 1e9] : n >= 1e6 ? ['M', 1e6] : ['k', 1e3];
+  const v = n / (u[1] as number);
+  return `${v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)}${u[0]}`;
+}
 const FX_COLORS: Record<FxKind, number> = { fire: 0xff8a2a, frost: 0x7fd8ff, holy: 0xfff2a8, arcane: 0xc58aff, physical: 0xffe2a8, shadow: 0x9b4dff, heal: 0x5fd08a };
 import type { AttackKind, ClassId } from '../sim/classes';
 import { weaponReq, WEAPONS, type WeaponType } from '../sim/gear';
@@ -1222,9 +1229,9 @@ export class Renderer {
     if (this.dmgNums.length > 34) return;
     const el = this.dmgPool.pop() ?? document.createElement('div');
     el.className = `dmgnum${crit ? ' crit' : ''}`;
-    el.textContent = dmg >= 10000 ? `${(dmg / 1000).toFixed(0)}k` : dmg >= 1000 ? `${(dmg / 1000).toFixed(1)}k` : `${Math.round(dmg)}`;
+    el.textContent = shortNum(dmg);
     this.dmgLayer.appendChild(el);
-    this.dmgNums.push({ el, x: x + (Math.random() - 0.5) * 0.6, z, life: crit ? 0.8 : 0.6, max: crit ? 0.8 : 0.6, drift: (Math.random() - 0.5) * 18 });
+    this.dmgNums.push({ el, x: x + (Math.random() - 0.5) * 1.4, z: z + (Math.random() - 0.5) * 0.8, life: crit ? 0.8 : 0.6, max: crit ? 0.8 : 0.6, drift: (Math.random() - 0.5) * 18 });
   }
 
   private updateNumbers(dt: number): void {
