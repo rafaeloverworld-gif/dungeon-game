@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { ARENA_HALF, isBigKind, SMALL_KINDS, type SmallKind } from '../sim/config';
 import type { Enemy, FxKind, Sim, SimEvent } from '../sim/sim';
+import { BossDecor, bossStyle } from './bossdecor';
 import { COOP_REVIVE } from '../sim/sim';
 
 /** Merge simple non-indexed geometries into one (for instanced shapes made of parts). */
@@ -175,7 +176,8 @@ export class Renderer {
   private bossDying: { g: THREE.Group; actor: Actor; t: number }[] = [];
   private undeadFlips: Record<UndeadKind, THREE.InstancedMesh[]> | null = null;
   private mageFlips: THREE.InstancedMesh[] | null = null;
-  private bossActors = new Map<number, { actor: Actor; x: number; z: number; atk: number }>();
+  private bossCastT = 0; // a boss just started a telegraphed attack (its aura flares)
+  private bossActors = new Map<number, { actor: Actor; x: number; z: number; atk: number; decor?: BossDecor }>();
   private lastWarnCount = 0;
   private primitiveLook: THREE.Object3D[] = [];
   private dungeonMat: THREE.MeshLambertMaterial | null = null;
@@ -593,7 +595,7 @@ export class Renderer {
     for (const [id, g] of this.bossMeshes) if (!liveBosses.has(id)) {
       // a slain boss falls over before it disappears
       const b = this.bossActors.get(id);
-      if (b) { b.actor.die(); this.bossDying.push({ g, actor: b.actor, t: 0 }); } else this.scene.remove(g);
+      if (b) { b.actor.die(); if (b.decor) { g.remove(b.decor.ground); b.decor.dispose(); } this.bossDying.push({ g, actor: b.actor, t: 0 }); } else this.scene.remove(g);
       this.bossMeshes.delete(id); this.bossActors.delete(id);
     }
     this.bossDying = this.bossDying.filter((d) => {
@@ -604,7 +606,8 @@ export class Renderer {
       return true;
     });
     // a new floor warning means a boss just started a telegraphed attack: show it casting
-    if (sim.warnings.length > this.lastWarnCount) for (const b of this.bossActors.values()) b.actor.attack('cast', 0.9);
+    if (sim.warnings.length > this.lastWarnCount) { for (const b of this.bossActors.values()) b.actor.attack('cast', 0.9); this.bossCastT = 0.9; }
+    this.bossCastT = Math.max(0, this.bossCastT - dt);
     this.lastWarnCount = sim.warnings.length;
 
     // projectiles
@@ -984,7 +987,7 @@ export class Renderer {
     this.mapIndex = -1;
     for (const g of this.bossMeshes.values()) this.scene.remove(g);
     this.bossMeshes.clear();
-    for (const b of this.bossActors.values()) b.actor.dispose();
+    for (const b of this.bossActors.values()) { b.actor.dispose(); b.decor?.dispose(); }
     this.bossActors.clear();
     for (const d of this.bossDying) { this.scene.remove(d.g); d.actor.dispose(); }
     this.bossDying = [];
@@ -1372,17 +1375,17 @@ export class Renderer {
     let g = this.bossMeshes.get(e.id);
     let b = this.bossActors.get(e.id);
     if (!g || !b) {
-      const h = e.radius * (e.kind === 'miniboss' ? 3.2 : 3);
-      const look: Look = e.kind === 'miniboss' ? { char: 'Barbarian', right: '2H_Axe', height: h }
-        : e.kind === 'boss' ? { char: 'Skeleton_Warrior', right: 'Skeleton_Axe', left: 'Skeleton_Shield_Large_A', height: h }
-        : { char: 'Skeleton_Mage', right: 'Skeleton_Staff', height: h };
-      const tint = e.kind === 'boss' ? 0xff9a9a : e.kind === 'worldboss' && sim.wb ? sim.wb.color : undefined;
-      const actor = new Actor(look, tint !== undefined ? { tint } : {});
+      const h = e.radius * (e.kind === 'miniboss' ? 3.2 : e.kind === 'worldboss' ? 3.4 : 3.1);
+      const style = bossStyle(e.kind as 'miniboss' | 'boss' | 'worldboss', e.id, sim.theme, sim.wb?.id ?? null);
+      const look: Look = { ...style.look, height: h };
+      const actor = new Actor(look, { ...(style.tint !== undefined ? { tint: style.tint } : {}), ...(style.hue ? { hue: style.hue } : {}) });
+      const decor = new BossDecor(actor.root.children[0], style, h, e.radius);
       g = new THREE.Group();
       g.add(actor.root);
+      g.add(decor.ground);
       this.scene.add(g);
       this.bossMeshes.set(e.id, g);
-      b = { actor, x: e.x, z: e.z, atk: 0 };
+      b = { actor, x: e.x, z: e.z, atk: 0, decor };
       this.bossActors.set(e.id, b);
     }
     const p = sim.player;
@@ -1398,6 +1401,7 @@ export class Renderer {
     const enraged = e.kind === 'worldboss' && sim.wbPhase === 2;
     b.actor.flash(e.hitFlash > 0 ? 0x553333 : enraged ? 0x441100 : 0);
     b.actor.update(sim.phase === 'playing' ? dt : 0, moved > 0.002, (e.dashT ?? 0) > 0 ? 2.2 : 1);
+    b.decor?.update(sim.phase === 'playing' ? dt : 0, (e.dashWind ?? 0) > 0 || this.bossCastT > 0, enraged);
     if (e.kind === 'worldboss') g.scale.setScalar(1 + sim.wbPhase * 0.08);
   }
 
